@@ -1,0 +1,87 @@
+#!/usr/bin/env bash
+# 2차 큐: 기존 큐(queue-playlists.sh) 완료 후, 아래 5개 재생목록을 순서대로 자동 처리.
+# 각 재생목록 → 우공이산/<제목>/ 폴더에 편마다 mp4(720p)+mp3+txt+srt 생성. 재개/디스크보호 동일.
+set -uo pipefail
+
+PROFILE="chrome:Profile 1"
+ROOT="/Users/titanism/projects/주식공부/우공이산"
+MODEL="$HOME/models/whisper-ggml/ggml-large-v3-turbo-q5_0.bin"
+LANG="ko"
+FLOOR_GB=8
+
+PLAYLISTS=(
+  "https://www.youtube.com/playlist?list=PLF67QBTodqAU3n8Zj90ufPfEhppvvo78J"   # 스타터 목록 (8)
+  "https://www.youtube.com/playlist?list=PLF67QBTodqAU70w2WcXyUGXn-oo2SVKHd"   # 특별 강좌 시리즈 (1)
+  "https://www.youtube.com/playlist?list=PLF67QBTodqAUs7Xq_qLRuBYwj7SuyTi-M"   # 주식은 멘탈이다 (3)
+  "https://www.youtube.com/playlist?list=PLfK7v9fAl_B4"                         # 돈이 보이는 주식의 역사 (4)
+  "https://www.youtube.com/playlist?list=PLF67QBTodqAVbMmZapquO4SKhn4kbCXtO"   # 세계사를 바꾼 커피 이야기 (6)
+)
+
+log(){ echo "[$(date '+%m-%d %H:%M:%S')] $*"; }
+free_gb(){ df -g "$ROOT" | tail -1 | awk '{print $4}'; }
+
+# ---------- 0) 1차 큐 완료 대기 ----------
+log "=== 대기: 1차 큐(queue-playlists.sh) 완료 대기 ==="
+# 'queue-playlists\.sh' 는 자기 자신(queue-playlists-2.sh)엔 매칭 안 됨(점 이스케이프).
+while pgrep -f 'queue-playlists\.sh' >/dev/null 2>&1; do sleep 120; done
+log "1차 큐 완료 확인. 2차 큐 시작."
+
+process_playlist(){
+  local url="$1" title dest safe fg f base name wav
+  title=$(yt-dlp --cookies-from-browser "$PROFILE" --flat-playlist --no-warnings \
+            --playlist-items 1 --print "%(playlist_title)s" "$url" 2>/dev/null | head -1)
+  [ -z "$title" ] && { log "!! 제목 조회 실패, 건너뜀: $url"; return; }
+  safe="${title//\//_}"; dest="$ROOT/$safe"; mkdir -p "$dest"
+  log "########## 재생목록: $title ##########"
+
+  fg=$(free_gb)
+  if [ "${fg:-0}" -lt "$FLOOR_GB" ]; then
+    log "!! 디스크 여유 ${fg}GB < ${FLOOR_GB}GB. 다운로드 생략, 기존 파일만 처리."
+  else
+    log "[다운로드] 720p mp4 (여유 ${fg}GB)"
+    yt-dlp \
+      --cookies-from-browser "$PROFILE" \
+      -f "bv*[height<=720][vcodec^=avc1]+ba[acodec^=mp4a]/bv*[height<=720][ext=mp4]+ba[ext=m4a]/b[height<=720][ext=mp4]/bv*[height<=720]+ba/b[height<=720]" \
+      --merge-output-format mp4 \
+      --download-archive "$dest/.download-archive.txt" \
+      --ignore-errors --no-warnings --newline \
+      -o "$dest/%(playlist_index)02d - %(title)s.%(ext)s" \
+      "$url"
+  fi
+
+  shopt -s nullglob
+  for f in "$dest"/*.mp4; do
+    base="${f%.mp4}"; name="$(basename "$base")"
+    if [ ! -f "$base.mp3" ]; then
+      log "[mp3] $name"
+      ffmpeg -y -loglevel error -i "$f" -vn -c:a libmp3lame -b:a 192k "$base.mp3" </dev/null \
+        && log "[mp3] 완료" || log "[mp3] 실패: $name"
+    fi
+    if [ ! -f "$base.txt" ]; then
+      log "[stt] $name (변환중...)"
+      wav="$base.16k.wav"
+      ffmpeg -y -loglevel error -i "$f" -vn -ac 1 -ar 16000 -c:a pcm_s16le "$wav" </dev/null
+      if [ -f "$wav" ]; then
+        whisper-cli -m "$MODEL" -f "$wav" -l "$LANG" -otxt -osrt -of "$base" -t 8 -pp </dev/null \
+          && log "[stt] 완료: $name" || log "[stt] 실패: $name"
+        rm -f "$wav"
+      else
+        log "[stt] wav 변환 실패: $name"
+      fi
+    fi
+  done
+  log "########## 완료: $title ##########"
+}
+
+for pl in "${PLAYLISTS[@]}"; do
+  process_playlist "$pl"
+done
+
+log "=== 2차 큐 완료 ==="
+echo "--- 최종 요약(전체 우공이산) ---"
+for d in "$ROOT"/*/; do
+  m=$(find "$d" -name '*.mp4' | wc -l | tr -d ' ')
+  a=$(find "$d" -name '*.mp3' | wc -l | tr -d ' ')
+  t=$(find "$d" -name '*.txt' -not -name '.download-archive.txt' | wc -l | tr -d ' ')
+  echo "$(basename "$d"): mp4=$m mp3=$a txt=$t"
+done

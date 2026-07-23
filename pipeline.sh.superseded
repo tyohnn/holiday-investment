@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+# 우공이산 멤버십 재생목록 → 영상(mp4 720p) + 오디오(mp3) + 스크립트(txt/srt)
+# 재실행 안전(idempotent): 이미 받은/처리한 항목은 건너뜀.
+set -uo pipefail
+
+URL="https://www.youtube.com/playlist?list=PLF67QBTodqAUcDMMSIFzuRvBIp6jMCpDe"
+PROFILE="chrome:Profile 1"
+DEST="/Users/titanism/projects/주식공부/우공이산/【우공이산 멤버십⭐전용】"
+MODEL="$HOME/models/whisper-ggml/ggml-large-v3-turbo-q5_0.bin"
+LANG="ko"
+mkdir -p "$DEST"
+
+log(){ echo "[$(date '+%H:%M:%S')] $*"; }
+
+# ---------- 1) 재생목록 다운로드 (720p mp4) ----------
+log "=== STEP 1: 영상 다운로드 (720p mp4) ==="
+yt-dlp \
+  --cookies-from-browser "$PROFILE" \
+  -f "bv*[height<=720][vcodec^=avc1]+ba[acodec^=mp4a]/bv*[height<=720][ext=mp4]+ba[ext=m4a]/b[height<=720][ext=mp4]/bv*[height<=720]+ba/b[height<=720]" \
+  --merge-output-format mp4 \
+  --download-archive "$DEST/.download-archive.txt" \
+  --ignore-errors --no-warnings --newline \
+  -o "$DEST/%(playlist_index)02d - %(title)s.%(ext)s" \
+  "$URL"
+log "영상 다운로드 단계 종료"
+
+# ---------- 모델 준비 대기 ----------
+log "=== whisper 모델 준비 확인 ==="
+for i in $(seq 1 120); do
+  if [ -f "$MODEL" ]; then
+    sz=$(stat -f%z "$MODEL" 2>/dev/null || echo 0)
+    if [ "$sz" -gt 500000000 ]; then log "모델 준비됨 ($((sz/1000000))MB)"; break; fi
+  fi
+  log "모델 다운로드 대기중... (${i}/120)"; sleep 10
+done
+if [ ! -f "$MODEL" ]; then log "!! 모델 없음. 트랜스크립션 중단."; exit 1; fi
+
+# ---------- 2) 영상마다 mp3 + 스크립트 ----------
+log "=== STEP 2: mp3 추출 + 스크립트 생성 ==="
+shopt -s nullglob
+for f in "$DEST"/*.mp4; do
+  base="${f%.mp4}"
+  name="$(basename "$base")"
+
+  # mp3
+  if [ ! -f "$base.mp3" ]; then
+    log "[mp3] $name"
+    ffmpeg -y -loglevel error -i "$f" -vn -c:a libmp3lame -b:a 192k "$base.mp3" </dev/null \
+      && log "[mp3] 완료" || log "[mp3] 실패: $name"
+  fi
+
+  # transcript (txt + srt)
+  if [ ! -f "$base.txt" ]; then
+    log "[stt] $name (변환중...)"
+    wav="$base.16k.wav"
+    ffmpeg -y -loglevel error -i "$f" -vn -ac 1 -ar 16000 -c:a pcm_s16le "$wav" </dev/null
+    if [ -f "$wav" ]; then
+      whisper-cli -m "$MODEL" -f "$wav" -l "$LANG" -otxt -osrt -of "$base" -t 8 -pp </dev/null \
+        && log "[stt] 완료: $name" || log "[stt] 실패: $name"
+      rm -f "$wav"
+    else
+      log "[stt] wav 변환 실패: $name"
+    fi
+  fi
+done
+
+log "=== 전체 완료 ==="
+ls -lh "$DEST" | grep -E '\.(mp4|mp3|txt|srt)$' | awk '{print $5, $9}'
