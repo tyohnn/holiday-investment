@@ -63,11 +63,15 @@ description: >-
 
 | 자료 | 도구 | 저장 위치 |
 |---|---|---|
-| 재무 추이 (3~4년) | `scripts/dart.py fin <회사명> --years 4 --out …` (공시 원본) | `자료/재무/` |
-| 공시 목록 + 유증·CB 플래그 | `scripts/dart.py filings <회사명> --days 180 --out …` | `자료/공시/` |
+| **DART 일괄 (기본 첫 수)** — 재무 추이+분기·재무지표·공시 목록(유증·CB 플래그)·자금조달 주요사항·지분거래·지배구조 | `scripts/dart.py snapshot <회사명> --out-dir 리서치/기업/<종목명>/자료` | `자료/재무/`·`자료/공시/` 자동 |
+| 개별 심화 (필요할 때) | `dart.py report <회사명> {배당\|증자\|자기주식\|최대주주\|임원\|직원\|타법인출자…}`, `dart.py doc <접수번호>` (원본 문서 텍스트), `dart.py corp` (기업개황) | `자료/공시/` |
 | 뉴스 목록 | `scripts/fetch_news.py <회사명> --out …` → 원데이터 있는 기사만 열어 발췌 절에 추가 | `자료/뉴스/` |
 | IR·가이던스 | 웹서치 "회사명 IR" → 분기 경영실적·가이던스 발췌 | `자료/IR/` |
 | 유튜브 (심층 전용) | `scripts/fetch_youtube.py search "<회사명> IR 실적"` → 공식 IR·신뢰 채널 선별 → `subs <URL> --out-dir 자료/유튜브/` | `자료/유튜브/` |
+
+DART 산출물의 방법론 연결: 지분거래(elestock) → 내부자 매수 판독(오너 개인 자금인가),
+직원 현황(평균연봉·인원) → 문화 판별 대용 지표, 자금조달 주요사항(유증·CB·BW) → 지분 희석
+체크, 타법인출자 → 지주·SOTP 입력. 각 파일 상단의 "방법론 메모"를 따라 해석한다.
 
 - **폴백 규칙**: dart.py가 exit 2(DART_API_KEY 없음)면 사용자에게 무료 키 발급
   (opendart.fss.or.kr)을 안내하고, 이번 런은 DART 웹사이트 열람·웹서치로 재무·공시를
@@ -180,7 +184,7 @@ python3 <스킬경로>/scripts/validate_report.py <리포트.md> \
 | `references/data-layout.md` | 리서치 폴더 레이아웃 — 리포트/자료(raw)/계산 분리 규칙 | 절차 2~3, 9 |
 | `scripts/valuation.py` | 9칸·낙점·진입가·실전 PER·PSR 결정론 계산기 (assumptions.json → valuation.json + 마크다운 표) | 절차 6 (실행) |
 | `scripts/validate_report.py` | 리포트 검증 게이트 — frontmatter·섹션·9칸·고지·수치 정합성 (exit 0 필수) | 절차 9 (실행) |
-| `scripts/dart.py` | OpenDART 공시 수집 — corp/filings/fin (무료 DART_API_KEY 필요, 없으면 웹 폴백) | 절차 3 (실행) |
+| `scripts/dart.py` (+`dart_api.py`) | OpenDART 전면 커버 — snapshot 일괄 수집, corp/filings/fin/indicators/report(11항목)/events/ownership/doc (무료 DART_API_KEY, 없으면 웹 폴백) | 절차 3 (실행) |
 | `scripts/fetch_news.py` | Google News RSS 뉴스 목록 수집 (키·의존성 없음) | 절차 3 (실행) |
 | `scripts/fetch_youtube.py` | yt-dlp 래퍼 — 영상 검색·자막→타임스탬프 md (yt-dlp 없으면 스킵) | 심층 절차 3 (실행) |
 
