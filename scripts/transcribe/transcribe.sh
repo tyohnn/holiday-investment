@@ -6,19 +6,19 @@
 #  - 재실행 안전. 완전 로컬(whisper.cpp large-v3-turbo).
 set -uo pipefail
 
-ROOT="/Users/titanism/projects/주식공부/멤버십"
+ROOT="/Users/titanism/projects/주식공부/강의"
 FAILLOG="/Users/titanism/projects/주식공부/transcribe.failures.txt"
 MODEL="$HOME/models/whisper-ggml/ggml-large-v3-turbo-q5_0.bin"
 LANG="ko"
 MIN_BYTES_PER_SEC=5   # txt 바이트수가 (오디오초 × 5) 미만이면 실패로 간주(정상 강의는 ~50/s)
 
 ORDER=(
-  "【멤버십⭐전용】"
-  "【멤버십⭐전용】투자 스킬업"
-  "【멤버십⭐전용】여니의 주식 상담소"
-  "【멤버십⭐전용】여니의 능력범위 향상 프로젝트"
-  "【멤버십⭐】스타터 목록"
-  "【멤버십⭐특별 강좌 시리즈】"
+  "【강의 멤버십⭐전용】"
+  "【강의 멤버십⭐전용】투자 스킬업"
+  "【강의 멤버십⭐전용】주식 상담소"
+  "【강의 멤버십⭐전용】능력범위 향상 프로젝트"
+  "【강의 멤버십⭐】스타터 목록"
+  "【강의 멤버십⭐특별 강좌 시리즈】"
 )
 
 log(){ echo "[$(date '+%m-%d %H:%M:%S')] $*"; }

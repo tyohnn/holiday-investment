@@ -4,7 +4,7 @@
 
 ### What this repo is
 This is **not a server/app**. It is (1) a Bash **YouTube → transcription pipeline** and
-(2) an authored **Korean Markdown knowledge base** (`교재/`, `멤버십/`). There is no
+(2) an authored **Korean Markdown knowledge base** (`교재/`, `강의/`). There is no
 package manifest, build step, dev server, database, or test framework. The "deliverable"
 is Markdown; you edit those files directly.
 
@@ -20,7 +20,7 @@ The pipeline shells out to these CLI tools (no code-level packages exist):
 ### Non-obvious caveats
 - **The pipeline scripts do NOT run as-is on this Linux VM.** `run-all.sh`,
   `predownload.sh`, `transcribe.sh`, and `redo.sh` are hardcoded to the author's macOS
-  environment: `ROOT="/Users/titanism/projects/주식공부/멤버십"` (absent here),
+  environment: `ROOT="/Users/titanism/projects/주식공부/강의"` (absent here),
   `df -g` and `stat -f%z` (macOS-only), and `--cookies-from-browser "chrome:Profile 1"`.
   Do not expect them to work unedited.
 - **The download phase cannot run in the cloud.** YouTube blocks this datacenter IP with

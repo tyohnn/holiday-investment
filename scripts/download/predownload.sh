@@ -6,14 +6,14 @@ set -uo pipefail
 shopt -s nullglob
 
 PROFILE="chrome:Profile 1"
-ROOT="/Users/titanism/projects/주식공부/멤버십"
+ROOT="/Users/titanism/projects/주식공부/강의"
 FLOOR_GB=8
 FMT="bv*[height<=720][vcodec^=avc1]+ba[acodec^=mp4a]/bv*[height<=720][ext=mp4]+ba[ext=m4a]/b[height<=720][ext=mp4]/bv*[height<=720]+ba/b[height<=720]"
 
 PLAYLISTS=(
   "https://www.youtube.com/playlist?list=PLF67QBTodqAUcDMMSIFzuRvBIp6jMCpDe"   # 1 멤버십 전용 (21)
   "https://www.youtube.com/playlist?list=PLF67QBTodqAUjLK936XdzUB01Ih6ijWwm"   # 2 투자 스킬업 (48)
-  "https://www.youtube.com/playlist?list=PLF67QBTodqAX8C-tjj2EjUJwdGPYYFXTT"   # 3 여니의 주식 상담소 (39)
+  "https://www.youtube.com/playlist?list=PLF67QBTodqAX8C-tjj2EjUJwdGPYYFXTT"   # 3 주식 상담소 (39)
   "https://www.youtube.com/playlist?list=PLF67QBTodqAXFHTtbH1zlwGEH7OvGBkCn"   # 4 능력범위 향상 (38)
   "https://www.youtube.com/playlist?list=PLF67QBTodqAU3n8Zj90ufPfEhppvvo78J"   # 5 스타터 목록 (8)
   "https://www.youtube.com/playlist?list=PLF67QBTodqAU70w2WcXyUGXn-oo2SVKHd"   # 6 특별 강좌 시리즈 (1)

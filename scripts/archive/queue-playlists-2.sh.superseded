@@ -4,7 +4,7 @@
 set -uo pipefail
 
 PROFILE="chrome:Profile 1"
-ROOT="/Users/titanism/projects/주식공부/멤버십"
+ROOT="/Users/titanism/projects/주식공부/강의"
 MODEL="$HOME/models/whisper-ggml/ggml-large-v3-turbo-q5_0.bin"
 LANG="ko"
 FLOOR_GB=8
@@ -78,7 +78,7 @@ for pl in "${PLAYLISTS[@]}"; do
 done
 
 log "=== 2차 큐 완료 ==="
-echo "--- 최종 요약(전체 멤버십) ---"
+echo "--- 최종 요약(전체 강의) ---"
 for d in "$ROOT"/*/; do
   m=$(find "$d" -name '*.mp4' | wc -l | tr -d ' ')
   a=$(find "$d" -name '*.mp3' | wc -l | tr -d ' ')

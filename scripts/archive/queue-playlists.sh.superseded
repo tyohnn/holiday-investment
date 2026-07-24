@@ -5,15 +5,15 @@
 set -uo pipefail
 
 PROFILE="chrome:Profile 1"
-ROOT="/Users/titanism/projects/주식공부/멤버십"
+ROOT="/Users/titanism/projects/주식공부/강의"
 MODEL="$HOME/models/whisper-ggml/ggml-large-v3-turbo-q5_0.bin"
 LANG="ko"
 FLOOR_GB=8   # 이 이하로 디스크가 줄면 다운로드 중단(보호)
 
 PLAYLISTS=(
   "https://www.youtube.com/playlist?list=PLF67QBTodqAUjLK936XdzUB01Ih6ijWwm"   # 투자 스킬업
-  "https://www.youtube.com/playlist?list=PLF67QBTodqAX8C-tjj2EjUJwdGPYYFXTT"   # 여니의 주식 상담소
-  "https://www.youtube.com/playlist?list=PLF67QBTodqAXFHTtbH1zlwGEH7OvGBkCn"   # 여니의 능력범위 향상 프로젝트
+  "https://www.youtube.com/playlist?list=PLF67QBTodqAX8C-tjj2EjUJwdGPYYFXTT"   # 주식 상담소
+  "https://www.youtube.com/playlist?list=PLF67QBTodqAXFHTtbH1zlwGEH7OvGBkCn"   # 능력범위 향상 프로젝트
 )
 
 log(){ echo "[$(date '+%m-%d %H:%M:%S')] $*"; }

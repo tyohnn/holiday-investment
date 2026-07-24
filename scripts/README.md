@@ -1,6 +1,6 @@
 # scripts — 파이프라인 스크립트
 
-멤버십 강의 155편을 내려받아 전사하고 노트·교재로 가공한 파이프라인이다. 모두 macOS 기준이며 `yt-dlp`, `ffmpeg`, `whisper.cpp`(`whisper-cli`)에 의존한다.
+강의 강의 155편을 내려받아 전사하고 노트·교재로 가공한 파이프라인이다. 모두 macOS 기준이며 `yt-dlp`, `ffmpeg`, `whisper.cpp`(`whisper-cli`)에 의존한다.
 
 ## 폴더 구성
 

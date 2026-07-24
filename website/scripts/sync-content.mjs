@@ -238,17 +238,31 @@ function syncBook(srcDir, book) {
   }
 }
 
-/** Strip personal/channel names from published docs. */
+/** Strip personal/channel names and aliases from published docs (safety net). */
 function scrubNames(text) {
   return text
     .replace(/우공이산\s*위키/g, '투자 교재')
-    .replace(/우공이산TV/g, '멤버십TV')
-    .replace(/우공이산\s*멤버십/g, '멤버십')
+    .replace(/우공이산TV/g, '강의TV')
+    .replace(/우공이산\s*TV/g, '강의TV')
     .replace(/우공이산\//g, '')
-    .replace(/우공이산/g, '멤버십')
-    .replace(/박순혁\s*작가님/g, '작가님')
-    .replace(/박순혁\s*작가/g, '작가')
-    .replace(/박순혁/g, '저자');
+    .replace(/우공이산/g, '강의')
+    .replace(/박순혁\s*작가님/g, '강사')
+    .replace(/박순혁\s*작가/g, '강사')
+    .replace(/박순혁/g, '강사')
+    .replace(/배터리\s*아저씨/g, '강사')
+    .replace(/밧데리\s*아저씨/g, '강사')
+    .replace(/배터리아저씨/g, '강사')
+    .replace(/밧데리아저씨/g, '강사')
+    .replace(/빠재\s*신드롬/g, '신드롬')
+    .replace(/빠재/g, '')
+    .replace(/경제요정/g, '')
+    .replace(/박씨모/g, '')
+    .replace(/여니의\s*/g, '')
+    .replace(/여니/g, '')
+    .replace(/박작가님/g, '강사')
+    .replace(/박 작가님/g, '강사')
+    .replace(/작가님/g, '강사')
+    .replace(/강사\s+강사/g, '강사');
 }
 
 function rewriteIndexLinks(body) {
