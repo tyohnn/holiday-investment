@@ -10,3 +10,12 @@ backup/
 # 설치된 외부 스킬 (팀원 각자 설치, 저장소에 불필요)
 .agents/
 skills-lock.json
+
+# Fumadocs site (website/)
+website/node_modules/
+website/.next/
+website/.source/
+website/out/
+website/content/docs/
+website/next-env.d.ts
+website/*.tsbuildinfo
