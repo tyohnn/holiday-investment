@@ -14,7 +14,7 @@ export const metadata: Metadata = {
     default: appName,
     template: `%s | ${appName}`,
   },
-  description: '정량적 주식 평가 방법론과 이차전지 과학·기술·밸류체인 교재',
+  description: '기업 가치평가와 이차전지 산업 분석을 다루는 2권 55장 투자 교재',
 };
 
 export default function Layout({ children }: LayoutProps<'/'>) {

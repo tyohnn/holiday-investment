@@ -1,4 +1,4 @@
-export const appName = '투자 교재';
+export const appName = '숫자로 읽는 주식투자';
 export const docsRoute = '/docs';
 export const docsImageRoute = '/og/docs';
 export const docsContentRoute = '/llms.mdx/docs';
