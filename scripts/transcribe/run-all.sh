@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# 우공이산 멤버십 9개 재생목록 → 재생목록 폴더 아래 "영상별 폴더" 구조로 처리.
-#   우공이산/<재생목록>/<NN - 제목>/<NN - 제목>.{mp4,mp3,txt,srt}
+# 멤버십 9개 재생목록 → 재생목록 폴더 아래 "영상별 폴더" 구조로 처리.
+#   <재생목록>/<NN - 제목>/<NN - 제목>.{mp4,mp3,txt,srt}
 # 순차 처리 · 재개(idempotent) · 디스크 보호 · 완전 로컬(whisper.cpp)
 set -uo pipefail
 
 PROFILE="chrome:Profile 1"
-ROOT="/Users/titanism/projects/주식공부/우공이산"
+ROOT="/Users/titanism/projects/주식공부/멤버십"
 MODEL="$HOME/models/whisper-ggml/ggml-large-v3-turbo-q5_0.bin"
 LANG="ko"
 FLOOR_GB=8

@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # 현재 1번 재생목록(pipeline.sh) 완료 후, 아래 3개 재생목록을 순서대로 자동 처리.
-# 각 재생목록 → 우공이산/<제목>/ 폴더에 편마다 mp4(720p)+mp3+txt+srt 생성.
+# 각 재생목록 → <제목>/ 폴더에 편마다 mp4(720p)+mp3+txt+srt 생성.
 # 재실행/재개 안전(idempotent). 디스크 여유 부족 시 자동 보호.
 set -uo pipefail
 
 PROFILE="chrome:Profile 1"
-ROOT="/Users/titanism/projects/주식공부/우공이산"
+ROOT="/Users/titanism/projects/주식공부/멤버십"
 MODEL="$HOME/models/whisper-ggml/ggml-large-v3-turbo-q5_0.bin"
 LANG="ko"
 FLOOR_GB=8   # 이 이하로 디스크가 줄면 다운로드 중단(보호)

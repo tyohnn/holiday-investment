@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # 2차 큐: 기존 큐(queue-playlists.sh) 완료 후, 아래 5개 재생목록을 순서대로 자동 처리.
-# 각 재생목록 → 우공이산/<제목>/ 폴더에 편마다 mp4(720p)+mp3+txt+srt 생성. 재개/디스크보호 동일.
+# 각 재생목록 → <제목>/ 폴더에 편마다 mp4(720p)+mp3+txt+srt 생성. 재개/디스크보호 동일.
 set -uo pipefail
 
 PROFILE="chrome:Profile 1"
-ROOT="/Users/titanism/projects/주식공부/우공이산"
+ROOT="/Users/titanism/projects/주식공부/멤버십"
 MODEL="$HOME/models/whisper-ggml/ggml-large-v3-turbo-q5_0.bin"
 LANG="ko"
 FLOOR_GB=8
@@ -78,7 +78,7 @@ for pl in "${PLAYLISTS[@]}"; do
 done
 
 log "=== 2차 큐 완료 ==="
-echo "--- 최종 요약(전체 우공이산) ---"
+echo "--- 최종 요약(전체 멤버십) ---"
 for d in "$ROOT"/*/; do
   m=$(find "$d" -name '*.mp4' | wc -l | tr -d ' ')
   a=$(find "$d" -name '*.mp3' | wc -l | tr -d ' ')

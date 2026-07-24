@@ -6,7 +6,7 @@ set -uo pipefail
 shopt -s nullglob
 
 PROFILE="chrome:Profile 1"
-ROOT="/Users/titanism/projects/주식공부/우공이산"
+ROOT="/Users/titanism/projects/주식공부/멤버십"
 FLOOR_GB=8
 FMT="bv*[height<=720][vcodec^=avc1]+ba[acodec^=mp4a]/bv*[height<=720][ext=mp4]+ba[ext=m4a]/b[height<=720][ext=mp4]/bv*[height<=720]+ba/b[height<=720]"
 
