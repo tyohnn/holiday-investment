@@ -1,4 +1,4 @@
-# 우공이산 위키 (Fumadocs)
+# 투자 교재 (Fumadocs)
 
 저장소 루트 `교재/` 마크다운을 Fumadocs(Next.js) 문서로 서빙합니다.
 

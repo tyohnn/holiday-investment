@@ -191,12 +191,16 @@ function parseMarkdown(raw) {
 function writeDoc(destPath, title, description, body) {
   mkdirp(path.dirname(destPath));
   const frontmatter = `---
-title: ${yamlEscape(title)}
-description: ${yamlEscape(description)}
+title: ${yamlEscape(scrubNames(title))}
+description: ${yamlEscape(scrubNames(description))}
 ---
 
 `;
-  fs.writeFileSync(destPath, frontmatter + body.replace(/\s+$/, '') + '\n', 'utf8');
+  fs.writeFileSync(
+    destPath,
+    frontmatter + scrubNames(body).replace(/\s+$/, '') + '\n',
+    'utf8',
+  );
 }
 
 function convertFile(srcFile, destFile, overrides = {}) {
@@ -234,15 +238,29 @@ function syncBook(srcDir, book) {
   }
 }
 
+/** Strip personal/channel names from published docs. */
+function scrubNames(text) {
+  return text
+    .replace(/우공이산\s*위키/g, '투자 교재')
+    .replace(/우공이산TV/g, '멤버십TV')
+    .replace(/우공이산\s*멤버십/g, '멤버십')
+    .replace(/우공이산\//g, '')
+    .replace(/우공이산/g, '멤버십')
+    .replace(/박순혁\s*작가님/g, '작가님')
+    .replace(/박순혁\s*작가/g, '작가')
+    .replace(/박순혁/g, '저자');
+}
+
 function rewriteIndexLinks(body) {
-  return body
-    .replace(/\]\(교재1-방법론\/목차\.md\)/g, '](/docs/book1)')
-    .replace(/\]\(교재2-이차전지\/목차\.md\)/g, '](/docs/book2)')
-    .replace(/\]\(보강계획\.md\)/g, '](/docs/reference/enrichment)')
-    .replace(/\]\(용어교정\.md\)/g, '](/docs/reference/glossary)')
-    .replace(/\]\(종목\/INDEX\.md\)/g, '](/docs/reference/stocks)')
-    .replace(/\]\(PLAN\.md\)/g, '](/docs/reference/plan)')
-    .replace(/`\.\.\/우공이산\/노트\/`/g, '`우공이산/노트/`');
+  return scrubNames(
+    body
+      .replace(/\]\(교재1-방법론\/목차\.md\)/g, '](/docs/book1)')
+      .replace(/\]\(교재2-이차전지\/목차\.md\)/g, '](/docs/book2)')
+      .replace(/\]\(보강계획\.md\)/g, '](/docs/reference/enrichment)')
+      .replace(/\]\(용어교정\.md\)/g, '](/docs/reference/glossary)')
+      .replace(/\]\(종목\/INDEX\.md\)/g, '](/docs/reference/stocks)')
+      .replace(/\]\(PLAN\.md\)/g, '](/docs/reference/plan)'),
+  );
 }
 
 function writeSourceMap() {
@@ -263,7 +281,7 @@ function main() {
   mkdirp(DEST);
 
   writeJson(path.join(DEST, 'meta.json'), {
-    title: '우공이산 위키',
+    title: '투자 교재',
     pages: ['index', '---교재---', 'book1', 'book2', '---자료---', 'reference'],
   });
 
@@ -272,8 +290,8 @@ function main() {
     const parsed = parseMarkdown(raw);
     writeDoc(
       path.join(DEST, 'index.mdx'),
-      '우공이산 위키',
-      '박순혁 투자 방법론 & 이차전지 교재',
+      '투자 교재',
+      '정량적 주식 평가 방법론 & 이차전지 교재',
       rewriteIndexLinks(parsed.body),
     );
   }

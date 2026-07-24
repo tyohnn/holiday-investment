@@ -1,4 +1,4 @@
-export const appName = '우공이산 위키';
+export const appName = '투자 교재';
 export const docsRoute = '/docs';
 export const docsImageRoute = '/og/docs';
 export const docsContentRoute = '/llms.mdx/docs';

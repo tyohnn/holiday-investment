@@ -14,8 +14,7 @@ export const metadata: Metadata = {
     default: appName,
     template: `%s | ${appName}`,
   },
-  description:
-    '박순혁 투자 방법론과 이차전지 교재 — 우공이산 멤버십 강의 기반 위키',
+  description: '정량적 주식 평가 방법론과 이차전지 과학·기술·밸류체인 교재',
 };
 
 export default function Layout({ children }: LayoutProps<'/'>) {
