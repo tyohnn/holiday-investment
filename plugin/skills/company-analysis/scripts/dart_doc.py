@@ -44,7 +44,9 @@ def _table_to_md(block):
 
 
 def _chunk_to_md(chunk):
-    """표는 md 표로 치환하고 나머지는 텍스트화한다."""
+    """하위 목차는 ## 헤딩으로 살리고, 표는 md 표로 치환하고, 나머지는 텍스트화한다."""
+    # 하위 TITLE("1. 사업의 개요" 등)을 ## 헤딩으로 치환해 섹션 내 탐색성을 확보한다
+    chunk = _TITLE.sub(lambda m: "\n## %s\n" % _clean(m.group(1)), chunk)
     parts, last = [], 0
     for m in _TABLE.finditer(chunk):
         parts.append(("text", chunk[last:m.start()]))
@@ -59,8 +61,10 @@ def _chunk_to_md(chunk):
                 out.append(md)
         else:
             text = html.unescape(_TAG.sub("\n", seg))
-            lines = [re.sub(r"\s+", " ", ln).strip() for ln in text.splitlines()]
-            out.extend(ln for ln in lines if ln)
+            for ln in text.splitlines():
+                ln = re.sub(r"\s+", " ", ln).strip()
+                if ln:
+                    out.append(ln)
     return "\n\n".join(out)
 
 
@@ -81,6 +85,10 @@ def is_note_section(title):
     return "주석" in title
 
 
+def is_biz_section(title):
+    return "사업의 내용" in title
+
+
 NOTE_CHECKLIST = """\
 ## 주석에서 볼 것 (에이전트 독해 체크리스트 — D1 확장)
 
@@ -95,4 +103,16 @@ NOTE_CHECKLIST = """\
 - [ ] 특수관계자 거래 — 오너 계열사로의 이익 이전 (지배구조 체크와 연결)
 - [ ] 수주·계약부채(선수금) 변동 — 미래 매출의 선행 지표
 - [ ] 감사보고서: 감사의견, 핵심감사사항(KAM) — 감사인이 지목한 위험이 곧 관찰 포인트
+"""
+
+BIZ_CHECKLIST = """\
+## "사업의 내용"(☆)에서 볼 것 — 밸류에이션 입력의 원천
+
+- [ ] 주요 제품·서비스와 매출 비중, 판가 추이 — 매출 분해의 출발점
+- [ ] 시장점유율과 경쟁 상황 (회사가 스스로 밝힌 수치·경쟁사)
+- [ ] 생산능력(캐파)·가동률 — 이익률 회복의 선행 지표 (D1)
+- [ ] 수주 상황·수주잔고 — 바인딩 물량만 추정에 반영
+- [ ] 원재료 가격 추이와 조달 구조 — 이익률의 원자재 층
+- [ ] 연구개발 투자·핵심 기술 — 해자 판정 근거
+- [ ] 신규 사업·설비 투자 계획 — 확정분만 매출 추정에
 """

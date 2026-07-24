@@ -318,6 +318,36 @@ def cmd_doc(key, rcept_no, out):
     write_or_print("\n".join(lines), out, {"ok": True, "길이": len(body)})
 
 
+SJ_NAMES = [("BS", "재무상태표"), ("IS", "손익계산서"), ("CIS", "포괄손익계산서"),
+            ("CF", "현금흐름표"), ("SCE", "자본변동표")]
+
+
+def cmd_statements(key, name, year, out):
+    """5개 재무제표(BS·IS·CIS·CF·SCE) 전 계정 덤프 — 요약이 아니라 제출된 그대로."""
+    corp = resolve(key, name)
+    year = year or TODAY().year - 1
+    rows, fs = api.finstate_all(key, corp["corp_code"], year)
+    if not rows:
+        print(json.dumps({"ok": False, "error": "%d 사업보고서 재무 데이터 없음" % year},
+                         ensure_ascii=False))
+        sys.exit(1)
+    lines = fm("%s (%s)" % (corp["corp_name"], corp["stock_code"]),
+               "OpenDART fnlttSinglAcntAll API (%s, %d 사업연도)" % ("연결" if fs == "CFS" else "별도", year),
+               ["단위: 원 (제출 원본 그대로 — 주당 지표는 원/주)"])
+    lines += ["# %s 재무제표 전체 (%d)" % (corp["corp_name"], year), ""]
+    counts = {}
+    for sj, sj_name in SJ_NAMES:
+        stmt = [r for r in rows if r.get("sj_div") == sj and r.get("fs_div") == fs]
+        if not stmt:
+            continue
+        counts[sj_name] = len(stmt)
+        lines += ["## %s (%d계정)" % (sj_name, len(stmt)), ""]
+        lines += md_table(stmt,
+                          cols=["account_nm", "thstrm_amount", "frmtrm_amount", "bfefrmtrm_amount"],
+                          labels=["계정", "당기(%d)" % year, "전기", "전전기"])
+    write_or_print("\n".join(lines) + "\n", out, {"ok": True, "재무제표": counts})
+
+
 def cmd_annual(key, name, out_dir):
     """최신 정기보고서(사업>반기>분기) 원본 저장 + 목차 단위 md 분할.
 
@@ -355,13 +385,16 @@ def cmd_annual(key, name, out_dir):
     for i, (title, body) in enumerate(sections, 1):
         safe = re.sub(r"[^\w가-힣 .-]", "", title).strip().replace(" ", "-")[:50] or "섹션"
         sec_file = "%02d-%s.md" % (i, safe)
-        star = " ★주석" if dart_doc.is_note_section(title) else ""
-        index.append("- [%s](%s)%s" % (title, sec_file, star))
-        if star:
+        mark = ""
+        if dart_doc.is_note_section(title):
+            mark = " ★주석"
             note_files.append(sec_file)
+        elif dart_doc.is_biz_section(title):
+            mark = " ☆사업의내용"
+        index.append("- [%s](%s)%s" % (title, sec_file, mark))
         with open(os.path.join(base, sec_file), "w", encoding="utf-8") as f:
             f.write("# %s\n\n> 출처: %s (%s) · 원문: %s\n\n%s\n" % (title, report_nm, rcept, viewer, body))
-    index += ["", dart_doc.NOTE_CHECKLIST]
+    index += ["", dart_doc.NOTE_CHECKLIST, "", dart_doc.BIZ_CHECKLIST]
     with open(os.path.join(base, "INDEX.md"), "w", encoding="utf-8") as f:
         f.write("\n".join(index) + "\n")
 
@@ -387,6 +420,7 @@ def cmd_snapshot(key, name, out_dir):
 
     j = os.path.join
     run(lambda: cmd_fin(key, name, 4, True, j(out_dir, "재무", "%s-재무추이.md" % today)), "재무추이")
+    run(lambda: cmd_statements(key, name, None, j(out_dir, "재무", "%s-재무제표전체-%d.md" % (today, yr))), "재무제표전체")
     run(lambda: cmd_indicators(key, name, 2, j(out_dir, "재무", "%s-재무지표.md" % today)), "재무지표")
     run(lambda: cmd_filings(key, name, 180, j(out_dir, "공시", "%s-공시목록.md" % today)), "공시목록")
     run(lambda: cmd_events(key, name, 365, j(out_dir, "공시", "%s-자금조달-주요사항.md" % today)), "주요사항")
@@ -425,6 +459,8 @@ def main():
     g.add_argument("--quarters", action="store_true"); g.add_argument("--out")
     i = sub.add_parser("indicators"); i.add_argument("name")
     i.add_argument("--years", type=int, default=2); i.add_argument("--out")
+    st = sub.add_parser("statements"); st.add_argument("name")
+    st.add_argument("--year", type=int); st.add_argument("--out")
     r = sub.add_parser("report"); r.add_argument("name"); r.add_argument("item")
     r.add_argument("--year", type=int); r.add_argument("--out")
     e = sub.add_parser("events"); e.add_argument("name")
@@ -446,6 +482,8 @@ def main():
         cmd_fin(key, args.name, args.years, args.quarters, args.out)
     elif args.cmd == "indicators":
         cmd_indicators(key, args.name, args.years, args.out)
+    elif args.cmd == "statements":
+        cmd_statements(key, args.name, args.year, args.out)
     elif args.cmd == "report":
         cmd_report(key, args.name, args.item, args.year, args.out)
     elif args.cmd == "events":
