@@ -53,8 +53,21 @@
 
 | 요소 | 용도 | 없을 때 |
 |---|---|---|
-| `DART_API_KEY` 환경변수 | dart.py — [opendart.fss.or.kr](https://opendart.fss.or.kr)에서 무료 즉시 발급 | DART 웹 열람·웹서치로 폴백 |
+| DART API 키 | dart.py — [opendart.fss.or.kr](https://opendart.fss.or.kr) **개인회원** 무료 즉시 발급 (기업회원은 IP 등록 필요) | DART 웹 열람·웹서치로 폴백 |
 | `yt-dlp` CLI | fetch_youtube.py — `brew install yt-dlp` | 유튜브 단계 건너뜀 |
+
+DART 키 설정은 두 갈래다 — 둘 다 `.env.local`에 권한 600으로 저장하고 `.gitignore`에 자동 등록한다:
+
+```bash
+# 키를 이미 발급받았다면 (에이전트에게 알려주면 대신 실행해 준다)
+python3 skills/company-analysis/scripts/dart.py setup --key <40자리키>
+
+# 키가 없다면 — 브라우저 폼이 열려 발급 절차부터 안내한다
+python3 skills/company-analysis/scripts/dart.py setup
+```
+
+탐색 순서: `--api-key` > `DART_API_KEY` 환경변수 > `./.env.local` > `./.env` >
+`~/.config/investment-analyst/env`. 여러 프로젝트에서 공유하려면 마지막 경로에 두면 된다.
 
 그 외에는 전부 순수 Python 표준 라이브러리(3.9+)다 — pip 설치 없음.
 

@@ -19,7 +19,37 @@ from _net import http_get
 
 BASE = "https://opendart.fss.or.kr/api"
 CACHE_DIR = os.path.expanduser("~/.cache/investment-analyst")
+GLOBAL_ENV = os.path.expanduser("~/.config/investment-analyst/env")
 _LAST_CALL = [0.0]
+
+
+def read_env_file(path):
+    """KEY=VALUE 파일 파서 (따옴표·공백·주석 허용)."""
+    out = {}
+    try:
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                k, _, v = line.partition("=")
+                out[k.strip()] = v.strip().strip("'\"")
+    except OSError:
+        pass
+    return out
+
+
+def resolve_key(cli_key=None):
+    """키 탐색: --api-key > 환경변수 > ./.env.local > ./.env > ~/.config/investment-analyst/env"""
+    if cli_key:
+        return cli_key
+    if os.environ.get("DART_API_KEY"):
+        return os.environ["DART_API_KEY"]
+    for path in (".env.local", ".env", GLOBAL_ENV):
+        key = read_env_file(path).get("DART_API_KEY")
+        if key:
+            return key
+    return None
 
 
 class DartError(Exception):

@@ -5,7 +5,12 @@
 구현한다. 산출물은 pandas 가 아니라 자료/ 레이아웃의 마크다운이다.
 
 필요: 무료 API 키 — https://opendart.fss.or.kr (개인회원이면 IP 등록 불필요, 일 20,000건)
-      환경변수 DART_API_KEY 또는 --api-key. 없으면 안내 후 exit 2 → 스킬은 웹서치 폴백.
+      키 탐색: --api-key > 환경변수 DART_API_KEY > ./.env.local > ./.env > ~/.config/investment-analyst/env
+      없으면 안내 후 exit 2 → 스킬은 웹서치 폴백.
+
+키 설정 (둘 중 하나):
+    python3 dart.py setup --key <40자리키>    # 사용자가 키를 알려줬을 때 (에이전트가 실행)
+    python3 dart.py setup                     # 키가 없을 때 — 브라우저 폼(발급 안내 포함)
 
 사용법:
     python3 dart.py corp 크래프톤                          # 식별 + 기업개황
@@ -45,15 +50,37 @@ NUMERIC = re.compile(r"^-?[\d,]+$")
 
 
 def out_key(args):
-    key = args.api_key or os.environ.get("DART_API_KEY")
+    key = api.resolve_key(getattr(args, "api_key", None))
     if not key:
         print(json.dumps({
             "ok": False, "skip": True,
-            "reason": "DART_API_KEY 없음 — 이 단계를 웹서치(DART 사이트 열람)로 폴백하라",
-            "발급": "https://opendart.fss.or.kr 개인회원 무료 인증키 → export DART_API_KEY=<키>",
-        }, ensure_ascii=False))
+            "reason": "DART API 키 없음 — 이 단계를 웹서치(DART 사이트 열람)로 폴백하라",
+            "키설정": [
+                "사용자가 키를 이미 갖고 있으면: python3 dart.py setup --key <40자리키>",
+                "키가 없으면: python3 dart.py setup  (브라우저 폼이 열림 — 발급 절차 안내 포함)",
+                "발급처: https://opendart.fss.or.kr 개인회원(무료·즉시, IP 등록 불필요)",
+            ],
+            "탐색순서": "--api-key > 환경변수 DART_API_KEY > ./.env.local > ./.env > ~/.config/investment-analyst/env",
+        }, ensure_ascii=False, indent=2))
         sys.exit(2)
     return key
+
+
+def cmd_setup(key_arg, env_path, no_browser):
+    import dart_setup
+    if key_arg:
+        info = dart_setup.save_key(key_arg, env_path)
+        print(json.dumps({"ok": True, "결과": info,
+                          "다음": "이제 dart.py snapshot <회사명> --out-dir … 실행 가능"},
+                         ensure_ascii=False, indent=2))
+        return
+    info = dart_setup.serve_form(env_path, open_browser=not no_browser)
+    if info:
+        print(json.dumps({"ok": True, "결과": info,
+                          "다음": "이제 dart.py snapshot <회사명> --out-dir … 실행 가능"},
+                         ensure_ascii=False, indent=2))
+    else:
+        sys.exit(1)
 
 
 def resolve(key, name):
@@ -471,7 +498,15 @@ def main():
     a.add_argument("--out-dir", required=True, help="자료 루트 (원본/ 하위에 저장)")
     s = sub.add_parser("snapshot"); s.add_argument("name")
     s.add_argument("--out-dir", required=True)
+    su = sub.add_parser("setup", help="API 키 저장 (--key 로 직접, 또는 브라우저 폼)")
+    su.add_argument("--key", help="40자리 인증키 — 사용자가 이미 발급받았을 때")
+    su.add_argument("--env-file", default=".env.local")
+    su.add_argument("--no-browser", action="store_true")
     args = p.parse_args()
+
+    if args.cmd == "setup":
+        cmd_setup(args.key, args.env_file, args.no_browser)
+        return
 
     key = out_key(args)
     if args.cmd == "corp":
