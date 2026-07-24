@@ -11,11 +11,12 @@ backup/
 .agents/
 skills-lock.json
 
-# Fumadocs site (website/)
-website/node_modules/
-website/.next/
-website/.source/
-website/out/
-website/content/docs/
-website/next-env.d.ts
-website/*.tsbuildinfo
+# Fumadocs site (apps/web)
+apps/web/node_modules/
+apps/web/.next/
+apps/web/.source/
+apps/web/out/
+apps/web/content/docs/
+apps/web/next-env.d.ts
+apps/web/*.tsbuildinfo
+node_modules/

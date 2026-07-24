@@ -1,0 +1,12 @@
+{
+  "name": "investment-team",
+  "private": true,
+  "packageManager": "pnpm@10.33.3",
+  "scripts": {
+    "dev": "pnpm --filter @investment/web dev",
+    "build": "pnpm --filter @investment/web build",
+    "start": "pnpm --filter @investment/web start",
+    "sync": "pnpm --filter @investment/web sync",
+    "types:check": "pnpm --filter @investment/web types:check"
+  }
+}

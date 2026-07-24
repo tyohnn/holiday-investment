@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 /**
- * Sync ../교재 Markdown → content/docs as Fumadocs pages (+ meta.json).
+ * Sync repo-root 교재 Markdown → content/docs as Fumadocs pages (+ meta.json).
  *
  * Uses ASCII URL slugs only — Next.js static export can corrupt nested
  * Hangul path segments (truncated folders / client 404s).
  *
- * Run from website/ via `pnpm sync` (also hooked to predev/prebuild).
+ * Run from apps/web via `pnpm sync` (also hooked to predev/prebuild),
+ * or from the monorepo root via `pnpm sync`.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -13,7 +14,7 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
-const REPO = path.resolve(ROOT, '..');
+const REPO = path.resolve(ROOT, '../..');
 const SRC = path.join(REPO, '교재');
 const DEST = path.join(ROOT, 'content', 'docs');
 

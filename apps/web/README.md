@@ -1,11 +1,21 @@
 # 투자 교재 (Fumadocs)
 
 저장소 루트 `교재/` 마크다운을 Fumadocs(Next.js) 문서로 서빙합니다.
+모노레포 앱 위치: `apps/web`.
 
 ## 개발
 
+저장소 루트에서:
+
 ```bash
-cd website
+pnpm install
+pnpm dev
+```
+
+또는 앱 디렉터리에서:
+
+```bash
+cd apps/web
 pnpm install
 pnpm dev
 ```
