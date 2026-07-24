@@ -175,7 +175,9 @@ INDEX_CLASSES = {"수익성": "M210000", "안정성": "M220000", "성장성": "M
 # ------------------------------------------------------------- 고수준 호출
 
 def company(key, corp_code):
-    return call_json(key, "company.json", corp_code=corp_code)
+    # company.json 은 list 없이 최상위 필드로 응답한다 → raw 로 dict 전체를 받는다
+    d = call_json(key, "company.json", raw=True, corp_code=corp_code)
+    return d if isinstance(d, dict) else {}
 
 
 def filings(key, corp_code, days):
