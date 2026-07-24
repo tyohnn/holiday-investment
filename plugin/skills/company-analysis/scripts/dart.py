@@ -122,6 +122,8 @@ def update_manifest(out_path, key, info, corp=None, amendments=None):
 
 def fmt_cell(v):
     s = str(v if v is not None else "").strip()
+    if s and set(s) == {"#"}:
+        return "—"  # DART 오버플로 표기(#########)는 값이 아니다
     if NUMERIC.match(s.replace(",", "")) and len(s.replace(",", "").lstrip("-")) > 3:
         try:
             return format(int(s.replace(",", "")), ",")
@@ -377,12 +379,13 @@ def cmd_ownership(key, name, out):
                    {"ok": True, "항목": {k: len(v) for k, v in data.items()}})
 
 
-TAG = re.compile(r"<[^>]+>")
+TAG = re.compile(r"</?(?:[A-Z][A-Z0-9-]*|(?:br|p|span|b|u|i|em|strong|sub|sup|font|img|a|td|th|tr|table|tbody|thead|div|hr|col|colgroup|li|ul|ol))(?=[\s/>])[^>]*>")
+STYLE = re.compile(r"<(STYLE|SCRIPT)[^>]*>.*?</\1>", re.I | re.S)
 
 
 def cmd_doc(key, rcept_no, out):
     fname, text = api.document(key, rcept_no)
-    body = TAG.sub("", text)
+    body = TAG.sub("", STYLE.sub("", text))
     body = re.sub(r"&nbsp;?", " ", body)
     body = re.sub(r"\n{3,}", "\n\n", "\n".join(ln.rstrip() for ln in body.splitlines()))
     lines = fm("접수번호 %s" % rcept_no,
@@ -477,9 +480,18 @@ def cmd_annual(key, name, out_dir):
     with open(os.path.join(base, "INDEX.md"), "w", encoding="utf-8") as f:
         f.write("\n".join(index) + "\n")
 
-    update_manifest(base, "사업보고서",
-                    {"보고서": report_nm, "기간": period_s, "접수번호": rcept,
-                     "섹션수": len(sections), "폴더": os.path.relpath(base, out_dir)}, corp)
+    root = update_manifest(base, "사업보고서",
+                           {"보고서": report_nm, "기간": period_s, "접수번호": rcept,
+                            "섹션수": len(sections), "폴더": os.path.relpath(base, out_dir)}, corp)
+    # 제목이 [기재정정]이면 첫 수집이어도 정정본이라는 사실을 남긴다 (접수번호 비교는 2회차부터만 가능)
+    if root and "기재정정" in report_nm:
+        data = mf.load(root)
+        if not any(e.get("새접수번호") == rcept for e in data.get("정정이력", [])):
+            data.setdefault("정정이력", []).append({
+                "감지일": TODAY().isoformat(), "대상": "%s %s" % (kind, period_s),
+                "새접수번호": rcept,
+                "메모": "제목에 [기재정정] — 정정본으로 수집됨. 원본 대비 변경 내용을 공시목록에서 확인하고 리포트에 언급"})
+            mf.save(root, data)
     print(json.dumps({"ok": True, "보고서": report_nm, "접수번호": rcept, "위치": base,
                       "섹션수": len(sections), "주석섹션": note_files,
                       "다음단계": "INDEX.md의 주석·사업의내용 체크리스트를 따라 읽고, "

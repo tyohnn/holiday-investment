@@ -17,6 +17,7 @@ import argparse
 import datetime as dt
 import email.utils
 import json
+import os
 import re
 import sys
 import urllib.parse
@@ -25,6 +26,14 @@ import xml.etree.ElementTree as ET
 from _net import http_get
 
 DEFAULT_QUERIES = ["실적", "수주", "공시", "신제품", "증설 투자", "유상증자 전환사채"]
+# 업종 프리셋 — 기본 쿼리는 제조업 편향이라 게임사에 '수주'를 치면 방산 기사가 섞인다
+PRESETS = {
+    "제조": DEFAULT_QUERIES,
+    "게임": ["실적", "신작 출시", "업데이트 이용자", "인수 투자", "공시"],
+    "바이오": ["실적", "임상", "허가 승인", "기술이전", "공시"],
+    "플랫폼": ["실적", "이용자 MAU", "신규 서비스", "규제", "공시"],
+    "금융": ["실적", "배당", "충당금", "규제", "공시"],
+}
 
 
 def fetch_query(subject, keyword, days, limit):
@@ -113,18 +122,30 @@ def main():
     p.add_argument("--queries", help="쉼표로 구분한 키워드 (기본: %s)" % ",".join(DEFAULT_QUERIES))
     p.add_argument("--days", type=int, default=30)
     p.add_argument("--max-per-query", type=int, default=15)
-    p.add_argument("--out", help="저장할 md 경로 (자료/뉴스/YYYY-MM-DD-뉴스클리핑.md)")
+    p.add_argument("--out", help="저장할 md 경로 — 월 버킷 (자료/뉴스/YYYY-MM.md)")
+    p.add_argument("--preset", choices=sorted(PRESETS), help="업종 프리셋 쿼리 (기본: 제조)")
     args = p.parse_args()
 
     keywords = ([k.strip() for k in args.queries.split(",") if k.strip()]
-                if args.queries else DEFAULT_QUERIES)
+                if args.queries else PRESETS.get(args.preset or "제조", DEFAULT_QUERIES))
     results = [fetch_query(args.subject, kw, args.days, args.max_per_query) for kw in keywords]
     results = list(dedup(results))
     md, total = to_markdown(args.subject, results, args.days)
 
     if args.out:
+        os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
         with open(args.out, "w", encoding="utf-8") as f:
             f.write(md)
+        try:
+            import manifest as _mf
+            root = _mf.find_root(args.out)
+            if root:
+                data = _mf.load(root)
+                _mf.record(data, "뉴스", {"커버": "최근 %d일" % args.days, "기사수": total,
+                                          "파일": os.path.basename(args.out)})
+                _mf.save(root, data)
+        except Exception:
+            pass  # manifest 는 부가 기능 — 실패해도 수집을 막지 않는다
         print(json.dumps({"ok": True, "저장": args.out, "기사수": total}, ensure_ascii=False))
     else:
         print(md)

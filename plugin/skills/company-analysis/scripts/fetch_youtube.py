@@ -64,7 +64,7 @@ def cmd_search(query, limit):
 
 
 VTT_TS = re.compile(r"^(\d{2}):(\d{2}):(\d{2})\.\d{3}\s+-->")
-TAG = re.compile(r"<[^>]+>")
+TAG = re.compile(r"</?[A-Za-z0-9][^>]*>")  # VTT 태그·타임코드만 — 한글 홑화살괄호 보존
 
 
 def vtt_to_blocks(path, block_sec=30):
@@ -147,6 +147,16 @@ def cmd_subs(url, out_dir):
     with open(out_path, "w", encoding="utf-8") as f:
         f.write("\n".join(lines))
     shutil.rmtree(tmp, ignore_errors=True)
+    try:
+        import manifest as _mf
+        root = _mf.find_root(out_path)
+        if root:
+            data = _mf.load(root)
+            prev = (data.get("수집", {}).get("유튜브", {}) or {}).get("영상수", 0)
+            _mf.record(data, "유튜브", {"영상수": prev + 1, "최근파일": os.path.basename(out_path)})
+            _mf.save(root, data)
+    except Exception:
+        pass
     print(json.dumps({"ok": True, "저장": out_path, "자막": bool(blocks),
                       "블록수": len(blocks)}, ensure_ascii=False))
 

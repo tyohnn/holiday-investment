@@ -15,7 +15,9 @@ _TITLE = re.compile(r"<TITLE[^>]*>(.*?)</TITLE>", re.I | re.S)
 _TABLE = re.compile(r"<TABLE[^>]*>.*?</TABLE>", re.I | re.S)
 _TR = re.compile(r"<TR[^>]*>(.*?)</TR>", re.I | re.S)
 _CELL = re.compile(r"<T[DHEU][^>]*>(.*?)</T[DHEU]>", re.I | re.S)
-_TAG = re.compile(r"<[^>]+>")
+# DSD 태그는 ASCII 로 시작한다. <배틀그라운드> 같은 홑화살괄호 고유명사는 보존해야 한다
+_TAG = re.compile(r"</?(?:[A-Z][A-Z0-9-]*|(?:br|p|span|b|u|i|em|strong|sub|sup|font|img|a|td|th|tr|table|tbody|thead|div|hr|col|colgroup|li|ul|ol))(?=[\s/>])[^>]*>")
+_STYLE = re.compile(r"<(STYLE|SCRIPT)[^>]*>.*?</\1>", re.I | re.S)
 # 최상위 목차: 로마숫자("I. 회사의 개요"), 감사보고서, 재무제표/연결재무제표 주석
 _TOP = re.compile(r"^\s*[IVXLC]+\s*\.|감사보고서|주석\s*$")
 
@@ -70,6 +72,7 @@ def _chunk_to_md(chunk):
 
 def split_sections(text):
     """원문 전체 → [(제목, 마크다운 본문)]. 최상위 목차를 못 찾으면 단일 섹션."""
+    text = _STYLE.sub("", text)
     marks = [(m.start(), _clean(m.group(1))) for m in _TITLE.finditer(text)]
     tops = [(pos, t) for pos, t in marks if t and _TOP.search(t)]
     if len(tops) < 2:
