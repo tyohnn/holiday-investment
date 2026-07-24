@@ -39,6 +39,10 @@ The pipeline shells out to these CLI tools (no code-level packages exist):
   toolchain that lacks `libstdc++` dev (`cannot find -lstdc++`). Configure with
   `cmake -B build -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++`.
 - There is no lint/test/build. To sanity-check a script, use `bash -n script.sh`.
-- `.claude/skills/*` are symlinks into the gitignored `.agents/` dir and are expected to
+- `.claude/skills/*` symlinks point into the gitignored `.agents/` dir and are expected to
   be broken in a fresh checkout.
+- The `investment-analyst` plugin (기업·산업 분석 스킬 팩) lives in `plugin/` — a self-contained,
+  distributable plugin for Claude Code / Codex / Cursor (methodology bundled inside `skills/`,
+  no dependency on `교재/`). Its reports go to `리서치/`. Install via `plugin/install.sh`
+  (Cursor·Codex) or `/plugin` (Claude Code). Platform-wide plan lives in `로드맵.md`.
 - `*.sh.superseded` files are deprecated and not part of the active pipeline.
