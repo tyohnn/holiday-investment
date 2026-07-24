@@ -7,6 +7,5 @@
     "email": "prime@medai.im"
   },
   "keywords": ["investment", "equity-research", "valuation", "korean", "value-investing"],
-  "skills": ["./skills/company-analysis", "./skills/industry-analysis"],
-  "commands": ["./commands"]
+  "skills": ["./skills/company-analysis", "./skills/industry-analysis"]
 }

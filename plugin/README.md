@@ -40,14 +40,18 @@ plugin/
 │   │   └── references/      # checklists · valuation · industry-frame · report-templates
 │   └── industry-analysis/
 │       └── SKILL.md
-├── commands/                # 슬래시 커맨드 — Claude Code·Cursor 둘 다 이 폴더를 자동 인식
 └── README.md
 ```
 
 **한 소스, 세 매니페스트**: Claude Code·Cursor·Codex 모두 `skills/<name>/SKILL.md` 형식을
-그대로 네이티브 인식하는 자체 플러그인 시스템을 갖고 있어서, 방법론 파일(`skills/`, `commands/`)은
-도구마다 하나씩만 존재한다. 세 도구는 각자 어디를 찾을지 알려주는 매니페스트(`.claude-plugin/`,
+그대로 네이티브 인식하는 자체 플러그인 시스템을 갖고 있어서, 방법론 파일(`skills/`)은 도구마다
+하나씩만 존재한다. 세 도구는 각자 어디를 찾을지 알려주는 매니페스트(`.claude-plugin/`,
 `.cursor-plugin/`, `.codex-plugin/`)만 따로 갖는다. 방법론을 고치면 세 도구에 동시에 반영된다.
+
+별도 슬래시 커맨드(`commands/`)는 두지 않았다 — Claude Code는 스킬 description으로 자연어
+요청을 자동 트리거하고, Cursor는 스킬을 `/company-analysis`로 직접 호출할 수 있어 커맨드가
+같은 진입점의 중복이었다. Codex의 플러그인 매니페스트는 애초에 `commands` 필드를 지원하지
+않는다.
 
 ## 설치
 
@@ -60,8 +64,7 @@ claude
 ```
 
 이 저장소처럼 프로젝트 `.claude/` 하위에 스킬을 두면 별도 설치 없이 자동 인식된다.
-호출: 자연어 요청("삼양식품 심층 분석해줘")에 스킬 description으로 자동 트리거, 또는
-`/analyze-company 삼양식품 심층`.
+호출: 자연어 요청("삼양식품 심층 분석해줘")에 스킬 description으로 자동 트리거된다.
 
 ### Cursor
 
@@ -74,9 +77,8 @@ ln -s /path/to/plugin ~/.cursor/plugins/local/investment-analyst
 ```
 
 공개 배포 시에는 `cursor.com/marketplace` 제출 절차를 따른다(별도 검수).
-**호출**: Cursor의 Skill은 자동 트리거되지 않고 채팅에서 `/company-analysis`처럼 명시적으로
-불러야 한다(공식 문서 명시 사항). `commands/`는 자동 인식되므로 `/analyze-company` 커맨드로
-부르는 쪽이 더 안정적이다.
+**호출**: Cursor의 Skill은 자동 트리거되지 않으므로 채팅에서 `/company-analysis` 또는
+`/industry-analysis`로 명시적으로 불러야 한다(공식 문서 명시 사항).
 
 ### Codex CLI
 

@@ -9,6 +9,5 @@
   "homepage": "https://github.com/ssota-labs/investment-team",
   "repository": "https://github.com/ssota-labs/investment-team",
   "keywords": ["investment", "equity-research", "valuation", "korean", "value-investing"],
-  "skills": "./skills/",
-  "commands": "./commands/"
+  "skills": "./skills/"
 }

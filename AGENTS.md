@@ -43,8 +43,9 @@ The pipeline shells out to these CLI tools (no code-level packages exist):
   be broken in a fresh checkout.
 - The `investment-analyst` plugin (기업·산업 분석 스킬 팩) lives in `plugin/` — a self-contained
   plugin bundled for all three tools' own native plugin systems: `.claude-plugin/`,
-  `.cursor-plugin/`, `.codex-plugin/` each hold a manifest pointing at the shared `skills/` and
-  `commands/` folders (no per-tool file copies, no dependency on `교재/`). Its reports go to
-  `리서치/`. See `plugin/README.md` for each tool's native install steps. Platform-wide plan
-  lives in `로드맵.md`.
+  `.cursor-plugin/`, `.codex-plugin/` each hold a manifest pointing at the shared `skills/`
+  folder (no per-tool file copies, no dependency on `교재/`). No `commands/` — Claude Code
+  autotriggers skills by description, Cursor invokes them directly (`/company-analysis`), and
+  Codex's plugin manifest doesn't support commands anyway. Its reports go to `리서치/`. See
+  `plugin/README.md` for each tool's native install steps. Platform-wide plan lives in `로드맵.md`.
 - `*.sh.superseded` files are deprecated and not part of the active pipeline.
