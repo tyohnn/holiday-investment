@@ -1,0 +1,12 @@
+{
+  "name": "investment-analyst",
+  "version": "0.1.0",
+  "description": "가치투자 방법론(능력범위·해자·피셔 정성분석·3년 후 적정주가 5단계·안전마진)으로 상장기업과 산업을 분석해 재현 가능한 리서치 리포트를 만드는 스킬 팩. 방법론이 스킬 안에 자립적으로 담겨 외부 자료 없이 동작한다.",
+  "author": {
+    "name": "prime",
+    "email": "prime@medai.im"
+  },
+  "keywords": ["investment", "equity-research", "valuation", "korean", "value-investing"],
+  "skills": ["./skills/company-analysis", "./skills/industry-analysis"],
+  "commands": ["./commands"]
+}
