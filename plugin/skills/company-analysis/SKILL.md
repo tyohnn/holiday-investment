@@ -56,21 +56,29 @@ description: >-
 - 이 종목·산업에 대해 이미 확립된 사실(경쟁 구도, 해자, 사이클 위치)이 대화 맥락이나 과거
   리포트에 있으면 재사용하고, 없으면 절차 3에서 새로 수집한다.
 
-### 3. 1차 자료 수집
+### 3. 1차 자료 수집 — 수집 매트릭스
 
 자료의 위계: **이사회 승인 IR > 실적 공시 > 증권사 리포트의 로데이터 > 언론 보도.**
+결정론적으로 가져올 수 있는 것은 스크립트로 가져오고, 에이전트는 선별·발췌만 한다.
 
-- 공시(한국이면 DART, dart.fss.or.kr)에서 최근 사업보고서·분기보고서: 최근 3~4년 매출·
-  영업이익률 추이, ROE, 부채비율·순차입금, 부문별 매출, 가동률, 수주잔고(바인딩 계약만),
-  CB·BW·유상증자 이력.
-- 회사 IR: 웹에서 "회사명 IR" 검색 → 분기 경영실적·가이던스. 회사별 "사풍"(부풀리는 회사 vs
-  보수적 회사)을 보정해 읽는다.
+| 자료 | 도구 | 저장 위치 |
+|---|---|---|
+| 재무 추이 (3~4년) | `scripts/dart.py fin <회사명> --years 4 --out …` (공시 원본) | `자료/재무/` |
+| 공시 목록 + 유증·CB 플래그 | `scripts/dart.py filings <회사명> --days 180 --out …` | `자료/공시/` |
+| 뉴스 목록 | `scripts/fetch_news.py <회사명> --out …` → 원데이터 있는 기사만 열어 발췌 절에 추가 | `자료/뉴스/` |
+| IR·가이던스 | 웹서치 "회사명 IR" → 분기 경영실적·가이던스 발췌 | `자료/IR/` |
+| 유튜브 (심층 전용) | `scripts/fetch_youtube.py search "<회사명> IR 실적"` → 공식 IR·신뢰 채널 선별 → `subs <URL> --out-dir 자료/유튜브/` | `자료/유튜브/` |
+
+- **폴백 규칙**: dart.py가 exit 2(DART_API_KEY 없음)면 사용자에게 무료 키 발급
+  (opendart.fss.or.kr)을 안내하고, 이번 런은 DART 웹사이트 열람·웹서치로 재무·공시를
+  수집한다. fetch_youtube.py가 exit 2(yt-dlp 미설치)면 유튜브 단계를 건너뛴다.
+  스크립트 실패가 분석을 멈추게 하지 않는다.
 - 뉴스·리포트는 주장이 아니라 원데이터(판매량·설치량·수출입 통계·수급)를 얻는 용도로만 쓴다.
-- **수집하면서 저장한다**: 웹에서 가져온 원데이터는 리포트에 쓰기 전에
-  `리서치/기업/<종목명>/자료/{재무,공시,IR,뉴스,유튜브}/` 에 먼저 기록한다(수집일 파일명 +
-  출처 frontmatter — 규칙은 `references/data-layout.md`). 리포트의 모든 표는 이 raw
-  파일에서 나와야 한다. 시세(주가·시총)는 변하는 값이라 raw 로 쌓지 않고 계산 단계의
-  assumptions.json 에 기준일과 함께 기록한다.
+  fetch_news.py가 만든 클리핑의 "발췌" 절에 선별 기사의 숫자·표만 추가한다.
+- 회사 IR은 "사풍"(부풀리는 회사 vs 보수적 회사)을 보정해 읽는다.
+- 수집 파일 규칙(수집일 파일명 + 출처 frontmatter)은 `references/data-layout.md`.
+  리포트의 모든 표는 이 raw 파일에서 나와야 한다. 시세(주가·시총)는 raw 로 쌓지 않고
+  계산 단계의 assumptions.json 에 기준일과 함께 기록한다.
 - 체크 항목의 상세는 `references/checklists.md`의 "1차 자료 체크포인트" 절을 따른다.
 
 ### 4. 기업 선정 점검 — 능력범위 → 해자 → 정성
@@ -172,6 +180,10 @@ python3 <스킬경로>/scripts/validate_report.py <리포트.md> \
 | `references/data-layout.md` | 리서치 폴더 레이아웃 — 리포트/자료(raw)/계산 분리 규칙 | 절차 2~3, 9 |
 | `scripts/valuation.py` | 9칸·낙점·진입가·실전 PER·PSR 결정론 계산기 (assumptions.json → valuation.json + 마크다운 표) | 절차 6 (실행) |
 | `scripts/validate_report.py` | 리포트 검증 게이트 — frontmatter·섹션·9칸·고지·수치 정합성 (exit 0 필수) | 절차 9 (실행) |
+| `scripts/dart.py` | OpenDART 공시 수집 — corp/filings/fin (무료 DART_API_KEY 필요, 없으면 웹 폴백) | 절차 3 (실행) |
+| `scripts/fetch_news.py` | Google News RSS 뉴스 목록 수집 (키·의존성 없음) | 절차 3 (실행) |
+| `scripts/fetch_youtube.py` | yt-dlp 래퍼 — 영상 검색·자막→타임스탬프 md (yt-dlp 없으면 스킵) | 심층 절차 3 (실행) |
 
 스크립트는 순수 Python 표준 라이브러리(3.9+)만 쓴다 — pip 설치 없이 어디서나 돈다.
+(선택적 외부 요소 둘: yt-dlp CLI, DART_API_KEY. 없어도 스킬은 폴백으로 완주한다.)
 원칙: **스크립트가 강제하고, 모델은 판단한다.** 산수·형식 검증에 토큰과 실수를 쓰지 않는다.
