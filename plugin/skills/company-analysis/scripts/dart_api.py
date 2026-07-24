@@ -66,17 +66,20 @@ def _throttle(min_interval=0.15):
     _LAST_CALL[0] = time.time()
 
 
-def call_json(key, path, **params):
-    """상태 000이면 list(또는 전체 dict), 013(데이터 없음)이면 [] 를 반환한다."""
+def call_json(key, path, raw=False, **params):
+    """상태 000이면 list(raw=True면 전체 dict), 013(데이터 없음)이면 []({}) 를 반환한다.
+
+    raw=True 는 total_page 등 메타가 필요한 페이지네이션 호출에서 쓴다.
+    """
     _throttle()
     params["crtfc_key"] = key
     url = "%s/%s?%s" % (BASE, path, urllib.parse.urlencode(params))
     d = json.loads(http_get(url).decode("utf-8"))
     status = d.get("status")
     if status == "000":
-        return d.get("list", d)
+        return d if raw else d.get("list", [])
     if status == "013":
-        return []
+        return {} if raw else []
     raise DartError(status, d.get("message", ""))
 
 
@@ -180,19 +183,23 @@ def filings(key, corp_code, days):
     bgn = end - dt.timedelta(days=days)
     rows, page = [], 1
     while True:
-        d = call_json(key, "list.json", corp_code=corp_code,
+        d = call_json(key, "list.json", raw=True, corp_code=corp_code,
                       bgn_de=bgn.strftime("%Y%m%d"), end_de=end.strftime("%Y%m%d"),
                       page_no=page, page_count=100)
-        if isinstance(d, list):
-            break  # 013
+        if not d:
+            break  # 013 데이터 없음
         rows.extend(d.get("list", []))
-        if page >= int(d.get("total_page", 1)):
+        if page >= int(d.get("total_page", 1) or 1):
             break
         page += 1
     return rows, bgn, end
 
 
 def finstate_all(key, corp_code, year, reprt="11011", fs_div="CFS"):
+    """전 계정 재무제표. fs_div 는 요청 파라미터일 뿐 응답에는 없으므로 필터에 쓰지 않는다.
+
+    연결(CFS)이 없으면 별도(OFS)로 폴백한다. 반환: (rows, 실제사용_fs_div)
+    """
     rows = call_json(key, "fnlttSinglAcntAll.json", corp_code=corp_code,
                      bsns_year=str(year), reprt_code=reprt, fs_div=fs_div)
     if not rows and fs_div == "CFS":
@@ -275,10 +282,9 @@ def latest_periodic(key, corp_code, kinds=("사업보고서", "반기보고서",
     """최근 2년 정기공시에서 kinds 우선순위로 최신 보고서를 찾는다. (rcept_no, report_nm)"""
     end = dt.date.today()
     bgn = end - dt.timedelta(days=730)
-    d = call_json(key, "list.json", corp_code=corp_code, pblntf_ty="A",
-                  bgn_de=bgn.strftime("%Y%m%d"), end_de=end.strftime("%Y%m%d"),
-                  page_no=1, page_count=100)
-    rows = d.get("list", []) if isinstance(d, dict) else []
+    rows = call_json(key, "list.json", corp_code=corp_code, pblntf_ty="A",
+                     bgn_de=bgn.strftime("%Y%m%d"), end_de=end.strftime("%Y%m%d"),
+                     page_no=1, page_count=100)
     for kind in kinds:
         for r in rows:  # list API는 최신순
             if kind in r.get("report_nm", ""):

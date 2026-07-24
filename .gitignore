@@ -23,3 +23,9 @@ node_modules/
 
 # Python
 __pycache__/
+
+# API 키 (커밋 금지)
+.env.local
+
+# DART 사업보고서 원본 XML (대용량 — 스크립트로 언제든 재취득 가능)
+리서치/**/원본/**/*.xml

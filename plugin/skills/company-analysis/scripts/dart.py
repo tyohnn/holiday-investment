@@ -178,7 +178,9 @@ def cmd_filings(key, name, days, out):
 
 ACCOUNTS = [("매출액", ["매출액", "수익(매출액)", "영업수익", "매출"]),
             ("영업이익", ["영업이익", "영업이익(손실)"]),
-            ("당기순이익", ["당기순이익", "당기순이익(손실)", "연결당기순이익"]),
+            # 분기·반기 보고서는 계정명이 "분기순이익"·"반기순이익"으로 바뀐다
+            ("당기순이익", ["당기순이익", "당기순이익(손실)", "연결당기순이익",
+                          "분기순이익", "분기순이익(손실)", "반기순이익", "반기순이익(손실)"]),
             ("자산총계", ["자산총계"]), ("부채총계", ["부채총계"]), ("자본총계", ["자본총계"]),
             ("영업활동현금흐름", ["영업활동현금흐름", "영업활동으로인한현금흐름", "영업활동순현금흐름"]),
             ("투자활동현금흐름", ["투자활동현금흐름", "투자활동으로인한현금흐름", "투자활동순현금흐름"]),
@@ -186,14 +188,15 @@ ACCOUNTS = [("매출액", ["매출액", "수익(매출액)", "영업수익", "�
             ("유형자산취득(CAPEX)", ["유형자산의취득", "유형자산의증가", "토지건물등유형자산의취득"])]
 
 
-def pick(rows, names, fs_div):
+def pick(rows, names):
+    """계정명 일치로 당기 금액을 찾는다. (응답에 fs_div 필드가 없으므로 필터하지 않는다 —
+    연결/별도 구분은 요청 파라미터로 이미 결정된다.)"""
     for target in names:
+        t = target.replace(" ", "")
         for it in rows:
-            if it.get("fs_div") != fs_div:
-                continue
-            if (it.get("account_nm") or "").replace(" ", "") == target.replace(" ", ""):
+            if (it.get("account_nm") or "").replace(" ", "") == t:
                 raw = (it.get("thstrm_amount") or "").replace(",", "").strip()
-                if raw and raw != "-":
+                if raw and raw not in ("-", ""):
                     try:
                         return int(raw)
                     except ValueError:
@@ -201,10 +204,10 @@ def pick(rows, names, fs_div):
     return None
 
 
-def extract_row(rows, fs_div, label):
+def extract_row(rows, label):
     row = {"구분": label}
     for acc_label, names in ACCOUNTS:
-        v = pick(rows, names, fs_div)
+        v = pick(rows, names)
         row[acc_label] = round(v / 1e8, 1) if v is not None else None
     return row
 
@@ -217,13 +220,13 @@ def cmd_fin(key, name, years, quarters, out):
         rows, fs = api.finstate_all(key, corp["corp_code"], y)
         if rows:
             fs_used = fs
-            table.append(extract_row(rows, fs, str(y)))
+            table.append(extract_row(rows, str(y)))
     if quarters:
         for y in (this_year, this_year - 1):
             for q_label, code in [("1Q", "11013"), ("반기", "11012"), ("3Q", "11014")]:
                 rows, fs = api.finstate_all(key, corp["corp_code"], y, reprt=code)
                 if rows:
-                    table.append(extract_row(rows, fs, "%d %s" % (y, q_label)))
+                    table.append(extract_row(rows, "%d %s" % (y, q_label)))
             if len(table) and any(r["구분"].startswith(str(y)) for r in table):
                 break  # 올해 분기가 있으면 작년 분기는 생략
     if not table:
@@ -364,7 +367,7 @@ def cmd_statements(key, name, year, out):
     lines += ["# %s 재무제표 전체 (%d)" % (corp["corp_name"], year), ""]
     counts = {}
     for sj, sj_name in SJ_NAMES:
-        stmt = [r for r in rows if r.get("sj_div") == sj and r.get("fs_div") == fs]
+        stmt = [r for r in rows if r.get("sj_div") == sj]
         if not stmt:
             continue
         counts[sj_name] = len(stmt)
