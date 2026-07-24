@@ -1,4 +1,4 @@
-# 투자 교재 (Fumadocs)
+# 숫자로 읽는 주식투자 (Fumadocs)
 
 저장소 루트 `교재/` 마크다운을 Fumadocs(Next.js) 문서로 서빙합니다.
 모노레포 앱 위치: `apps/web`.
@@ -28,10 +28,10 @@ pnpm dev
 | 경로 | 내용 |
 |---|---|
 | `/docs` | 교재 홈 (INDEX) |
-| `/docs/book1` | 교재① 방법론 목차 |
-| `/docs/book1/A1` … `/docs/book1/appendix` | 교재① 챕터 |
-| `/docs/book2` | 교재② 이차전지 목차 |
-| `/docs/book2/A1` … `/docs/book2/F3` | 교재② 챕터 |
+| `/docs/book1` | 1권: 기업의 가치를 계산하는 법 목차 |
+| `/docs/book1/I1` … `/docs/book1/appendix` | 1권 챕터 (표시 순서: I → A~H) |
+| `/docs/book2` | 2권: 이차전지 산업을 해부하는 법 목차 |
+| `/docs/book2/A1` … `/docs/book2/F3` | 2권 챕터 |
 | `/docs/reference` | 종목 DB · 용어교정 · 보강계획 · PLAN |
 
 한글 파일명은 frontmatter `title`로 유지하고, URL 슬러그만 ASCII로 둡니다

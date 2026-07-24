@@ -8,12 +8,12 @@ export function baseOptions(): BaseLayoutProps {
     },
     links: [
       {
-        text: '교재① 방법론',
+        text: '1권 기업의 가치를 계산하는 법',
         url: '/docs/book1',
         active: 'nested-url',
       },
       {
-        text: '교재② 이차전지',
+        text: '2권 이차전지 산업을 해부하는 법',
         url: '/docs/book2',
         active: 'nested-url',
       },
