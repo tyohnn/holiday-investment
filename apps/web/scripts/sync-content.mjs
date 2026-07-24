@@ -24,18 +24,18 @@ const BOOK1 = {
   title: '1권: 기업의 가치를 계산하는 법',
   pages: [
     { slug: 'index', src: '목차' },
-    '---제1부. 투자 전에 알아야 할 것 — 증권 기초 개념---',
+    '---제1부. 투자 전에 알아야 할 것---',
     { slug: 'I1', src: 'I1-자금조달과-지분희석' },
     { slug: 'I2', src: 'I2-우선주와-지주회사' },
     { slug: 'I3', src: 'I3-예탁-예금자보호와-파생상품' },
     { slug: 'I4', src: 'I4-시장의-규칙' },
     { slug: 'I5', src: 'I5-세금과-회계의-최소지식' },
-    '---제2부. 투자 철학과 원칙 — 어떤 게임을 하고 있는가---',
+    '---제2부. 투자 철학과 원칙---',
     { slug: 'A1', src: 'A1-투자의-본질' },
     { slug: 'A2', src: 'A2-안전마진과-십루타' },
     { slug: 'A3', src: 'A3-주가의-3요소' },
     { slug: 'A4', src: 'A4-보유-규율' },
-    '---제3부. 기업 선정 — 어떤 회사를 보는가---',
+    '---제3부. 기업 선정---',
     { slug: 'B1', src: 'B1-능력범위' },
     { slug: 'B2', src: 'B2-경제적-해자와-가격결정권' },
     { slug: 'B3', src: 'B3-산업-분석-프레임' },
@@ -46,14 +46,14 @@ const BOOK1 = {
     { slug: 'C3', src: 'C3-매출-추정의-기술' },
     { slug: 'C4', src: 'C4-PSR' },
     { slug: 'C5', src: 'C5-상대가치와-저평가-사다리' },
-    '---제5부. 정보 소스 — 무엇을 읽고 어떻게 해석하는가---',
+    '---제5부. 정보 소스---',
     { slug: 'D1', src: 'D1-1차-자료-읽기' },
     { slug: 'D2', src: 'D2-언론-리포트-수급-눈치' },
     '---제6부. 포트폴리오 구성---',
     { slug: 'E1', src: 'E1-자산배분과-8대2' },
     { slug: 'E2', src: 'E2-종목-편입과-구성-5단계' },
     { slug: 'E3', src: 'E3-현금-비중-10-30' },
-    '---제7부. 운용 — 매도·교체·비중조절---',
+    '---제7부. 운용---',
     { slug: 'F1', src: 'F1-매도와-종목교체' },
     '---제8부. 심리와 행동 규율---',
     { slug: 'G1', src: 'G1-감정-배제-장치' },
@@ -73,12 +73,12 @@ const BOOK2 = {
   title: '2권: 이차전지 산업을 해부하는 법',
   pages: [
     { slug: 'index', src: '목차' },
-    '---제1부. 이차전지 과학 원리 — 구성·에너지밀도·소재---',
+    '---제1부. 이차전지 과학 원리---',
     { slug: 'A1', src: 'A1-전기차와-배터리-흥망사' },
     { slug: 'A2', src: 'A2-이차전지-개념과-구성' },
     { slug: 'A3', src: 'A3-에너지밀도와-하이니켈' },
     { slug: 'A4', src: 'A4-분체기술-전구체-소성' },
-    '---제2부. 기술 로드맵 — 폼팩터·공정·차세대 전지---',
+    '---제2부. 기술 로드맵---',
     { slug: 'B1', src: 'B1-폼팩터-전쟁-46파이' },
     { slug: 'B2', src: 'B2-제조공정과-건식공정' },
     { slug: 'B3', src: 'B3-미드니켈-LMR-단결정' },
@@ -88,7 +88,7 @@ const BOOK2 = {
     { slug: 'C2', src: 'C2-IRA-FEOC-관세' },
     { slug: 'C3', src: 'C3-미중-패권과-중국-변수' },
     { slug: 'C4', src: 'C4-리튬-광물-사이클' },
-    '---제4부. 밸류체인 지도 — 셀·소재·장비·광물·특허---',
+    '---제4부. 밸류체인 지도---',
     { slug: 'D1', src: 'D1-밸류체인-지도와-채찍효과' },
     { slug: 'D2', src: 'D2-셀-제조사' },
     { slug: 'D3', src: 'D3-양극재-소재-체인' },
@@ -157,6 +157,22 @@ function escapePlain(text) {
   return out;
 }
 
+/** "2장. 제목 — 부제" → { title, subtitle } for short nav/page labels. */
+function splitTitleSubtitle(fullTitle) {
+  const m = String(fullTitle).match(/^(.+?)\s+[—–]\s+(.+)$/);
+  if (!m) return { title: String(fullTitle).trim(), subtitle: '' };
+  return { title: m[1].trim(), subtitle: m[2].trim() };
+}
+
+function shortLabel(text) {
+  const s = String(text);
+  const sep = s.match(/^---(.+)---$/);
+  if (sep) {
+    return `---${splitTitleSubtitle(sep[1]).title}---`;
+  }
+  return splitTitleSubtitle(s).title;
+}
+
 function parseMarkdown(raw) {
   let body = raw.replace(/^\uFEFF/, '');
   let title = '';
@@ -180,6 +196,13 @@ function parseMarkdown(raw) {
       .map((p) => p.replace(/^[#>*\-\s]+/, '').replace(/\n/g, ' ').trim())
       .find((p) => p.length > 20);
     description = para ? para.slice(0, 160) : title;
+  }
+
+  // Sidebar + DocsTitle use the short label; subtitle becomes DocsDescription.
+  const { title: shortTitle, subtitle } = splitTitleSubtitle(title);
+  if (subtitle) {
+    title = shortTitle;
+    description = subtitle;
   }
 
   return { title, description, body: escapeMdx(body.trimStart()) };
@@ -212,7 +235,9 @@ function convertFile(srcFile, destFile, overrides = {}) {
 }
 
 function navPages(pages) {
-  return pages.map((item) => (typeof item === 'string' ? item : item.slug));
+  return pages.map((item) =>
+    typeof item === 'string' ? shortLabel(item) : item.slug,
+  );
 }
 
 function syncBook(srcDir, book) {
