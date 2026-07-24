@@ -3,13 +3,13 @@
 ## 경로·파일명
 
 ```
-리서치/기업/<종목명>/YYYY-MM-DD-기본분석.md
-리서치/기업/<종목명>/YYYY-MM-DD-심층분석.md
+리서치/기업/<종목명>/분석/YYYY-MM-DD-기본분석.md
+리서치/기업/<종목명>/분석/YYYY-MM-DD-심층분석.md
 ```
 
 - 현재 작업 디렉토리 기준. 폴더가 없으면 만든다.
 - 같은 날짜·같은 종류 파일이 있으면 새 파일을 만들지 말고 기존 파일을 갱신한다.
-- 리포트는 폴더 루트에만 둔다. raw 수집 자료는 `자료/`, assumptions/valuation JSON은
+- 완성 리포트는 `분석/`, raw 수집 자료는 `자료/`, assumptions/valuation JSON은
   `계산/` — 전체 규칙은 `data-layout.md`.
 - frontmatter의 낙점적정주가·상승여력·진입가는 `scripts/valuation.py` 출력(valuation.json)
   값을 그대로 쓴다. 저장 후 `scripts/validate_report.py` 게이트를 통과해야 완성이다.
