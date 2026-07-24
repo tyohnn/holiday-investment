@@ -35,6 +35,42 @@
   필수 섹션, 9칸 존재, 고지 문구, 그리고 수치 정합성(진입가 = 낙점 ÷ 3, 상승여력 =
   낙점/현재가 − 1, 계산기 출력과의 일치)을 검사한다. exit 0이 아니면 미완성이다.
 
+수집도 같은 원칙이다 — 결정론적으로 가져올 수 있는 것은 스크립트가, 선별·발췌만 에이전트가:
+
+- `scripts/dart.py` + `dart_api.py` — OpenDART 공식 API **전면 커버** (OpenDartReader
+  커버리지 참조, stdlib 재구현): `snapshot` 한 방이면 재무 추이(연간+분기)·공식 재무지표·
+  공시 목록(유증·CB 플래그)·자금조달 주요사항(유증·무증·CB·BW·EB·감자·자사주·소송)·
+  지분거래(대량보유·임원 소유보고)·지배구조(최대주주·변동·배당·직원·타법인출자)를 자료/
+  레이아웃으로 일괄 저장. 개별 심화: `report`(정기보고서 11항목), `doc`(원본 문서 텍스트),
+  `indicators`, `corp`(기업개황). 산출물마다 방법론 메모(내부자 매수 판독, 문화 판별,
+  지분 희석, SOTP 입력) 부착.
+- `scripts/fetch_news.py` — Google News RSS로 뉴스 목록(제목·날짜·매체·URL)을 결정론적으로
+  수집. 에이전트 웹서치는 런마다 결과가 달라지는 보강용으로 강등.
+- `scripts/fetch_youtube.py` — yt-dlp 래퍼. 영상 검색 → 신뢰 채널 선별 → 자막을
+  타임스탬프 md로 저장 (심층 모드 전용, 회사 공식 IR 컨퍼런스콜 영상이 주 대상).
+
+### 선택적 외부 요소 (없어도 스킬은 폴백으로 완주한다)
+
+| 요소 | 용도 | 없을 때 |
+|---|---|---|
+| DART API 키 | dart.py — [opendart.fss.or.kr](https://opendart.fss.or.kr) **개인회원** 무료 즉시 발급 (기업회원은 IP 등록 필요) | DART 웹 열람·웹서치로 폴백 |
+| `yt-dlp` CLI | fetch_youtube.py — `brew install yt-dlp` | 유튜브 단계 건너뜀 |
+
+DART 키 설정은 두 갈래다 — 둘 다 `.env.local`에 권한 600으로 저장하고 `.gitignore`에 자동 등록한다:
+
+```bash
+# 키를 이미 발급받았다면 (에이전트에게 알려주면 대신 실행해 준다)
+python3 skills/company-analysis/scripts/dart.py setup --key <40자리키>
+
+# 키가 없다면 — 브라우저 폼이 열려 발급 절차부터 안내한다
+python3 skills/company-analysis/scripts/dart.py setup
+```
+
+탐색 순서: `--api-key` > `DART_API_KEY` 환경변수 > `./.env.local` > `./.env` >
+`~/.config/investment-analyst/env`. 여러 프로젝트에서 공유하려면 마지막 경로에 두면 된다.
+
+그 외에는 전부 순수 Python 표준 라이브러리(3.9+)다 — pip 설치 없음.
+
 ## 데이터 레이아웃 — raw와 분석의 분리
 
 분석 과정에서 수집·생성되는 모든 파일은 종목/산업 폴더 안에서 역할별로 분리된다

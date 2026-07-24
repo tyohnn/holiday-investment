@@ -64,6 +64,10 @@ description: >-
   채점표(축·기업별 상중하·서열)는 `계산/YYYY-MM-DD-채점표.md`로 남긴다 — 레이아웃 규칙은
   `../company-analysis/references/data-layout.md`. 다음 분석은 이 자료를 재사용한다
   (통계·정책 90일 이내면 재수집 생략).
+- 뉴스·유튜브는 company-analysis의 수집 스크립트를 산업 쿼리로 재사용한다:
+  `../company-analysis/scripts/fetch_news.py "<산업명>" --queries "정책,점유율,수요" --out …`,
+  `../company-analysis/scripts/fetch_youtube.py search "<산업명> 전망"` → 신뢰 채널 선별 →
+  `subs`. 주요 기업 공시는 `../company-analysis/scripts/dart.py filings <회사명>` 으로.
 - 골격: ①요약(서열·국면·후보) ②시장 정의와 규모 ③경쟁력 축과 채점표 ④국면 3문
   ⑤라이프사이클/버블 판정 ⑥밸류체인 지도 ⑦유망 종목 후보 ⑧출처.
 - frontmatter: `title / 산업 / 데이터기준일 / 시장규모 / 라이프사이클단계 / 종목후보(리스트) / 요약`.
