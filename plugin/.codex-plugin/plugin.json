@@ -6,6 +6,15 @@
     "name": "prime",
     "email": "prime@medai.im"
   },
+  "homepage": "https://github.com/ssota-labs/investment-team",
+  "repository": "https://github.com/ssota-labs/investment-team",
+  "license": "UNLICENSED",
   "keywords": ["investment", "equity-research", "valuation", "korean", "value-investing"],
-  "skills": ["./skills/company-analysis", "./skills/industry-analysis"]
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Investment Analyst",
+    "shortDescription": "가치투자 방법론으로 상장기업·산업을 분석하는 리서치 스킬 팩",
+    "developerName": "prime",
+    "category": "Productivity"
+  }
 }
