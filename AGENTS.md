@@ -41,8 +41,10 @@ The pipeline shells out to these CLI tools (no code-level packages exist):
 - There is no lint/test/build. To sanity-check a script, use `bash -n script.sh`.
 - `.claude/skills/*` symlinks point into the gitignored `.agents/` dir and are expected to
   be broken in a fresh checkout.
-- The `investment-analyst` plugin (기업·산업 분석 스킬 팩) lives in `plugin/` — a self-contained,
-  distributable plugin for Claude Code / Codex / Cursor (methodology bundled inside `skills/`,
-  no dependency on `교재/`). Its reports go to `리서치/`. Install via `plugin/install.sh`
-  (Cursor·Codex) or `/plugin` (Claude Code). Platform-wide plan lives in `로드맵.md`.
+- The `investment-analyst` plugin (기업·산업 분석 스킬 팩) lives in `plugin/` — a self-contained
+  plugin bundled for all three tools' own native plugin systems: `.claude-plugin/`,
+  `.cursor-plugin/`, `.codex-plugin/` each hold a manifest pointing at the shared `skills/` and
+  `commands/` folders (no per-tool file copies, no dependency on `교재/`). Its reports go to
+  `리서치/`. See `plugin/README.md` for each tool's native install steps. Platform-wide plan
+  lives in `로드맵.md`.
 - `*.sh.superseded` files are deprecated and not part of the active pipeline.
