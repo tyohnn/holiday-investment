@@ -32,7 +32,7 @@ pnpm dev
 | `/docs/book1/I1` … `/docs/book1/appendix` | 1권 챕터 (표시 순서: I → A~H) |
 | `/docs/book2` | 2권: 이차전지 산업을 해부하는 법 목차 |
 | `/docs/book2/A1` … `/docs/book2/F3` | 2권 챕터 |
-| `/docs/reference` | 종목 DB · 용어교정 · 보강계획 · PLAN |
+| `/docs/reference` | 종목 DB |
 
 한글 파일명은 frontmatter `title`로 유지하고, URL 슬러그만 ASCII로 둡니다
 (중첩 한글 경로가 Next.js 정적 생성에서 깨지는 이슈 회피).

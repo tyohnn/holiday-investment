@@ -110,11 +110,7 @@ const BOOK2 = {
 /** pagePath in content/docs → original 교재 relative path (for GitHub link) */
 const SOURCE_MAP = new Map([
   ['index.mdx', 'INDEX.md'],
-  ['reference/index.mdx', 'INDEX.md'],
-  ['reference/stocks.mdx', '종목/INDEX.md'],
-  ['reference/glossary.mdx', '용어교정.md'],
-  ['reference/enrichment.mdx', '보강계획.md'],
-  ['reference/plan.mdx', 'PLAN.md'],
+  ['reference/index.mdx', '종목/INDEX.md'],
   ['book1/index.mdx', '교재1-방법론/목차.md'],
   ['book2/index.mdx', '교재2-이차전지/목차.md'],
 ]);
@@ -377,10 +373,7 @@ function rewriteIndexLinks(body) {
     body
       .replace(/\]\(교재1-방법론\/목차\.md\)/g, '](/docs/book1)')
       .replace(/\]\(교재2-이차전지\/목차\.md\)/g, '](/docs/book2)')
-      .replace(/\]\(보강계획\.md\)/g, '](/docs/reference/enrichment)')
-      .replace(/\]\(용어교정\.md\)/g, '](/docs/reference/glossary)')
-      .replace(/\]\(종목\/INDEX\.md\)/g, '](/docs/reference/stocks)')
-      .replace(/\]\(PLAN\.md\)/g, '](/docs/reference/plan)'),
+      .replace(/\]\(종목\/INDEX\.md\)/g, '](/docs/reference)'),
   );
 }
 
@@ -403,7 +396,7 @@ function main() {
 
   writeJson(path.join(DEST, 'meta.json'), {
     title: '숫자로 읽는 주식투자',
-    pages: ['index', '---교재---', 'book1', 'book2', '---자료---', 'reference'],
+    pages: ['index', '---교재---', 'book1', 'book2', '---참고---', 'reference'],
   });
 
   {
@@ -412,7 +405,7 @@ function main() {
     writeDoc(
       path.join(DEST, 'index.mdx'),
       '숫자로 읽는 주식투자',
-      '기업 가치평가와 이차전지 산업 분석을 다루는 2권 55장 투자 교재',
+      '기업의 가치를 계산하는 법과 이차전지 산업을 해부하는 법',
       rewriteIndexLinks(parsed.body),
     );
   }
@@ -423,31 +416,15 @@ function main() {
   const refDir = path.join(DEST, 'reference');
   mkdirp(refDir);
   writeJson(path.join(refDir, 'meta.json'), {
-    title: '자료',
-    pages: ['index', 'stocks', 'glossary', 'enrichment', 'plan'],
+    title: '종목 DB',
+    pages: ['index'],
   });
 
-  writeDoc(
-    path.join(refDir, 'index.mdx'),
-    '자료',
-    '종목 DB, 용어교정표, 보강계획, 프로젝트 PLAN',
-    `강의 노트에서 추출한 보조 자료입니다.
-
-<Cards>
-  <Card title="종목 DB" href="/docs/reference/stocks" />
-  <Card title="용어교정표" href="/docs/reference/glossary" />
-  <Card title="보강계획" href="/docs/reference/enrichment" />
-  <Card title="PLAN" href="/docs/reference/plan" />
-</Cards>
-`,
-  );
-
-  convertFile(path.join(SRC, '종목', 'INDEX.md'), path.join(refDir, 'stocks.mdx'), {
+  // Student-facing reference only: stocks DB.
+  // PLAN / 보강계획 / 용어교정 are authoring tools and stay unpublished.
+  convertFile(path.join(SRC, '종목', 'INDEX.md'), path.join(refDir, 'index.mdx'), {
     title: '종목 DB',
   });
-  convertFile(path.join(SRC, '용어교정.md'), path.join(refDir, 'glossary.mdx'));
-  convertFile(path.join(SRC, '보강계획.md'), path.join(refDir, 'enrichment.mdx'));
-  convertFile(path.join(SRC, 'PLAN.md'), path.join(refDir, 'plan.mdx'));
 
   writeSourceMap();
 
