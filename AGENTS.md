@@ -3,10 +3,12 @@
 ## Cursor Cloud specific instructions
 
 ### What this repo is
-This is **not a server/app**. It is (1) a Bash **YouTube → transcription pipeline** and
-(2) an authored **Korean Markdown knowledge base** (`교재/`, `강의/`). There is no
-package manifest, build step, dev server, database, or test framework. The "deliverable"
-is Markdown; you edit those files directly.
+This is primarily (1) a Bash **YouTube → transcription pipeline** and
+(2) an authored **Korean Markdown knowledge base** (`교재/`, `강의/`).
+There is also a pnpm monorepo front-end under `apps/web` (Fumadocs/Next.js) that
+serves `교재/` — run from repo root with `pnpm install` / `pnpm dev`. Shared
+packages can go in `packages/*`. The knowledge-base Markdown remains the core
+deliverable; the site is a viewer over it.
 
 ### Dependencies (pre-installed in the VM snapshot)
 The pipeline shells out to these CLI tools (no code-level packages exist):
