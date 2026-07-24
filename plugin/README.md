@@ -23,6 +23,33 @@
 - 추정은 객관적으로, 보수성은 매수가로. 결과가 "사지 마라"면 그렇게 쓴다.
 - 리포트는 종목 추천이 아니라 방법론의 문제풀이다.
 
+## 스크립트가 강제하고, 모델은 판단한다
+
+계산과 형식 검증은 마크다운 지시가 아니라 번들 Python 스크립트(표준 라이브러리 전용,
+3.9+, pip 불필요)가 결정론적으로 수행한다:
+
+- `scripts/valuation.py` — 가정(assumptions.json)을 받아 9칸 매트릭스·낙점 적정주가·
+  진입가(÷3)·안전마진 판정·실전 PER·미래 PSR을 계산하고, 리포트에 붙여넣을 마크다운
+  표까지 출력한다. 에이전트는 가정 선택과 근거 서술만 담당한다 — 손 산수 금지.
+- `scripts/validate_report.py` — 리포트 저장 전 통과해야 하는 게이트. frontmatter 스펙,
+  필수 섹션, 9칸 존재, 고지 문구, 그리고 수치 정합성(진입가 = 낙점 ÷ 3, 상승여력 =
+  낙점/현재가 − 1, 계산기 출력과의 일치)을 검사한다. exit 0이 아니면 미완성이다.
+
+## 데이터 레이아웃 — raw와 분석의 분리
+
+분석 과정에서 수집·생성되는 모든 파일은 종목/산업 폴더 안에서 역할별로 분리된다
+(상세: `skills/company-analysis/references/data-layout.md`):
+
+```
+리서치/기업/<종목>/
+├── YYYY-MM-DD-{기본|심층}분석.md   # 완성 리포트만 루트에
+├── 자료/{시세,재무,공시,IR,뉴스}/  # raw 수집 자료 (출처 frontmatter 필수, 해석 금지)
+└── 계산/                           # assumptions.json · valuation.json (재계산 가능)
+```
+
+다음 분석은 `자료/`를 먼저 재사용하고(시세 1일, 재무·공시 90일 이내), 리포트의 모든
+숫자는 raw 파일로 역추적된다. 트래커 스킬(로드맵 P3)이 같은 폴더에 데일리 수집을 쌓는다.
+
 ## 구조
 
 ```
@@ -37,7 +64,8 @@ plugin/
 ├── skills/                  # ← 세 도구가 전부 이 폴더를 그대로 네이티브 인식한다
 │   ├── company-analysis/
 │   │   ├── SKILL.md
-│   │   └── references/      # checklists · valuation · industry-frame · report-templates
+│   │   ├── references/      # checklists · valuation · industry-frame · report-templates · data-layout
+│   │   └── scripts/         # valuation.py (9칸 계산기) · validate_report.py (검증 게이트)
 │   └── industry-analysis/
 │       └── SKILL.md
 └── README.md
