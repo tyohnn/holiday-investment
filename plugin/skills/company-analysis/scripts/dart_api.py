@@ -117,7 +117,8 @@ REPORT_ITEMS = {
     "직원": ("empSttus.json", "인원·평균연봉 — 문화 판별 대용 지표"),
     "임원전체보수": ("hmvAuditAllSttus.json", "보수 총액"),
     "개인별보수": ("indvdlByPay.json", "5억 이상 개인별 보수"),
-    "타법인출자": ("otrCprInvstmntSttus.json", "지주·SOTP 계산 입력"),
+    "타법인출자": ("otrCprInvstmntSttus.json", "지주·SOTP 계산 입력 — 투자자산의 정형 부분"),
+    "감사의견": ("accnutAdtorNmNdAdtOpinion.json", "감사인·감사의견 — 비적정이면 즉시 경계"),
 }
 
 # 주요사항보고서 (DS005): 항목명 → API 경로. 자금조달·지배구조 이벤트 중심.
@@ -220,12 +221,36 @@ def ownership(key, corp_code):
 
 def document(key, rcept_no):
     """공시 원본(zip) → 파일명 오름차순 첫 문서의 텍스트. (제목 추출은 dart.py 몫)"""
+    name, raw = document_raw(key, rcept_no)
+    return name, decode_kr(raw)
+
+
+def document_raw(key, rcept_no):
+    """공시 원본(zip)의 대표 파일을 (파일명, bytes) 로 반환. 전체가 필요하면 call_zip 직접."""
     files = call_zip(key, "document.xml", rcept_no=rcept_no)
     name = sorted(files)[0]
-    raw = files[name]
+    return name, files[name]
+
+
+def decode_kr(raw):
     for enc in ("utf-8", "cp949", "euc-kr"):
         try:
-            return name, raw.decode(enc)
+            return raw.decode(enc)
         except UnicodeDecodeError:
             continue
-    return name, raw.decode("utf-8", "replace")
+    return raw.decode("utf-8", "replace")
+
+
+def latest_periodic(key, corp_code, kinds=("사업보고서", "반기보고서", "분기보고서")):
+    """최근 2년 정기공시에서 kinds 우선순위로 최신 보고서를 찾는다. (rcept_no, report_nm)"""
+    end = dt.date.today()
+    bgn = end - dt.timedelta(days=730)
+    d = call_json(key, "list.json", corp_code=corp_code, pblntf_ty="A",
+                  bgn_de=bgn.strftime("%Y%m%d"), end_de=end.strftime("%Y%m%d"),
+                  page_no=1, page_count=100)
+    rows = d.get("list", []) if isinstance(d, dict) else []
+    for kind in kinds:
+        for r in rows:  # list API는 최신순
+            if kind in r.get("report_nm", ""):
+                return r.get("rcept_no"), r.get("report_nm")
+    return None, None

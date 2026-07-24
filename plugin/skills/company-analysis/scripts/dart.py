@@ -18,6 +18,9 @@
     python3 dart.py events 크래프톤 --days 365 --out …     # 유증·CB·BW·자사주·소송 주요사항
     python3 dart.py ownership 크래프톤 --out …             # 대량보유(5%)·임원 소유보고 → 내부자 매수 판독
     python3 dart.py doc <접수번호> --out …                  # 공시 원본 문서 → 텍스트 md
+    python3 dart.py annual 크래프톤 --out-dir 리서치/기업/크래프톤/자료
+                                                           # 최신 사업보고서 원본 저장 + 목차 분할
+                                                           #  (주석·감사보고서 ★표시, 독해 체크리스트 포함)
     python3 dart.py snapshot 크래프톤 --out-dir 리서치/기업/크래프톤/자료
                                                            # ↑ 표준 수집 일괄 실행 (딸깍)
 
@@ -149,7 +152,11 @@ def cmd_filings(key, name, days, out):
 ACCOUNTS = [("매출액", ["매출액", "수익(매출액)", "영업수익", "매출"]),
             ("영업이익", ["영업이익", "영업이익(손실)"]),
             ("당기순이익", ["당기순이익", "당기순이익(손실)", "연결당기순이익"]),
-            ("자산총계", ["자산총계"]), ("부채총계", ["부채총계"]), ("자본총계", ["자본총계"])]
+            ("자산총계", ["자산총계"]), ("부채총계", ["부채총계"]), ("자본총계", ["자본총계"]),
+            ("영업활동현금흐름", ["영업활동현금흐름", "영업활동으로인한현금흐름", "영업활동순현금흐름"]),
+            ("투자활동현금흐름", ["투자활동현금흐름", "투자활동으로인한현금흐름", "투자활동순현금흐름"]),
+            ("재무활동현금흐름", ["재무활동현금흐름", "재무활동으로인한현금흐름", "재무활동순현금흐름"]),
+            ("유형자산취득(CAPEX)", ["유형자산의취득", "유형자산의증가", "토지건물등유형자산의취득"])]
 
 
 def pick(rows, names, fs_div):
@@ -214,6 +221,14 @@ def cmd_fin(key, name, years, quarters, out):
         str(ratio(r["부채총계"], r["자본총계"]) or "—") for r in table) + " |")
     lines.append("| ROE(%, 순이익/자본) | " + " | ".join(
         str(ratio(r["당기순이익"], r["자본총계"]) or "—") for r in table) + " |")
+
+    def fcf(r):
+        op, capex = r.get("영업활동현금흐름"), r.get("유형자산취득(CAPEX)")
+        if op is None or capex is None:
+            return "—"
+        return fmt_cell(round(op - abs(capex), 1))  # CAPEX 부호 표기 차이 흡수
+
+    lines.append("| FCF근사(영업CF−CAPEX) | " + " | ".join(fcf(r) for r in table) + " |")
     write_or_print("\n".join(lines) + "\n", out, {"ok": True, "구간수": len(table)})
 
 
@@ -303,6 +318,59 @@ def cmd_doc(key, rcept_no, out):
     write_or_print("\n".join(lines), out, {"ok": True, "길이": len(body)})
 
 
+def cmd_annual(key, name, out_dir):
+    """최신 정기보고서(사업>반기>분기) 원본 저장 + 목차 단위 md 분할.
+
+    주석·감사보고서를 에이전트가 섹션 단위로 읽을 수 있게 한다. 완전 파싱을 시도하지
+    않는다 — 원본 XML을 함께 저장하고, 수치 인용 전 원문 대조를 요구한다.
+    """
+    import dart_doc
+    corp = resolve(key, name)
+    rcept, report_nm = api.latest_periodic(key, corp["corp_code"])
+    if not rcept:
+        print(json.dumps({"ok": False, "error": "최근 2년 내 정기보고서 없음"}, ensure_ascii=False))
+        sys.exit(1)
+
+    files = api.call_zip(key, "document.xml", rcept_no=rcept)
+    today = TODAY().isoformat()
+    kind = "사업보고서" if "사업보고서" in report_nm else ("반기보고서" if "반기" in report_nm else "분기보고서")
+    base = os.path.join(out_dir, "원본", "%s-%s-%s" % (today, kind, rcept))
+    os.makedirs(base, exist_ok=True)
+
+    # 1) 원본 그대로 보존
+    for fname, raw in files.items():
+        with open(os.path.join(base, fname), "wb") as f:
+            f.write(raw)
+
+    # 2) 대표 문서를 목차 단위로 분할
+    main_name = sorted(files)[0]
+    sections = dart_doc.split_sections(api.decode_kr(files[main_name]))
+    viewer = "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=%s" % rcept
+    index = fm("%s (%s)" % (corp["corp_name"], corp["stock_code"]),
+               "OpenDART document API — %s" % report_nm,
+               ["원문뷰어: %s" % viewer,
+                "주의: 표 서식 일부 손실 — 수치 인용 전 원문 대조"])
+    index += ["# %s %s — 섹션 목록" % (corp["corp_name"], kind), ""]
+    note_files = []
+    for i, (title, body) in enumerate(sections, 1):
+        safe = re.sub(r"[^\w가-힣 .-]", "", title).strip().replace(" ", "-")[:50] or "섹션"
+        sec_file = "%02d-%s.md" % (i, safe)
+        star = " ★주석" if dart_doc.is_note_section(title) else ""
+        index.append("- [%s](%s)%s" % (title, sec_file, star))
+        if star:
+            note_files.append(sec_file)
+        with open(os.path.join(base, sec_file), "w", encoding="utf-8") as f:
+            f.write("# %s\n\n> 출처: %s (%s) · 원문: %s\n\n%s\n" % (title, report_nm, rcept, viewer, body))
+    index += ["", dart_doc.NOTE_CHECKLIST]
+    with open(os.path.join(base, "INDEX.md"), "w", encoding="utf-8") as f:
+        f.write("\n".join(index) + "\n")
+
+    print(json.dumps({"ok": True, "보고서": report_nm, "접수번호": rcept, "위치": base,
+                      "섹션수": len(sections), "주석섹션": note_files,
+                      "다음단계": "INDEX.md의 주석 체크리스트를 따라 ★주석·사업의내용 섹션을 읽어라"},
+                     ensure_ascii=False, indent=2))
+
+
 def cmd_snapshot(key, name, out_dir):
     """표준 수집 일괄 — 자료/ 레이아웃(재무·공시 하위)을 한 번에 채운다."""
     corp = resolve(key, name)
@@ -363,6 +431,8 @@ def main():
     e.add_argument("--days", type=int, default=365); e.add_argument("--out")
     o = sub.add_parser("ownership"); o.add_argument("name"); o.add_argument("--out")
     d = sub.add_parser("doc"); d.add_argument("rcept_no"); d.add_argument("--out")
+    a = sub.add_parser("annual"); a.add_argument("name")
+    a.add_argument("--out-dir", required=True, help="자료 루트 (원본/ 하위에 저장)")
     s = sub.add_parser("snapshot"); s.add_argument("name")
     s.add_argument("--out-dir", required=True)
     args = p.parse_args()
@@ -384,6 +454,8 @@ def main():
         cmd_ownership(key, args.name, args.out)
     elif args.cmd == "doc":
         cmd_doc(key, args.rcept_no, args.out)
+    elif args.cmd == "annual":
+        cmd_annual(key, args.name, args.out_dir)
     else:
         cmd_snapshot(key, args.name, args.out_dir)
 
