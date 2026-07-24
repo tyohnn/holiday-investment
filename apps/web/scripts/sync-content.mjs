@@ -241,18 +241,25 @@ function syncBook(srcDir, book) {
 
 /** Strip personal/channel names and aliases from published docs (safety net). */
 function scrubNames(text) {
-  return text
+  // Keep external fraud wording in G2 (김정환 case), not our channel brand.
+  const protectedFraudMembership = '멤버십을 팔면서';
+  const fraudToken = '__KEEP_FRAUD_MEMBERSHIP__';
+  let out = String(text).replaceAll(protectedFraudMembership, fraudToken);
+
+  out = out
     .replace(/우공이산\s*위키/g, '투자 교재')
-    .replace(/우공이산TV/g, '강의TV')
-    .replace(/우공이산\s*TV/g, '강의TV')
+    .replace(/우공이산TV/g, '강의')
+    .replace(/우공이산\s*TV/g, '강의')
     .replace(/우공이산\//g, '')
     .replace(/우공이산/g, '강의')
-    // ASR channel mishearings of 우공이산
+    // ASR channel mishearings of 우공이산 / 우궁*
     .replace(/우공사님/g, '강사')
     .replace(
       /우공(?:지산|기산|기사리|기사|이사|이상|회사인|회사|인산|해산|예산|일산|의사인|의사|위산|의\s*산|의산|유산|이삼|인사|상|산|사)/g,
       '강의',
     )
+    .replace(/우궁(?:이산|이상|사)?/g, '강의')
+    .replace(/우응산|우국인산|의공이상/g, '강의')
     .replace(/박순혁\s*작가님/g, '강사')
     .replace(/박순혁\s*작가/g, '강사')
     .replace(/박순혁/g, '강사')
@@ -266,6 +273,7 @@ function scrubNames(text) {
     .replace(/박작가/g, '강사')
     .replace(/박\s*작가/g, '강사')
     .replace(/작가님/g, '강사')
+    .replace(/박지모/g, '')
     // Host / co-host (박소현) + common ASR mishearings
     .replace(/박소현의\s*/g, '')
     .replace(/박소현\s*앵커님?/g, '강사')
@@ -296,6 +304,7 @@ function scrubNames(text) {
     .replace(/박수현은/g, '강사는')
     // keep 박수현 의원 (politician); scrub other bare 박수현 as host ASR
     .replace(/박수현(?!\s*의원)/g, '강사')
+    .replace(/박순희|박순약|박소일|박수인|박승혁|박성혁/g, '강사')
     .replace(/경제유정/g, '')
     .replace(/경제\s*요정님?/g, '강사')
     .replace(/경기요정\s*/g, '')
@@ -335,16 +344,32 @@ function scrubNames(text) {
     .replace(/박씨모/g, '')
     .replace(/여니의\s*/g, '')
     .replace(/여니/g, '')
-    .replace(/5023\s*tv/gi, '강의TV')
-    .replace(/5023\s*멤버십/g, '강의 멤버십')
-    .replace(/5023\s*유료\s*멤버십/g, '유료 멤버십')
-    .replace(/5023\s*라이브/g, '강의 라이브')
+    .replace(/강의TV/g, '강의')
+    .replace(/빨간별(?:\s*\(멤버십 배지\))?/g, '구독 배지')
+    .replace(/멤버십\s*강의/g, '강의')
+    .replace(/강의\s*멤버십/g, '강의')
+    .replace(/멤버십전용/g, '보조강의')
+    .replace(/멤버십\s*전용/g, '보조 강의')
+    .replace(/유료\s*멤버십/g, '유료 강의')
+    .replace(/멤버십\s*라이브/g, '라이브 강의')
+    .replace(/멤버십\s*\(라이브\)/g, '라이브 강의')
+    .replace(/멤버십\s*스터디/g, '스터디')
+    .replace(/멤버십\s*밸류에이션\s*클래스/g, '밸류에이션 클래스')
+    .replace(/멤버십(?=\s*\d)/g, '보조 강의')
+    .replace(/멤버십/g, '보조 강의')
+    .replace(/5023\s*tv/gi, '강의')
+    .replace(/5023\s*멤버십/g, '강의')
+    .replace(/5023\s*유료\s*멤버십/g, '유료 강의')
+    .replace(/5023\s*라이브/g, '라이브 강의')
     .replace(/5023분들/g, '강의 분들')
     .replace(/5023/g, '강의')
     .replace(/유튜브\s*5024/g, '강의')
     .replace(/우리\s*5024/g, '우리 강의')
     .replace(/5024/g, '강의')
-    .replace(/강사\s+강사/g, '강사');
+    .replace(/강사\s+강사/g, '강사')
+    .replace(/보조 강의 강의/g, '보조 강의');
+
+  return out.replaceAll(fraudToken, protectedFraudMembership);
 }
 
 function rewriteIndexLinks(body) {
