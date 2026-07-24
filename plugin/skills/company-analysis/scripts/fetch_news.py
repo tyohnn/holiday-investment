@@ -6,7 +6,7 @@
 키·비용·외부 의존성 없음 (순수 표준 라이브러리, Python 3.9+).
 
 사용법:
-    python3 fetch_news.py "크래프톤" --out 자료/뉴스/2026-07-24-뉴스클리핑.md
+    python3 fetch_news.py "크래프톤" --out 자료/뉴스/2026-07.md   # 월 버킷
     python3 fetch_news.py "크래프톤" --queries "실적,수주,신작,유상증자" --days 60
     python3 fetch_news.py "이차전지" --queries "정책,점유율,캐즘" --days 90   # 산업용
 
@@ -77,7 +77,6 @@ def to_markdown(subject, results, days):
     today = dt.date.today().isoformat()
     lines = ["---",
              "수집일: %s" % today,
-             "기준일: %s" % today,
              "출처: Google News RSS (news.google.com/rss/search)",
              "대상: %s" % subject,
              "수집범위: 최근 %d일" % days,

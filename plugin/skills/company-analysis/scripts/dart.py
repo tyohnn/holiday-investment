@@ -29,10 +29,10 @@
     python3 dart.py snapshot 크래프톤 --out-dir 리서치/기업/크래프톤/자료
                                                            # ↑ 표준 수집 일괄 실행 (딸깍)
 
-snapshot 이 만드는 파일 (data-layout.md 준수):
-    재무/YYYY-MM-DD-재무추이.md · 재무/YYYY-MM-DD-재무지표.md
-    공시/YYYY-MM-DD-공시목록.md · 공시/YYYY-MM-DD-지배구조-정기보고서.md
-    공시/YYYY-MM-DD-자금조달-주요사항.md · 공시/YYYY-MM-DD-지분거래.md
+snapshot 이 만드는 파일 (data-layout.md 준수 — 파일명은 수집일이 아니라 내용이 덮는 기간):
+    재무/재무추이.md (누적·갱신) · 재무/재무제표-<사업연도>.md · 재무/재무지표.md
+    공시/공시목록.md · 공시/주요사항.md · 공시/지분거래.md · 공시/지배구조-<사업연도>.md
+    그리고 manifest.json (자료/의 형제)에 수집 이력·연도별 접수번호·정정이력을 남긴다.
 """
 import argparse
 import datetime as dt
@@ -42,6 +42,7 @@ import re
 import sys
 
 import dart_api as api
+import manifest as mf
 
 TODAY = dt.date.today
 FLAG_WORDS = ["유상증자", "무상증자", "전환사채", "신주인수권", "교환사채", "합병", "분할",
@@ -92,13 +93,31 @@ def resolve(key, name):
     return corp
 
 
-def fm(subject, source, extra=None):
-    today = TODAY().isoformat()
-    lines = ["---", "수집일: %s" % today, "기준일: %s" % today,
-             "출처: %s" % source, "대상: %s" % subject]
+def fm(subject, source, extra=None, 커버=None):
+    """frontmatter. 수집일은 여기 남기고 파일명에는 쓰지 않는다 — 파일명은 내용이 덮는 기간."""
+    lines = ["---", "수집일: %s" % TODAY().isoformat(), "출처: %s" % source, "대상: %s" % subject]
+    if 커버:
+        lines.append("커버기간: %s" % 커버)
     lines += extra or []
     lines += ["---", ""]
     return lines
+
+
+def update_manifest(out_path, key, info, corp=None, amendments=None):
+    """자료 경로에서 기업 루트를 찾아 manifest 를 갱신한다. 못 찾으면 조용히 건너뛴다."""
+    if not out_path:
+        return None
+    root = mf.find_root(out_path)
+    if not root:
+        return None
+    data = mf.load(root)
+    if corp:
+        mf.identity(data, corp)
+    if amendments is not None:
+        mf.detect_amendments(data, amendments)
+    mf.record(data, key, info)
+    mf.save(root, data)
+    return root
 
 
 def fmt_cell(v):
@@ -158,8 +177,11 @@ def cmd_filings(key, name, days, out):
     corp = resolve(key, name)
     rows, bgn, end = api.filings(key, corp["corp_code"], days)
     flagged = [r for r in rows if any(w in r.get("report_nm", "") for w in FLAG_WORDS)]
+    latest = max((r.get("rcept_no", "") for r in rows), default="")
+    update_manifest(out, "공시목록",
+                    {"커버": "%s~%s" % (bgn, end), "최종접수번호": latest, "건수": len(rows)}, corp)
     lines = fm("%s (%s)" % (corp["corp_name"], corp["stock_code"]),
-               "OpenDART list API", ["수집범위: %s ~ %s" % (bgn, end)])
+               "OpenDART list API", 커버="%s ~ %s" % (bgn, end))
     lines += ["# %s 공시 목록" % corp["corp_name"], ""]
     if flagged:
         lines += ["## ⚑ 자금조달·지배구조 플래그 (%d건)" % len(flagged), ""]
@@ -214,12 +236,14 @@ def extract_row(rows, label):
 
 def cmd_fin(key, name, years, quarters, out):
     corp = resolve(key, name)
-    table, fs_used = [], "CFS"
+    table, fs_used, rcepts = [], "CFS", {}
     this_year = TODAY().year
     for y in range(this_year - years, this_year):
         rows, fs = api.finstate_all(key, corp["corp_code"], y)
         if rows:
             fs_used = fs
+            # 사업연도별 접수번호를 기록해 두면 다음 수집 때 기재정정을 감지할 수 있다
+            rcepts[str(y)] = rows[0].get("rcept_no", "")
             table.append(extract_row(rows, str(y)))
     if quarters:
         for y in (this_year, this_year - 1):
@@ -236,9 +260,16 @@ def cmd_fin(key, name, years, quarters, out):
     def ratio(a, b):
         return round(a / b * 100, 1) if (a is not None and b) else None
 
+    커버 = "%s~%s" % (table[0]["구분"], table[-1]["구분"])
+    root = update_manifest(out, "재무", {"커버": 커버, "연도별접수번호": rcepts,
+                                        "기준": "연결" if fs_used == "CFS" else "별도"},
+                           corp, amendments=rcepts)
+    amended = (mf.load(root).get("정정이력", [])[-len(rcepts):] if root else []) or []
+    amended = [a for a in amended if a.get("감지일") == TODAY().isoformat()]
+
     lines = fm("%s (%s)" % (corp["corp_name"], corp["stock_code"]),
                "OpenDART fnlttSinglAcntAll API (%s)" % ("연결" if fs_used == "CFS" else "별도"),
-               ["단위: 억 원"])
+               ["단위: 억 원"], 커버=커버)
     lines += ["# %s 재무 추이" % corp["corp_name"], "",
               "| 항목 | " + " | ".join(r["구분"] for r in table) + " |",
               "|---|" + "---|" * len(table)]
@@ -259,7 +290,16 @@ def cmd_fin(key, name, years, quarters, out):
         return fmt_cell(round(op - abs(capex), 1))  # CAPEX 부호 표기 차이 흡수
 
     lines.append("| FCF근사(영업CF−CAPEX) | " + " | ".join(fcf(r) for r in table) + " |")
-    write_or_print("\n".join(lines) + "\n", out, {"ok": True, "구간수": len(table)})
+    if amended:
+        lines += ["", "## ⚠ 기재정정 감지", "",
+                  "직전 수집 대비 접수번호가 바뀐 사업연도가 있다 — 해당 연도 수치가 정정됐을 수 있다.", ""]
+        for a in amended:
+            lines.append("- %s (%s → %s)" % (a["대상"], a["이전접수번호"], a["새접수번호"]))
+        lines.append("")
+    summary = {"ok": True, "구간수": len(table)}
+    if amended:
+        summary["기재정정감지"] = [a["대상"] for a in amended]
+    write_or_print("\n".join(lines) + "\n", out, summary)
 
 
 def cmd_indicators(key, name, years, out):
@@ -268,12 +308,13 @@ def cmd_indicators(key, name, years, out):
     lines = fm("%s (%s)" % (corp["corp_name"], corp["stock_code"]),
                "OpenDART fnlttSinglIndx API (공식 산출 지표)")
     lines += ["# %s 재무지표" % corp["corp_name"], ""]
-    got = 0
+    got, years_got = 0, []
     for y in range(this_year - years, this_year):
         data = api.indicators(key, corp["corp_code"], y)
         if not data:
             continue
         got += 1
+        years_got.append(y)
         lines += ["## %d" % y, ""]
         for cls, rows in data.items():
             lines += ["### %s" % cls, ""]
@@ -281,6 +322,7 @@ def cmd_indicators(key, name, years, out):
     if not got:
         print(json.dumps({"ok": False, "error": "재무지표 데이터 없음"}, ensure_ascii=False))
         sys.exit(1)
+    update_manifest(out, "재무지표", {"연도": years_got}, corp)
     write_or_print("\n".join(lines) + "\n", out, {"ok": True, "연도수": got})
 
 
@@ -303,6 +345,8 @@ def cmd_report(key, name, item, year, out):
 def cmd_events(key, name, days, out):
     corp = resolve(key, name)
     data = api.events(key, corp["corp_code"], days)
+    update_manifest(out, "주요사항", {"커버일수": days,
+                                     "항목": {k: len(v) for k, v in data.items()}}, corp)
     lines = fm("%s (%s)" % (corp["corp_name"], corp["stock_code"]),
                "OpenDART 주요사항보고서 API", ["수집범위: 최근 %d일" % days,
                "방법론 메모: 유증·CB·BW는 지분 희석(I1 체크리스트) 대상"])
@@ -319,6 +363,7 @@ def cmd_events(key, name, days, out):
 def cmd_ownership(key, name, out):
     corp = resolve(key, name)
     data = api.ownership(key, corp["corp_code"])
+    update_manifest(out, "지분거래", {"항목": {k: len(v) for k, v in data.items()}}, corp)
     lines = fm("%s (%s)" % (corp["corp_name"], corp["stock_code"]),
                "OpenDART 지분공시 API (majorstock·elestock)",
                ["방법론 메모: 오너 개인 자금 매수 = 신호, 오너 불참 임원 매수 = 제스처 함정 (B4)"])
@@ -366,6 +411,8 @@ def cmd_statements(key, name, year, out):
                ["단위: 원 (제출 원본 그대로 — 주당 지표는 원/주)"])
     lines += ["# %s 재무제표 전체 (%d)" % (corp["corp_name"], year), ""]
     counts = {}
+    update_manifest(out, "재무제표", {"사업연도": year, "접수번호": rows[0].get("rcept_no", ""),
+                                     "기준": "연결" if fs == "CFS" else "별도"}, corp)
     for sj, sj_name in SJ_NAMES:
         stmt = [r for r in rows if r.get("sj_div") == sj]
         if not stmt:
@@ -392,9 +439,11 @@ def cmd_annual(key, name, out_dir):
         sys.exit(1)
 
     files = api.call_zip(key, "document.xml", rcept_no=rcept)
-    today = TODAY().isoformat()
     kind = "사업보고서" if "사업보고서" in report_nm else ("반기보고서" if "반기" in report_nm else "분기보고서")
-    base = os.path.join(out_dir, "원본", "%s-%s-%s" % (today, kind, rcept))
+    # 폴더명은 수집일이 아니라 보고서가 덮는 기간 + 접수번호 (정정본이면 접수번호가 달라 구분된다)
+    period = re.search(r"\((\d{4})\.(\d{2})\)", report_nm)
+    period_s = "%s.%s" % period.groups() if period else "기간미상"
+    base = os.path.join(out_dir, "원본", "%s-%s-%s" % (kind, period_s, rcept))
     os.makedirs(base, exist_ok=True)
 
     # 1) 원본 그대로 보존
@@ -408,8 +457,8 @@ def cmd_annual(key, name, out_dir):
     viewer = "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=%s" % rcept
     index = fm("%s (%s)" % (corp["corp_name"], corp["stock_code"]),
                "OpenDART document API — %s" % report_nm,
-               ["원문뷰어: %s" % viewer,
-                "주의: 표 서식 일부 손실 — 수치 인용 전 원문 대조"])
+               ["접수번호: %s" % rcept, "원문뷰어: %s" % viewer,
+                "주의: 표 서식 일부 손실 — 수치 인용 전 원문 대조"], 커버=period_s)
     index += ["# %s %s — 섹션 목록" % (corp["corp_name"], kind), ""]
     note_files = []
     for i, (title, body) in enumerate(sections, 1):
@@ -428,16 +477,19 @@ def cmd_annual(key, name, out_dir):
     with open(os.path.join(base, "INDEX.md"), "w", encoding="utf-8") as f:
         f.write("\n".join(index) + "\n")
 
+    update_manifest(base, "사업보고서",
+                    {"보고서": report_nm, "기간": period_s, "접수번호": rcept,
+                     "섹션수": len(sections), "폴더": os.path.relpath(base, out_dir)}, corp)
     print(json.dumps({"ok": True, "보고서": report_nm, "접수번호": rcept, "위치": base,
                       "섹션수": len(sections), "주석섹션": note_files,
-                      "다음단계": "INDEX.md의 주석 체크리스트를 따라 ★주석·사업의내용 섹션을 읽어라"},
+                      "다음단계": "INDEX.md의 주석·사업의내용 체크리스트를 따라 읽고, "
+                                "추적 가치가 있는 주제는 트래킹/ 문서로 남겨라 (references/tracking.md)"},
                      ensure_ascii=False, indent=2))
 
 
 def cmd_snapshot(key, name, out_dir):
     """표준 수집 일괄 — 자료/ 레이아웃(재무·공시 하위)을 한 번에 채운다."""
     corp = resolve(key, name)
-    today = TODAY().isoformat()
     yr = TODAY().year - 1
     made, errors = [], []
 
@@ -449,12 +501,13 @@ def cmd_snapshot(key, name, out_dir):
             errors.append("%s: %s" % (label, e))
 
     j = os.path.join
-    run(lambda: cmd_fin(key, name, 4, True, j(out_dir, "재무", "%s-재무추이.md" % today)), "재무추이")
-    run(lambda: cmd_statements(key, name, None, j(out_dir, "재무", "%s-재무제표전체-%d.md" % (today, yr))), "재무제표전체")
-    run(lambda: cmd_indicators(key, name, 2, j(out_dir, "재무", "%s-재무지표.md" % today)), "재무지표")
-    run(lambda: cmd_filings(key, name, 180, j(out_dir, "공시", "%s-공시목록.md" % today)), "공시목록")
-    run(lambda: cmd_events(key, name, 365, j(out_dir, "공시", "%s-자금조달-주요사항.md" % today)), "주요사항")
-    run(lambda: cmd_ownership(key, name, j(out_dir, "공시", "%s-지분거래.md" % today)), "지분거래")
+    # 파일명은 수집일이 아니라 내용이 덮는 기간으로 짓는다 (누적 시계열은 날짜 없이 갱신)
+    run(lambda: cmd_fin(key, name, 4, True, j(out_dir, "재무", "재무추이.md")), "재무추이")
+    run(lambda: cmd_statements(key, name, None, j(out_dir, "재무", "재무제표-%d.md" % yr)), "재무제표")
+    run(lambda: cmd_indicators(key, name, 2, j(out_dir, "재무", "재무지표.md")), "재무지표")
+    run(lambda: cmd_filings(key, name, 180, j(out_dir, "공시", "공시목록.md")), "공시목록")
+    run(lambda: cmd_events(key, name, 365, j(out_dir, "공시", "주요사항.md")), "주요사항")
+    run(lambda: cmd_ownership(key, name, j(out_dir, "공시", "지분거래.md")), "지분거래")
 
     def governance():
         lines = fm("%s (%s)" % (corp["corp_name"], corp["stock_code"]),
@@ -467,10 +520,11 @@ def cmd_snapshot(key, name, out_dir):
                 rows = []
             lines += ["## %s — %s" % (item, api.REPORT_ITEMS[item][1]), ""]
             lines += md_table(rows[:40])
-        path = j(out_dir, "공시", "%s-지배구조-정기보고서.md" % today)
+        path = j(out_dir, "공시", "지배구조-%d.md" % yr)
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w", encoding="utf-8") as f:
             f.write("\n".join(lines) + "\n")
+        update_manifest(path, "지배구조", {"사업연도": yr}, corp)
     run(governance, "지배구조")
 
     print(json.dumps({"ok": not errors or bool(made), "생성": made, "실패": errors,

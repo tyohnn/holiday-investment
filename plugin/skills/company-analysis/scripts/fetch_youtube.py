@@ -120,11 +120,13 @@ def cmd_subs(url, out_dir):
 
     safe_title = re.sub(r"[^\w가-힣 .-]", "", title).strip().replace(" ", "-")[:60]
     os.makedirs(out_dir, exist_ok=True)
-    out_path = os.path.join(out_dir, "%s-%s.md" % (today, safe_title))
+    # 파일명 접두사는 수집일이 아니라 영상 업로드일 (콘텐츠의 시점이 곧 정체성)
+    prefix = upload_fmt if upload_fmt != "미확인" else today
+    out_path = os.path.join(out_dir, "%s-%s.md" % (prefix, safe_title))
 
     lines = ["---",
              "수집일: %s" % today,
-             "기준일: %s" % upload_fmt,
+             "게시일: %s" % upload_fmt,
              '출처: "%s"' % url,
              '제목: "%s"' % title.replace('"', "'"),
              "채널: %s" % (meta.get("channel") or meta.get("uploader") or "미확인"),
