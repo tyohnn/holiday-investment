@@ -156,8 +156,9 @@ def main():
         except (OSError, json.JSONDecodeError, KeyError) as e:
             failures.append("valuation.json 교차검증 실패: %s" % e)
 
-    # 8. 출처·기준일 밀도 (경고만)
-    if len(re.findall(r"https?://|출처", text)) < 3:
+    # 8. 출처·기준일 밀도 (경고만) — URL·도메인·'출처/자료:' 표기를 모두 인식
+    src_pat = r"https?://|(?:[\w-]+\.)+(?:com|co\.kr|kr|net|org|io)(?:/|\b)|출처|자료\s*:"
+    if len(re.findall(src_pat, text)) < 3:
         warnings.append("출처 표기가 3건 미만 — 1차 자료 근거가 충분한지 확인")
 
     out = {"passed": not failures, "failures": failures, "warnings": warnings,

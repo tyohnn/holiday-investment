@@ -18,11 +18,18 @@ assumptions.json 스키마 (금액 단위: 억 원, 비율은 소수):
   "영업이익률": 0.23,
   "적정PER_3값": [15, 20, 25],
   "낙점": {"성장률": 0.20, "PER": 20},
+  "발행주식수": 7533015,                  // 선택: 주가×주식수 ↔ 시총 정합 검증용
   "직전연도_영업이익_억원": 5239,        // 선택: 실전 PER 계산용
   "차기연도_영업이익추정_억원": 7137,     // 선택: 포워드 실전 PER
   "세후계수": 0.8,                        // 선택, 기본 0.8
   "연수": 3                               // 선택, 기본 3
 }
+
+성장률 케이스는 소수 하나(균등 CAGR) 또는 연차별 배열을 섞어 쓸 수 있다 —
+M&A 연결·신공장 램프업처럼 "1년차 점프 후 저성장" 경로가 있는 기업용:
+  "성장률_3케이스": [0.08, [0.456, 0.05, 0.05], 0.20],
+  "낙점": {"성장률": [0.456, 0.05, 0.05], "PER": 14}
+배열 길이는 연수와 같아야 하며, 표에는 CAGR 환산치로 표시된다.
 
 출력: 9칸 매트릭스(적정시총·적정주가·상승여력), 낙점 적정주가·상승여력,
 진입가(낙점 적정주가 ÷ 3), 안전마진 충족 여부(상승여력 ≥ 200%),
@@ -43,6 +50,25 @@ def fail(msg):
     sys.exit(1)
 
 
+def growth_factor(g, years):
+    """성장률(소수 하나 = 균등 CAGR, 배열 = 연차별 경로) → 누적 성장 배수."""
+    if isinstance(g, (list, tuple)):
+        f = 1.0
+        for y in g:
+            f *= 1 + y
+        return f
+    return (1 + g) ** years
+
+
+def growth_label(g, years):
+    """표시용 라벨 — 배열이면 CAGR 환산치를 병기한다."""
+    if isinstance(g, (list, tuple)):
+        cagr = growth_factor(g, years) ** (1.0 / len(g)) - 1
+        path = "/".join("%g%%" % (y * 100) for y in g)
+        return "경로 %s (CAGR %.1f%%)" % (path, cagr * 100)
+    return "%g%%" % (g * 100)
+
+
 def load_assumptions(path):
     try:
         with open(path, encoding="utf-8") as f:
@@ -54,8 +80,15 @@ def load_assumptions(path):
         fail("필수 키 누락: %s" % ", ".join(missing))
     if len(a["성장률_3케이스"]) != 3 or len(a["적정PER_3값"]) != 3:
         fail("성장률_3케이스와 적정PER_3값은 정확히 3개여야 한다 (9칸 매트릭스)")
+    years = a.get("연수", 3)
     for g in a["성장률_3케이스"]:
-        if not -0.9 < g < 3.0:
+        if isinstance(g, (list, tuple)):
+            if len(g) != years:
+                fail("연차별 성장률 배열 %s 의 길이는 연수(%d)와 같아야 한다" % (g, years))
+            for y in g:
+                if not -0.9 < y < 3.0:
+                    fail("성장률 %s 은 소수여야 한다 (예: 20%% → 0.20)" % y)
+        elif not -0.9 < g < 3.0:
             fail("성장률 %s 은 소수여야 한다 (예: 20%% → 0.20)" % g)
     if not 0.0 < a["영업이익률"] < 1.0:
         fail("영업이익률은 0~1 사이 소수여야 한다 (예: 23%% → 0.23)")
@@ -64,6 +97,12 @@ def load_assumptions(path):
         fail("낙점 성장률 %s 이 성장률_3케이스 안에 없다" % nail.get("성장률"))
     if nail.get("PER") not in a["적정PER_3값"]:
         fail("낙점 PER %s 이 적정PER_3값 안에 없다" % nail.get("PER"))
+    # 시총 정합 검증 (발행주식수가 있으면): 주가 × 주식수 ↔ 시총(억원), 3% 초과 시 실패
+    if a.get("발행주식수"):
+        implied = a["현재주가"] * a["발행주식수"] / 1e8
+        if abs(implied - a["현재시총_억원"]) / a["현재시총_억원"] > 0.03:
+            fail("시총 정합 실패: 주가×주식수 = %.0f억 vs 현재시총_억원 = %s억 (3%% 초과 괴리)"
+                 % (implied, a["현재시총_억원"]))
     return a
 
 
@@ -77,7 +116,7 @@ def compute(a):
 
     cells = []
     for g in a["성장률_3케이스"]:
-        rev_n = rev0 * (1 + g) ** years
+        rev_n = rev0 * growth_factor(g, years)
         op = rev_n * opm
         ni = op * tax
         row = {"성장률": g, "매출_억원": round(rev_n, 1),
@@ -136,16 +175,18 @@ def to_markdown(r):
     header = "| %d년 후 기준 | " % r["입력"]["연수"] + " | ".join("PER %g배" % p for p in pers) + " |"
     lines.append(header)
     lines.append("|---|" + "---|" * len(pers))
+    years = r["입력"]["연수"]
     for row in r["매트릭스"]:
         cells = []
         for c in row["칸"]:
             mark = "**" if (row["성장률"] == r["낙점"]["성장률"] and c["PER"] == r["낙점"]["PER"]) else ""
             cells.append("%s%s원 (%+.1f%%)%s" % (mark, format(c["적정주가"], ","), c["상승여력"] * 100, mark))
-        lines.append("| 성장 %g%% (순익 %s억) | " % (row["성장률"] * 100, format(round(row["순이익_억원"]), ","))
+        lines.append("| 성장 %s (순익 %s억) | " % (growth_label(row["성장률"], years),
+                                                   format(round(row["순이익_억원"]), ","))
                      + " | ".join(cells) + " |")
     lines.append("")
-    lines.append("- 낙점: 성장률 %g%% × PER %g배 = 적정주가 %s원 (상승여력 %+.1f%%)"
-                 % (r["낙점"]["성장률"] * 100, r["낙점"]["PER"],
+    lines.append("- 낙점: 성장률 %s × PER %g배 = 적정주가 %s원 (상승여력 %+.1f%%)"
+                 % (growth_label(r["낙점"]["성장률"], years), r["낙점"]["PER"],
                     format(r["낙점"]["적정주가"], ","), r["낙점"]["상승여력"] * 100))
     lines.append("- 안전마진(200%%) %s → 진입가 %s원 (낙점 적정주가 ÷ 3)"
                  % ("충족" if r["안전마진충족"] else "미충족", format(r["진입가"], ",")))
