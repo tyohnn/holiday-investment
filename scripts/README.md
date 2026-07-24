@@ -1,6 +1,6 @@
 # scripts — 파이프라인 스크립트
 
-우공이산 강의 155편을 내려받아 전사하고 노트·교재로 가공한 파이프라인이다. 모두 macOS 기준이며 `yt-dlp`, `ffmpeg`, `whisper.cpp`(`whisper-cli`)에 의존한다.
+강의 강의 155편을 내려받아 전사하고 노트·교재로 가공한 파이프라인이다. 모두 macOS 기준이며 `yt-dlp`, `ffmpeg`, `whisper.cpp`(`whisper-cli`)에 의존한다.
 
 ## 폴더 구성
 
@@ -42,4 +42,4 @@ scripts/download/predownload.sh     # 1. 영상·오디오 확보
 scripts/transcribe/transcribe.sh    # 2. 전사 → txt·srt 생성 후 원본 삭제
 ```
 
-산출물은 `우공이산/원본 스크립트/<재생목록>/<NN - 제목>/`에 `.txt`·`.srt`로 쌓인다.
+산출물은 `원본 스크립트/<재생목록>/<NN - 제목>/`에 `.txt`·`.srt`로 쌓인다.

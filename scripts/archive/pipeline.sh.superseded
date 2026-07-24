@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# 우공이산 멤버십 재생목록 → 영상(mp4 720p) + 오디오(mp3) + 스크립트(txt/srt)
+# 강의 멤버십 재생목록 → 영상(mp4 720p) + 오디오(mp3) + 스크립트(txt/srt)
 # 재실행 안전(idempotent): 이미 받은/처리한 항목은 건너뜀.
 set -uo pipefail
 
 URL="https://www.youtube.com/playlist?list=PLF67QBTodqAUcDMMSIFzuRvBIp6jMCpDe"
 PROFILE="chrome:Profile 1"
-DEST="/Users/titanism/projects/주식공부/우공이산/【우공이산 멤버십⭐전용】"
+DEST="/Users/titanism/projects/주식공부/【강의 멤버십⭐전용】"
 MODEL="$HOME/models/whisper-ggml/ggml-large-v3-turbo-q5_0.bin"
 LANG="ko"
 mkdir -p "$DEST"

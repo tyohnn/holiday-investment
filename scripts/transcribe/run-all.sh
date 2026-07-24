@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# 우공이산 멤버십 9개 재생목록 → 재생목록 폴더 아래 "영상별 폴더" 구조로 처리.
-#   우공이산/<재생목록>/<NN - 제목>/<NN - 제목>.{mp4,mp3,txt,srt}
+# 강의 멤버십 9개 재생목록 → 재생목록 폴더 아래 "영상별 폴더" 구조로 처리.
+#   <재생목록>/<NN - 제목>/<NN - 제목>.{mp4,mp3,txt,srt}
 # 순차 처리 · 재개(idempotent) · 디스크 보호 · 완전 로컬(whisper.cpp)
 set -uo pipefail
 
 PROFILE="chrome:Profile 1"
-ROOT="/Users/titanism/projects/주식공부/우공이산"
+ROOT="/Users/titanism/projects/주식공부/강의"
 MODEL="$HOME/models/whisper-ggml/ggml-large-v3-turbo-q5_0.bin"
 LANG="ko"
 FLOOR_GB=8
@@ -13,7 +13,7 @@ FLOOR_GB=8
 PLAYLISTS=(
   "https://www.youtube.com/playlist?list=PLF67QBTodqAUcDMMSIFzuRvBIp6jMCpDe"   # 1 멤버십 전용 (21)
   "https://www.youtube.com/playlist?list=PLF67QBTodqAUjLK936XdzUB01Ih6ijWwm"   # 2 투자 스킬업 (48)
-  "https://www.youtube.com/playlist?list=PLF67QBTodqAX8C-tjj2EjUJwdGPYYFXTT"   # 3 여니의 주식 상담소 (39)
+  "https://www.youtube.com/playlist?list=PLF67QBTodqAX8C-tjj2EjUJwdGPYYFXTT"   # 3 주식 상담소 (39)
   "https://www.youtube.com/playlist?list=PLF67QBTodqAXFHTtbH1zlwGEH7OvGBkCn"   # 4 능력범위 향상 (38)
   "https://www.youtube.com/playlist?list=PLF67QBTodqAU3n8Zj90ufPfEhppvvo78J"   # 5 스타터 목록 (8)
   "https://www.youtube.com/playlist?list=PLF67QBTodqAU70w2WcXyUGXn-oo2SVKHd"   # 6 특별 강좌 시리즈 (1)
