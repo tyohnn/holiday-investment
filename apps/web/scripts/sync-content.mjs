@@ -369,12 +369,23 @@ function scrubNames(text) {
 }
 
 function rewriteIndexLinks(body) {
-  return scrubNames(
-    body
-      .replace(/\]\(교재1-방법론\/목차\.md\)/g, '](/docs/book1)')
-      .replace(/\]\(교재2-이차전지\/목차\.md\)/g, '](/docs/book2)')
-      .replace(/\]\(종목\/INDEX\.md\)/g, '](/docs/reference)'),
-  );
+  let out = body
+    .replace(/\]\(교재1-방법론\/목차\.md\)/g, '](/docs/book1)')
+    .replace(/\]\(교재2-이차전지\/목차\.md\)/g, '](/docs/book2)')
+    .replace(/\]\(종목\/INDEX\.md\)/g, '](/docs/reference)');
+
+  for (const book of [BOOK1, BOOK2]) {
+    const srcDir = book.folder === 'book1' ? '교재1-방법론' : '교재2-이차전지';
+    for (const item of book.pages) {
+      if (typeof item === 'string' || item.slug === 'index') continue;
+      out = out.replaceAll(
+        `](${srcDir}/${item.src}.md)`,
+        `](/docs/${book.folder}/${item.slug})`,
+      );
+    }
+  }
+
+  return scrubNames(out);
 }
 
 function writeSourceMap() {
