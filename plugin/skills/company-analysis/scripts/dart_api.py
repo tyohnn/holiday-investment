@@ -152,9 +152,21 @@ REPORT_ITEMS = {
     "개인별보수": ("indvdlByPay.json", "5억 이상 개인별 보수"),
     "타법인출자": ("otrCprInvstmntSttus.json", "지주·SOTP 계산 입력 — 투자자산의 정형 부분"),
     "감사의견": ("accnutAdtorNmNdAdtOpinion.json", "감사인·감사의견 — 비적정이면 즉시 경계"),
+    # ↓ 풀 커버리지 확장 (2026-07-25) — 부채 만기 구조·자금 사용처(사풍 검증)·감사 계약
+    "조건부자본증권미상환": ("cndlCaplScritsNrdmpBlce.json", "조건부자본증권 잔액"),
+    "회사채미상환": ("cprndNrdmpBlce.json", "회사채 잔액 — 부채 만기 구조"),
+    "단기사채미상환": ("srtpdPsndbtNrdmpBlce.json", "단기사채 잔액"),
+    "기업어음미상환": ("entrprsBilScritsNrdmpBlce.json", "기업어음 잔액"),
+    "채무증권발행실적": ("detScritsIsuAcmslt.json", "채무증권 발행 이력"),
+    "사모자금사용": ("prvsrpCptalUseDtls.json", "사모 조달자금 사용내역 — 발표 vs 실사용(사풍)"),
+    "공모자금사용": ("pssrpCptalUseDtls.json", "공모 조달자금 사용내역 — 발표 vs 실사용(사풍)"),
+    "미등기임원보수": ("unrstExctvMendngSttus.json", "미등기임원 보수"),
+    "사외이사변동": ("outcmpnyDrctrNdChangeSttus.json", "사외이사 구성·변동"),
+    "감사용역계약": ("adtServcCnclsSttus.json", "감사 보수·시간"),
+    "비감사용역계약": ("accnutAdtorNonAdtServcCnclsSttus.json", "감사인 비감사용역 — 독립성 점검"),
 }
 
-# 주요사항보고서 (DS005): 항목명 → API 경로. 자금조달·지배구조 이벤트 중심.
+# 주요사항보고서 (DS005): 항목명 → API 경로. 풀 커버리지 (2026-07-25 확장, 36종).
 EVENT_ITEMS = {
     "유상증자결정": "piicDecsn.json",
     "무상증자결정": "fricDecsn.json",
@@ -166,6 +178,46 @@ EVENT_ITEMS = {
     "자기주식취득결정": "tsstkAqDecsn.json",
     "자기주식처분결정": "tsstkDpDecsn.json",
     "소송제기": "lwstLg.json",
+    # 자기주식 신탁
+    "자기주식신탁계약체결결정": "tsstkAqTrctrCnsDecsn.json",
+    "자기주식신탁계약해지결정": "tsstkAqTrctrCcDecsn.json",
+    # 영업·자산 양수도
+    "영업양수결정": "bsnInhDecsn.json",
+    "영업양도결정": "bsnTrfDecsn.json",
+    "유형자산양수결정": "tgastInhDecsn.json",
+    "유형자산양도결정": "tgastTrfDecsn.json",
+    "타법인주식양수결정": "otcprStkInvscrInhDecsn.json",
+    "타법인주식양도결정": "otcprStkInvscrTrfDecsn.json",
+    "주권관련사채권양수결정": "stkrtbdInhDecsn.json",
+    "주권관련사채권양도결정": "stkrtbdTrfDecsn.json",
+    "자산양수도기타풋백옵션": "astInhtrfEtcPtbkOpt.json",
+    # 구조 개편
+    "회사합병결정": "cmpMgDecsn.json",
+    "회사분할결정": "cmpDvDecsn.json",
+    "회사분할합병결정": "cmpDvmgDecsn.json",
+    "주식교환이전결정": "stkExtrDecsn.json",
+    # 위기 신호
+    "부도발생": "dfOcr.json",
+    "영업정지": "bsnSp.json",
+    "회생절차개시신청": "ctrcvsBgrq.json",
+    "해산사유발생": "dsRsOcr.json",
+    "채권은행관리절차개시": "bnkMngtPcbg.json",
+    "채권은행관리절차중단": "bnkMngtPcsp.json",
+    # 해외 상장
+    "해외상장결정": "ovLstDecsn.json",
+    "해외상장폐지결정": "ovDlstDecsn.json",
+    "해외상장": "ovLst.json",
+    "해외상장폐지": "ovDlst.json",
+}
+
+# 증권신고서 (DS006): 항목명 → API 경로. 유증·합병의 상세 조건 (지분 희석 분석 직결).
+REGISTRATION_ITEMS = {
+    "지분증권": "estkRs.json",
+    "채무증권": "bdRs.json",
+    "합병": "mgRs.json",
+    "분할": "dvRs.json",
+    "주식교환이전": "extrRs.json",
+    "증권예탁증권": "stkdpRs.json",
 }
 
 # 재무지표 (fnlttSinglIndx) 분류코드
@@ -175,7 +227,9 @@ INDEX_CLASSES = {"수익성": "M210000", "안정성": "M220000", "성장성": "M
 # ------------------------------------------------------------- 고수준 호출
 
 def company(key, corp_code):
-    return call_json(key, "company.json", corp_code=corp_code)
+    # company.json 은 list 없이 최상위 필드로 응답한다 → raw 로 dict 전체를 받는다
+    d = call_json(key, "company.json", raw=True, corp_code=corp_code)
+    return d if isinstance(d, dict) else {}
 
 
 def filings(key, corp_code, days):
@@ -234,6 +288,31 @@ def events(key, corp_code, days):
                              bgn_de=bgn.strftime("%Y%m%d"), end_de=end.strftime("%Y%m%d"))
         except DartError:
             continue  # 일부 항목 미지원 기업 — 조용히 넘어간다
+        if rows:
+            out[label] = rows
+    return out
+
+
+def registrations(key, corp_code, days):
+    """증권신고서(DS006) — 응답이 group 배열로 묶여 오는 경우를 평탄화한다."""
+    end = dt.date.today()
+    bgn = end - dt.timedelta(days=days)
+    out = {}
+    for label, path in REGISTRATION_ITEMS.items():
+        try:
+            d = call_json(key, path, raw=True, corp_code=corp_code,
+                          bgn_de=bgn.strftime("%Y%m%d"), end_de=end.strftime("%Y%m%d"))
+        except DartError:
+            continue
+        if not d:
+            continue
+        rows = list(d.get("list", []))
+        for g in d.get("group", []):
+            title = g.get("title", "")
+            for r in g.get("list", []):
+                r = dict(r)
+                r["_group"] = title
+                rows.append(r)
         if rows:
             out[label] = rows
     return out
