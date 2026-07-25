@@ -83,8 +83,30 @@ python3 ingest/ingest.py 크래프톤 --only fin  # 일부 단계만
 결정론적으로 유도되므로 **저장하지 않고 뷰로 파생**한다. 미연결 3건은 원본이 수집 범위
 밖이거나 제목 매칭이 안 되는 소수 케이스 — null로 남겨 조회 가능.
 
-## 다음 (A2·A3)
+## A2 완료 (2026-07-25) — 트래킹 정본은 DB 원장
 
-- [ ] A2: 2회차 갱신 사이클 + trackings 원장 vs md 판정 (완료 기준 ③)
-- [ ] A3: zod 스키마+한글 라벨 사전 (`platform/schema/`) → 종목 1페이지 프로토타입
-      (annual_summary·filings·filing_correction_chains·events·sections 소비)
+같은 갱신 과제를 두 서브에이전트(sonnet)에게 **md 편집 / CLI 원장**으로 각각 시켜 판정
+기준 5개로 비교했고, **B안(DB 원장 정본 + md는 생성 뷰)** 을 채택했다. 상세 비교표는
+[docs/리서치-데이터-설계-원칙.md](../docs/리서치-데이터-설계-원칙.md) "A2 실험 결과".
+
+- 마찰: 도구 호출 9회(원장) vs 20회(md) · 토큰 102k vs 111k · 3.6분 vs 5.2분
+- 결정타는 **md의 조용한 실패**: 월 단위 날짜 1행 파싱 소실, 문서 내 자기모순 발생 직전,
+  같은 공시의 이중 기록(접수일 vs 합병기일)
+- 도구: `ingest/tracking.py` (add·list·export-md·import-md). append-only, update/delete 없음
+- 2회차 갱신 사이클 검증: 신규 적재 이벤트 5건 + 증권신고서를 원장에 반영 → 2017~2018년
+  사실이 기존 시계열 **중간에 자동 정렬 삽입**되어 크래프톤 M&A 연대기가 완성됨
+
+시행착오 로그 추가분:
+
+| # | 발견 | 대응 |
+|---|---|---|
+| 10 | 에이전트는 날짜를 `2025-09`·`2022`·`2026 1Q`로 자연스럽게 쓴다. md 파서는 조용히 누락, date 타입은 거부 — 둘 다 틀림 | `date_precision`(day/month/quarter/year) 컬럼 + CLI 정규화, md 뷰에서 원표기 복원 (0007) |
+| 11 | 중복 키가 (주제·날짜·문장)이면 같은 공시를 다른 날짜 기준으로 쓴 중복을 놓친다 (실제 발생) | `(주제, 접수번호)` 1순위 키 (0007) |
+| 12 | 같은 사실이 두 주제에 걸침 (IPO 자금사용목적 = 자금조달 ∩ M&A) | primary topic + `tags` 배열 (0007) |
+
+## 다음 (A3)
+
+- [ ] zod 스키마 + 한글 라벨 사전 (`platform/schema/`) — events·report_items payload 타입화
+      (account_id는 열린 집합이므로 UI 정형 축은 `account_concepts.concept` = 닫힌 enum)
+- [ ] 종목 1페이지 프로토타입 — annual_summary·filings·filing_correction_chains·events·
+      filing_sections·trackings 소비
