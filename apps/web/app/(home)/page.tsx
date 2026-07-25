@@ -6,7 +6,7 @@ export default function HomePage() {
       <h1 className="text-3xl font-bold tracking-tight mb-4">숫자로 읽는 주식투자</h1>
       <p className="text-fd-muted-foreground leading-relaxed mb-8">
         기업의 가치를 계산하는 법과 이차전지 산업을 해부하는 법을 두 권에
-        정리했습니다. 모든 서술은 강의 출처를 인용합니다.
+        정리한 교재입니다.
       </p>
       <div className="flex flex-col sm:flex-row gap-3">
         <Link

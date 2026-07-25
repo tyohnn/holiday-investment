@@ -24,18 +24,18 @@ const BOOK1 = {
   title: '1권: 기업의 가치를 계산하는 법',
   pages: [
     { slug: 'index', src: '목차' },
-    '---제1부. 투자 전에 알아야 할 것 — 증권 기초 개념---',
+    '---제1부. 투자 전에 알아야 할 것---',
     { slug: 'I1', src: 'I1-자금조달과-지분희석' },
     { slug: 'I2', src: 'I2-우선주와-지주회사' },
     { slug: 'I3', src: 'I3-예탁-예금자보호와-파생상품' },
     { slug: 'I4', src: 'I4-시장의-규칙' },
     { slug: 'I5', src: 'I5-세금과-회계의-최소지식' },
-    '---제2부. 투자 철학과 원칙 — 어떤 게임을 하고 있는가---',
+    '---제2부. 투자 철학과 원칙---',
     { slug: 'A1', src: 'A1-투자의-본질' },
     { slug: 'A2', src: 'A2-안전마진과-십루타' },
     { slug: 'A3', src: 'A3-주가의-3요소' },
     { slug: 'A4', src: 'A4-보유-규율' },
-    '---제3부. 기업 선정 — 어떤 회사를 보는가---',
+    '---제3부. 기업 선정---',
     { slug: 'B1', src: 'B1-능력범위' },
     { slug: 'B2', src: 'B2-경제적-해자와-가격결정권' },
     { slug: 'B3', src: 'B3-산업-분석-프레임' },
@@ -46,14 +46,14 @@ const BOOK1 = {
     { slug: 'C3', src: 'C3-매출-추정의-기술' },
     { slug: 'C4', src: 'C4-PSR' },
     { slug: 'C5', src: 'C5-상대가치와-저평가-사다리' },
-    '---제5부. 정보 소스 — 무엇을 읽고 어떻게 해석하는가---',
+    '---제5부. 정보 소스---',
     { slug: 'D1', src: 'D1-1차-자료-읽기' },
     { slug: 'D2', src: 'D2-언론-리포트-수급-눈치' },
     '---제6부. 포트폴리오 구성---',
     { slug: 'E1', src: 'E1-자산배분과-8대2' },
     { slug: 'E2', src: 'E2-종목-편입과-구성-5단계' },
     { slug: 'E3', src: 'E3-현금-비중-10-30' },
-    '---제7부. 운용 — 매도·교체·비중조절---',
+    '---제7부. 운용---',
     { slug: 'F1', src: 'F1-매도와-종목교체' },
     '---제8부. 심리와 행동 규율---',
     { slug: 'G1', src: 'G1-감정-배제-장치' },
@@ -73,12 +73,12 @@ const BOOK2 = {
   title: '2권: 이차전지 산업을 해부하는 법',
   pages: [
     { slug: 'index', src: '목차' },
-    '---제1부. 이차전지 과학 원리 — 구성·에너지밀도·소재---',
+    '---제1부. 이차전지 과학 원리---',
     { slug: 'A1', src: 'A1-전기차와-배터리-흥망사' },
     { slug: 'A2', src: 'A2-이차전지-개념과-구성' },
     { slug: 'A3', src: 'A3-에너지밀도와-하이니켈' },
     { slug: 'A4', src: 'A4-분체기술-전구체-소성' },
-    '---제2부. 기술 로드맵 — 폼팩터·공정·차세대 전지---',
+    '---제2부. 기술 로드맵---',
     { slug: 'B1', src: 'B1-폼팩터-전쟁-46파이' },
     { slug: 'B2', src: 'B2-제조공정과-건식공정' },
     { slug: 'B3', src: 'B3-미드니켈-LMR-단결정' },
@@ -88,7 +88,7 @@ const BOOK2 = {
     { slug: 'C2', src: 'C2-IRA-FEOC-관세' },
     { slug: 'C3', src: 'C3-미중-패권과-중국-변수' },
     { slug: 'C4', src: 'C4-리튬-광물-사이클' },
-    '---제4부. 밸류체인 지도 — 셀·소재·장비·광물·특허---',
+    '---제4부. 밸류체인 지도---',
     { slug: 'D1', src: 'D1-밸류체인-지도와-채찍효과' },
     { slug: 'D2', src: 'D2-셀-제조사' },
     { slug: 'D3', src: 'D3-양극재-소재-체인' },
@@ -110,11 +110,7 @@ const BOOK2 = {
 /** pagePath in content/docs → original 교재 relative path (for GitHub link) */
 const SOURCE_MAP = new Map([
   ['index.mdx', 'INDEX.md'],
-  ['reference/index.mdx', 'INDEX.md'],
-  ['reference/stocks.mdx', '종목/INDEX.md'],
-  ['reference/glossary.mdx', '용어교정.md'],
-  ['reference/enrichment.mdx', '보강계획.md'],
-  ['reference/plan.mdx', 'PLAN.md'],
+  ['reference/index.mdx', '종목/INDEX.md'],
   ['book1/index.mdx', '교재1-방법론/목차.md'],
   ['book2/index.mdx', '교재2-이차전지/목차.md'],
 ]);
@@ -161,6 +157,22 @@ function escapePlain(text) {
   return out;
 }
 
+/** "2장. 제목 — 부제" → { title, subtitle } for short nav/page labels. */
+function splitTitleSubtitle(fullTitle) {
+  const m = String(fullTitle).match(/^(.+?)\s+[—–]\s+(.+)$/);
+  if (!m) return { title: String(fullTitle).trim(), subtitle: '' };
+  return { title: m[1].trim(), subtitle: m[2].trim() };
+}
+
+function shortLabel(text) {
+  const s = String(text);
+  const sep = s.match(/^---(.+)---$/);
+  if (sep) {
+    return `---${splitTitleSubtitle(sep[1]).title}---`;
+  }
+  return splitTitleSubtitle(s).title;
+}
+
 function parseMarkdown(raw) {
   let body = raw.replace(/^\uFEFF/, '');
   let title = '';
@@ -184,6 +196,13 @@ function parseMarkdown(raw) {
       .map((p) => p.replace(/^[#>*\-\s]+/, '').replace(/\n/g, ' ').trim())
       .find((p) => p.length > 20);
     description = para ? para.slice(0, 160) : title;
+  }
+
+  // Sidebar + DocsTitle use the short label; subtitle becomes DocsDescription.
+  const { title: shortTitle, subtitle } = splitTitleSubtitle(title);
+  if (subtitle) {
+    title = shortTitle;
+    description = subtitle;
   }
 
   return { title, description, body: escapeMdx(body.trimStart()) };
@@ -216,7 +235,9 @@ function convertFile(srcFile, destFile, overrides = {}) {
 }
 
 function navPages(pages) {
-  return pages.map((item) => (typeof item === 'string' ? item : item.slug));
+  return pages.map((item) =>
+    typeof item === 'string' ? shortLabel(item) : item.slug,
+  );
 }
 
 function syncBook(srcDir, book) {
@@ -241,18 +262,25 @@ function syncBook(srcDir, book) {
 
 /** Strip personal/channel names and aliases from published docs (safety net). */
 function scrubNames(text) {
-  return text
+  // Keep external fraud wording in G2 (김정환 case), not our channel brand.
+  const protectedFraudMembership = '멤버십을 팔면서';
+  const fraudToken = '__KEEP_FRAUD_MEMBERSHIP__';
+  let out = String(text).replaceAll(protectedFraudMembership, fraudToken);
+
+  out = out
     .replace(/우공이산\s*위키/g, '투자 교재')
-    .replace(/우공이산TV/g, '강의TV')
-    .replace(/우공이산\s*TV/g, '강의TV')
+    .replace(/우공이산TV/g, '강의')
+    .replace(/우공이산\s*TV/g, '강의')
     .replace(/우공이산\//g, '')
     .replace(/우공이산/g, '강의')
-    // ASR channel mishearings of 우공이산
+    // ASR channel mishearings of 우공이산 / 우궁*
     .replace(/우공사님/g, '강사')
     .replace(
       /우공(?:지산|기산|기사리|기사|이사|이상|회사인|회사|인산|해산|예산|일산|의사인|의사|위산|의\s*산|의산|유산|이삼|인사|상|산|사)/g,
       '강의',
     )
+    .replace(/우궁(?:이산|이상|사)?/g, '강의')
+    .replace(/우응산|우국인산|의공이상/g, '강의')
     .replace(/박순혁\s*작가님/g, '강사')
     .replace(/박순혁\s*작가/g, '강사')
     .replace(/박순혁/g, '강사')
@@ -266,6 +294,7 @@ function scrubNames(text) {
     .replace(/박작가/g, '강사')
     .replace(/박\s*작가/g, '강사')
     .replace(/작가님/g, '강사')
+    .replace(/박지모/g, '')
     // Host / co-host (박소현) + common ASR mishearings
     .replace(/박소현의\s*/g, '')
     .replace(/박소현\s*앵커님?/g, '강사')
@@ -296,6 +325,7 @@ function scrubNames(text) {
     .replace(/박수현은/g, '강사는')
     // keep 박수현 의원 (politician); scrub other bare 박수현 as host ASR
     .replace(/박수현(?!\s*의원)/g, '강사')
+    .replace(/박순희|박순약|박소일|박수인|박승혁|박성혁/g, '강사')
     .replace(/경제유정/g, '')
     .replace(/경제\s*요정님?/g, '강사')
     .replace(/경기요정\s*/g, '')
@@ -335,28 +365,52 @@ function scrubNames(text) {
     .replace(/박씨모/g, '')
     .replace(/여니의\s*/g, '')
     .replace(/여니/g, '')
-    .replace(/5023\s*tv/gi, '강의TV')
-    .replace(/5023\s*멤버십/g, '강의 멤버십')
-    .replace(/5023\s*유료\s*멤버십/g, '유료 멤버십')
-    .replace(/5023\s*라이브/g, '강의 라이브')
+    .replace(/강의TV/g, '강의')
+    .replace(/빨간별(?:\s*\(멤버십 배지\))?/g, '구독 배지')
+    .replace(/멤버십\s*강의/g, '강의')
+    .replace(/강의\s*멤버십/g, '강의')
+    .replace(/멤버십전용/g, '보조강의')
+    .replace(/멤버십\s*전용/g, '보조 강의')
+    .replace(/유료\s*멤버십/g, '유료 강의')
+    .replace(/멤버십\s*라이브/g, '라이브 강의')
+    .replace(/멤버십\s*\(라이브\)/g, '라이브 강의')
+    .replace(/멤버십\s*스터디/g, '스터디')
+    .replace(/멤버십\s*밸류에이션\s*클래스/g, '밸류에이션 클래스')
+    .replace(/멤버십(?=\s*\d)/g, '보조 강의')
+    .replace(/멤버십/g, '보조 강의')
+    .replace(/5023\s*tv/gi, '강의')
+    .replace(/5023\s*멤버십/g, '강의')
+    .replace(/5023\s*유료\s*멤버십/g, '유료 강의')
+    .replace(/5023\s*라이브/g, '라이브 강의')
     .replace(/5023분들/g, '강의 분들')
     .replace(/5023/g, '강의')
     .replace(/유튜브\s*5024/g, '강의')
     .replace(/우리\s*5024/g, '우리 강의')
     .replace(/5024/g, '강의')
-    .replace(/강사\s+강사/g, '강사');
+    .replace(/강사\s+강사/g, '강사')
+    .replace(/보조 강의 강의/g, '보조 강의');
+
+  return out.replaceAll(fraudToken, protectedFraudMembership);
 }
 
 function rewriteIndexLinks(body) {
-  return scrubNames(
-    body
-      .replace(/\]\(교재1-방법론\/목차\.md\)/g, '](/docs/book1)')
-      .replace(/\]\(교재2-이차전지\/목차\.md\)/g, '](/docs/book2)')
-      .replace(/\]\(보강계획\.md\)/g, '](/docs/reference/enrichment)')
-      .replace(/\]\(용어교정\.md\)/g, '](/docs/reference/glossary)')
-      .replace(/\]\(종목\/INDEX\.md\)/g, '](/docs/reference/stocks)')
-      .replace(/\]\(PLAN\.md\)/g, '](/docs/reference/plan)'),
-  );
+  let out = body
+    .replace(/\]\(교재1-방법론\/목차\.md\)/g, '](/docs/book1)')
+    .replace(/\]\(교재2-이차전지\/목차\.md\)/g, '](/docs/book2)')
+    .replace(/\]\(종목\/INDEX\.md\)/g, '](/docs/reference)');
+
+  for (const book of [BOOK1, BOOK2]) {
+    const srcDir = book.folder === 'book1' ? '교재1-방법론' : '교재2-이차전지';
+    for (const item of book.pages) {
+      if (typeof item === 'string' || item.slug === 'index') continue;
+      out = out.replaceAll(
+        `](${srcDir}/${item.src}.md)`,
+        `](/docs/${book.folder}/${item.slug})`,
+      );
+    }
+  }
+
+  return scrubNames(out);
 }
 
 function writeSourceMap() {
@@ -378,7 +432,7 @@ function main() {
 
   writeJson(path.join(DEST, 'meta.json'), {
     title: '숫자로 읽는 주식투자',
-    pages: ['index', '---교재---', 'book1', 'book2', '---자료---', 'reference'],
+    pages: ['index', '---교재---', 'book1', 'book2', '---참고---', 'reference'],
   });
 
   {
@@ -387,7 +441,7 @@ function main() {
     writeDoc(
       path.join(DEST, 'index.mdx'),
       '숫자로 읽는 주식투자',
-      '기업 가치평가와 이차전지 산업 분석을 다루는 2권 55장 투자 교재',
+      '기업의 가치를 계산하는 법과 이차전지 산업을 해부하는 법',
       rewriteIndexLinks(parsed.body),
     );
   }
@@ -398,31 +452,15 @@ function main() {
   const refDir = path.join(DEST, 'reference');
   mkdirp(refDir);
   writeJson(path.join(refDir, 'meta.json'), {
-    title: '자료',
-    pages: ['index', 'stocks', 'glossary', 'enrichment', 'plan'],
+    title: '종목 DB',
+    pages: ['index'],
   });
 
-  writeDoc(
-    path.join(refDir, 'index.mdx'),
-    '자료',
-    '종목 DB, 용어교정표, 보강계획, 프로젝트 PLAN',
-    `강의 노트에서 추출한 보조 자료입니다.
-
-<Cards>
-  <Card title="종목 DB" href="/docs/reference/stocks" />
-  <Card title="용어교정표" href="/docs/reference/glossary" />
-  <Card title="보강계획" href="/docs/reference/enrichment" />
-  <Card title="PLAN" href="/docs/reference/plan" />
-</Cards>
-`,
-  );
-
-  convertFile(path.join(SRC, '종목', 'INDEX.md'), path.join(refDir, 'stocks.mdx'), {
+  // Student-facing reference only: stocks DB.
+  // PLAN / 보강계획 / 용어교정 are authoring tools and stay unpublished.
+  convertFile(path.join(SRC, '종목', 'INDEX.md'), path.join(refDir, 'index.mdx'), {
     title: '종목 DB',
   });
-  convertFile(path.join(SRC, '용어교정.md'), path.join(refDir, 'glossary.mdx'));
-  convertFile(path.join(SRC, '보강계획.md'), path.join(refDir, 'enrichment.mdx'));
-  convertFile(path.join(SRC, 'PLAN.md'), path.join(refDir, 'plan.mdx'));
 
   writeSourceMap();
 
