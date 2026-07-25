@@ -12,6 +12,8 @@
     "types:check": "fumadocs-mdx && next typegen && tsc --noEmit"
   },
   "dependencies": {
+    "@investment/schema": "workspace:*",
+    "@supabase/supabase-js": "^2.110.8",
     "cnfast": "^0.0.8",
     "fumadocs-core": "^16.12.1",
     "fumadocs-mdx": "^15.2.0",
@@ -21,6 +23,7 @@
     "next": "16.2.11",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
+    "recharts": "^3.10.1",
     "rehype-katex": "^7.0.1",
     "remark-math": "^6.0.0"
   },

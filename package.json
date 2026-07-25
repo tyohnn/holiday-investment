@@ -8,5 +8,8 @@
     "start": "pnpm --filter @investment/web start",
     "sync": "pnpm --filter @investment/web sync",
     "types:check": "pnpm --filter @investment/web types:check"
+  },
+  "dependencies": {
+    "zod": "^4.4.3"
   }
 }

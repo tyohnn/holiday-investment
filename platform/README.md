@@ -104,9 +104,30 @@ python3 ingest/ingest.py 크래프톤 --only fin  # 일부 단계만
 | 11 | 중복 키가 (주제·날짜·문장)이면 같은 공시를 다른 날짜 기준으로 쓴 중복을 놓친다 (실제 발생) | `(주제, 접수번호)` 1순위 키 (0007) |
 | 12 | 같은 사실이 두 주제에 걸침 (IPO 자금사용목적 = 자금조달 ∩ M&A) | primary topic + `tags` 배열 (0007) |
 
-## 다음 (A3)
+## A3 완료 (2026-07-25) — 데이터 계약 + 종목 1페이지
 
-- [ ] zod 스키마 + 한글 라벨 사전 (`platform/schema/`) — events·report_items payload 타입화
-      (account_id는 열린 집합이므로 UI 정형 축은 `account_concepts.concept` = 닫힌 enum)
-- [ ] 종목 1페이지 프로토타입 — annual_summary·filings·filing_correction_chains·events·
-      filing_sections·trackings 소비
+- **`packages/schema`** (`@investment/schema`) — 플랫폼 데이터 계약.
+  - `labels.ts`: **DART 원본 필드명 → 한글 라벨 사전**. 원본 키를 개명하지 않으므로 개발가이드와
+    1:1 대조가 되고 번역 버그가 존재할 수 없다. UI는 라벨을 보여주고 원본 키는 `title` 속성으로
+    병기한다. 업종코드(KSIC) 사전도 포함.
+  - `index.ts`: zod 계약. events는 단일 테이블 + `event_type` 판별자 + passthrough payload
+    (strict는 전 상장사에서 반드시 깨진다). **검증은 쓰기가 아니라 읽기 경계**에서 — ingest는
+    원본 보존, UI가 해석. `FinancialConcept` enum이 UI의 닫힌 축(account_id는 열린 집합).
+  - 포매터: `formatWon`(원→조/억), `formatFactDate`(정밀도별 원표기 복원) 등. DB는 원 단위 원본.
+- **`apps/web/lib/platform/db.ts`** — `getCompanyPageData(stockCode)` 하나로 페이지 데이터 병렬 fetch.
+- **`/company/[stockCode]`** — 헤더·재무차트(recharts 이중축)·핵심지표·사실시계열·공시타임라인·
+  정정체인·주요사항 이벤트. Server Component + 차트만 client.
+
+시행착오 로그 추가분:
+
+| # | 발견 | 대응 |
+|---|---|---|
+| 13 | `export * from "./labels.js"`(NodeNext 관례) — Turbopack은 확장자 자동 매핑을 안 해 빌드 100% 실패 | 확장자 없는 `"./labels"` 로 근본 수정 (번들러 무관하게 동작) |
+| 14 | recharts v3.10 `ComposedChart`+이중축에서 애니메이션 켜면 막대가 렌더되지 않음(DOM에 rect 없음) | 전 시리즈 `isAnimationActive={false}` — 차트 복제 시 기본값으로 |
+| 15 | `induty_code`가 코드만 있어 UI에 "업종코드 28202" 노출 | `SECTOR_NAMES` 사전 + `sectorName()` |
+| 16 | 라벨 사전이 실제 payload보다 얕음(회사합병 9/68필드, 신탁계약·유무상증자 유형 자체 누락) | 실제 payload 키를 DB에서 뽑아 사전 보강 — 합병 60여 필드, 신탁 체결·해지, 유무상증자(piic_/fric_ 접두사) 추가 |
+
+## 다음 (P-A 종료 → P-B)
+
+- [ ] A3 잔여: 트래킹 없는 종목(에코프로비엠) 트래킹 시드, 주석 섹션 뷰어(filing_sections 본문)
+- [ ] P-B: 스키마 호스티드 승격 → 전 상장사 백필 → 스크리너
