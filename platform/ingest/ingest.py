@@ -227,6 +227,80 @@ def load_events(key, corp, since_year):
     print("  events: %d" % total)
 
 
+def load_registrations(key, corp, since_year):
+    days = (dt.date.today() - dt.date(max(since_year, FIN_START_DEFAULT), 1, 1)).days
+    data = api.registrations(key, corp["corp_code"], days)
+    total = 0
+    for label, rows in data.items():
+        save_raw(corp["corp_code"], "reg_%s" % label, rows)
+        db_rows = [{"corp_code": corp["corp_code"], "reg_type": label,
+                    "rcept_no": r.get("rcept_no"), "rcept_dt": d8(r.get("rcept_dt")),
+                    "payload": r} for r in rows]
+        replace_scope("registrations",
+                      {"corp_code": "eq.%s" % corp["corp_code"], "reg_type": "eq.%s" % label},
+                      db_rows)
+        total += len(db_rows)
+    print("  registrations: %d" % total)
+
+
+def load_docs(key, corp, redo=False):
+    """공시 원문 전량 — zip 보존 + 목차 섹션을 DB 행으로. rcept_no 단위 증분(재실행 시 skip)."""
+    import dart_doc
+    # 이 회사의 전체 공시 목록 (DB에서 페이지네이션으로)
+    rcepts, offset = [], 0
+    while True:
+        page = rest("GET", "filings?corp_code=eq.%s&select=rcept_no&order=rcept_no"
+                    "&limit=1000&offset=%d" % (corp["corp_code"], offset))
+        rcepts.extend(r["rcept_no"] for r in page)
+        if len(page) < 1000:
+            break
+        offset += 1000
+    done = set()
+    if not redo:
+        # in-list 필터는 URL 길이 한계에 걸리므로 filing_docs 전량을 받아 로컬에서 거른다
+        offset = 0
+        while True:
+            page = rest("GET", "filing_docs?select=rcept_no&limit=1000&offset=%d" % offset)
+            done.update(r["rcept_no"] for r in page)
+            if len(page) < 1000:
+                break
+            offset += 1000
+    todo = [r for r in rcepts if r not in done]
+    print("  docs: 대상 %d건 (기존 %d 건너뜀)" % (len(todo), len(rcepts) - len(todo)))
+
+    doc_dir = os.path.join(RAW_DIR, corp["corp_code"], "docs")
+    os.makedirs(doc_dir, exist_ok=True)
+    ok = err = n_sec = 0
+    for i, rcept in enumerate(todo, 1):
+        try:
+            files = api.call_zip(key, "document.xml", rcept_no=rcept)
+            main_name = sorted(files)[0]
+            raw = files[main_name]
+            with open(os.path.join(doc_dir, rcept + "." + main_name.split(".")[-1]), "wb") as f:
+                f.write(raw)
+            sections = dart_doc.split_sections(api.decode_kr(raw))
+            sec_rows = [{
+                "rcept_no": rcept, "sec_no": n, "title": title[:300],
+                "content": body[:5_000_000],
+                "is_note": dart_doc.is_note_section(title),
+                "is_biz": dart_doc.is_biz_section(title),
+            } for n, (title, body) in enumerate(sections, 1)]
+            replace_scope("filing_sections", {"rcept_no": "eq.%s" % rcept}, sec_rows)
+            upsert("filing_docs", [{
+                "rcept_no": rcept, "file_name": main_name, "n_files": len(files),
+                "n_sections": len(sec_rows), "bytes": len(raw), "status": "ok",
+            }], on_conflict="rcept_no")
+            ok += 1
+            n_sec += len(sec_rows)
+        except Exception as e:  # 원문 없는 공시 등 — 기록하고 계속
+            err += 1
+            upsert("filing_docs", [{"rcept_no": rcept, "status": "error:%s" % str(e)[:200]}],
+                   on_conflict="rcept_no")
+        if i % 100 == 0:
+            print("    …%d/%d (섹션 %d)" % (i, len(todo), n_sec))
+    print("  filing_docs: 성공 %d · 실패 %d · 섹션 %d" % (ok, err, n_sec))
+
+
 def load_ownership(key, corp):
     data = api.ownership(key, corp["corp_code"])
     kind_map = {"대량보유(5%)": "majorstock", "임원·주요주주 소유보고": "elestock"}
@@ -244,7 +318,7 @@ def load_ownership(key, corp):
     print("  ownership_txns: %d" % total)
 
 
-STAGES = ["company", "filings", "fin", "items", "events", "ownership"]
+STAGES = ["company", "filings", "fin", "items", "events", "regs", "ownership", "docs"]
 
 
 def main():
@@ -252,6 +326,7 @@ def main():
     p.add_argument("name", help="회사명")
     p.add_argument("--since", type=int, default=HISTORY_START, help="공시 수집 시작 연도")
     p.add_argument("--only", help="쉼표 구분 단계 (%s)" % ",".join(STAGES))
+    p.add_argument("--redo-docs", action="store_true", help="원문을 기존 것 포함해 다시 수집")
     args = p.parse_args()
 
     key = api.resolve_key() or api.read_env_file(os.path.join(_REPO, ".env.local")).get("DART_API_KEY")
@@ -278,8 +353,12 @@ def main():
         load_report_items(key, corp, args.since)
     if "events" in stages:
         load_events(key, corp, args.since)
+    if "regs" in stages:
+        load_registrations(key, corp, args.since)
     if "ownership" in stages:
         load_ownership(key, corp)
+    if "docs" in stages:
+        load_docs(key, corp, redo=args.redo_docs)
 
     print("완료: %s (%.1f분)" % (corp["corp_name"],
                                 (dt.datetime.now() - t0).total_seconds() / 60))
