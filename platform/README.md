@@ -69,9 +69,22 @@ python3 ingest/ingest.py 크래프톤 --only fin  # 일부 단계만
 교차검증: annual_summary가 스킬 재무추이 md·교재 수치와 일치 (에코프로비엠 2020 매출
 8,547억·2024 영업이익 -341억, 크래프톤 2022 매출 18,540억 등).
 
-## 다음 (A1 잔여 → A2·A3)
+## A1 완료 기준 결산 (2026-07-25)
 
-- [ ] 정정 체인(corrects_rcept_no) 채우기 — 같은 보고서명·기간의 원본↔정정 연결
-- [ ] zod 스키마+한글 라벨 사전 (`platform/schema/`) — events·report_items payload 타입화 (A3 초입)
-- [ ] trackings 원장 실험 — A2에서 md 방식과 비교 판정 (로드맵 유보 사항 ⑵)
-- [ ] A3: 종목 1페이지 프로토타입 (annual_summary·filings·events·sections 소비)
+| 기준 | 상태 |
+|---|---|
+| ① 두 종목 전 역사 멱등 재적재 | ✅ 재실행 시 행 수 동일 검증 |
+| ② 기재정정 DB 표현·조회 | ✅ is_correction + `filing_correction_chains` 뷰 — 153건 중 150건 자동 연결, E2E에서 수동 대조했던 사업보고서 체인(60일 시차)을 자동 재현 |
+| ③ 트래킹 사실 정본 형태 | → **A2에서 판정** (trackings 테이블 준비됨, 로드맵 유보 사항 ⑵) |
+| ④ 종목 페이지 DB 렌더 | → **A3** |
+| ⑤ 수집 단가·시간 실측 | ✅ 원문 포함 종목당 3~5분, 종목당 API 콜 ~700 |
+
+정정 체인 설계 노트: 원본↔정정 관계는 보고서명(프리픽스 제거)이 같은 직전 공시로
+결정론적으로 유도되므로 **저장하지 않고 뷰로 파생**한다. 미연결 3건은 원본이 수집 범위
+밖이거나 제목 매칭이 안 되는 소수 케이스 — null로 남겨 조회 가능.
+
+## 다음 (A2·A3)
+
+- [ ] A2: 2회차 갱신 사이클 + trackings 원장 vs md 판정 (완료 기준 ③)
+- [ ] A3: zod 스키마+한글 라벨 사전 (`platform/schema/`) → 종목 1페이지 프로토타입
+      (annual_summary·filings·filing_correction_chains·events·sections 소비)
