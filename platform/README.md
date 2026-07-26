@@ -12,19 +12,68 @@ platform/
 └── data/raw/            # API 원본 JSON (gitignore — 재적재·디버깅용)
 ```
 
-## 실행
+## 실행 — 데이터 덤프에서 즉시 복원 (권장, 어떤 환경에서든)
+
+DART 재수집(종목당 3~5분) 없이, 커밋된 덤프로 지금 상태를 그대로 재현한다.
+
+```bash
+export PATH="$HOME/.local/share/supabase:$PATH"
+cd platform
+supabase start    # 로컬 스택 (REST :54321, DB :54322, Studio :54323)
+                   # → 마이그레이션 적용 + supabase/seed.sql 자동 로드 (companies·filings·
+                   #   financial_facts·report_items·events·registrations·ownership_txns·
+                   #   trackings·filing_docs 메타 — 3.7MB)
+
+# filing_sections(사업보고서 원문·주석, 3,052행)는 크기 때문에 별도 압축 파일 — 수동 1회
+gunzip -c supabase/seed-filing-sections.sql.gz | \
+  psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres"
+```
+
+이미 떠 있는 스택에 최신 시드를 다시 앉히려면 `supabase db reset`(마이그레이션 재적용 +
+`seed.sql` 자동 재로드 — **로컬 DB의 기존 데이터를 지운다**) 후 위 `gunzip` 한 줄만 다시 실행.
+
+## 처음부터 DART 재수집 (덤프 없이, 또는 새 종목 추가 시)
 
 ```bash
 # 전제: Docker 실행, supabase CLI (~/.local/share/supabase — PATH 필요), DART_API_KEY(.env.local)
 export PATH="$HOME/.local/share/supabase:$PATH"
 cd platform
-supabase start          # 로컬 스택 (REST :54321, DB :54322, Studio :54323)
-supabase migration up   # 스키마 적용 (전체 리셋은 supabase db reset — 데이터 삭제됨)
+supabase start
+supabase migration up
 
-python3 ingest/ingest.py 크래프톤            # 전 역사 적재 (~1분/종목, 멱등)
+python3 ingest/ingest.py 크래프톤            # 전 역사 적재 (원문 포함 3~5분/종목, 멱등)
 python3 ingest/ingest.py 에코프로비엠
 python3 ingest/ingest.py 크래프톤 --only fin  # 일부 단계만
 ```
+
+## 덤프 갱신 (데이터 추가·변경 후 커밋 전)
+
+```bash
+cd platform
+rm -f supabase/seed.sql
+supabase db dump --local --data-only --schema public \
+  -x public.account_concepts -x public.filing_sections -f supabase/seed.sql
+supabase db dump --local --data-only --schema public \
+  -x public.companies -x public.filings -x public.financial_facts \
+  -x public.report_items -x public.events -x public.registrations \
+  -x public.ownership_txns -x public.trackings -x public.filing_docs \
+  -x public.account_concepts -x public.analyses \
+  --use-copy -f /tmp/sections-only.sql
+gzip -9 -c /tmp/sections-only.sql > supabase/seed-filing-sections.sql.gz
+```
+
+`account_concepts`는 마이그레이션 0002에서 이미 INSERT로 시드되므로 데이터 덤프에서 항상
+제외한다(포함하면 PK 충돌). `filing_sections`만 분리하는 이유는 크기다 — 전체 51MB 중
+51MB가 이 테이블 하나(원문 텍스트, 섹션당 최대 26만 자)이고 나머지 9개 테이블 전부 합쳐도
+3MB 남짓이다. **`--use-copy`는 `supabase/seed.sql`(자동 로드분)에는 쓰지 않는다** — CLI의
+시드 로더가 COPY 블록을 파싱 못 해 깨진다(직접 겪은 실패: `db reset` 도중 seed 적용
+실패 → 스키마만 재생성된 빈 DB로 남음). COPY는 `psql -f`로 수동 복원하는
+`seed-filing-sections.sql.gz` 쪽에서만 안전하다.
+
+**갱신 후 검증 없이 커밋하지 않는다** — 마이그레이션 전체 + 두 시드를 별도 임시 DB
+(`CREATE DATABASE verify_seed`)에 처음부터 적용해 원본과 행 수가 일치하는지 확인하고
+버린다. 운영 중인 로컬 DB에서 직접 `db reset`으로 검증하다 시드가 깨지면 데이터가
+날아간다(실제로 한 번 날렸고, DART 재수집 + 트래킹 md 재이행으로 복구했다).
 
 ## 설계 결정 (v0 가설)
 
@@ -126,6 +175,7 @@ python3 ingest/ingest.py 크래프톤 --only fin  # 일부 단계만
 | 14 | recharts v3.10 `ComposedChart`+이중축에서 애니메이션 켜면 막대가 렌더되지 않음(DOM에 rect 없음) | 전 시리즈 `isAnimationActive={false}` — 차트 복제 시 기본값으로 |
 | 15 | `induty_code`가 코드만 있어 UI에 "업종코드 28202" 노출 | `SECTOR_NAMES` 사전 + `sectorName()` |
 | 16 | 라벨 사전이 실제 payload보다 얕음(회사합병 9/68필드, 신탁계약·유무상증자 유형 자체 누락) | 실제 payload 키를 DB에서 뽑아 사전 보강 — 합병 60여 필드, 신탁 체결·해지, 유무상증자(piic_/fric_ 접두사) 추가 |
+| 17 | `supabase db dump --use-copy`로 뜬 `seed.sql`을 `supabase db reset`이 자동 로드하다 COPY 블록 파싱에 실패 — **스키마만 재생성된 채 DB가 비어버림**(운영 중인 로컬 DB에서 직접 겪음, 트래킹 87건 포함 전체 소실) | 자동 로드용 `seed.sql`은 INSERT 형식(비-COPY)으로, 크기 때문에 분리한 `filing_sections`(51MB)만 COPY+gzip으로 별도 파일 유지하고 `psql -f` 수동 복원으로 한정. 검증은 운영 DB가 아니라 임시 DB(`verify_seed`)에서 |
 
 ## 다음 (P-A 종료 → P-B)
 
