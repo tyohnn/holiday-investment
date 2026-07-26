@@ -8,6 +8,7 @@ import { TrackingTimeline } from './_components/tracking-timeline';
 import { FilingTimeline } from './_components/filing-timeline';
 import { CorrectionChains } from './_components/correction-chains';
 import { EventsSection } from './_components/events-section';
+import { SectionsList } from './_components/sections-list';
 
 export const revalidate = 0;
 
@@ -21,7 +22,7 @@ export default async function CompanyPage(props: PageProps<'/company/[stockCode]
   const data = await getCompanyPageData(stockCode);
   if (!data) notFound();
 
-  const { company, annual, filings, corrections, events, trackings } = data;
+  const { company, annual, filings, corrections, events, trackings, sections } = data;
   const latestYear = annual.length > 0 ? annual[annual.length - 1] : null;
 
   return (
@@ -48,6 +49,7 @@ export default async function CompanyPage(props: PageProps<'/company/[stockCode]
       )}
 
       <TrackingTimeline trackings={trackings} />
+      <SectionsList stockCode={stockCode} sections={sections} />
       <FilingTimeline filings={filings} />
       <CorrectionChains corrections={corrections} />
       <EventsSection events={events} />

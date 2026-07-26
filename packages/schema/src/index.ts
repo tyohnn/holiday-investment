@@ -160,6 +160,10 @@ export const FilingSection = z.object({
   title: z.string(),
   is_note: z.boolean(),
   is_biz: z.boolean(),
+  /** 섹션 원문. 목록 조회(getNoteSections)는 이 필드를 요청하지 않는다 — 주석 섹션 하나가
+   *  10만자를 넘기도 해서(A3 실측 138,795자) 목록에 얹으면 안 된다. 단일 섹션 조회
+   *  (getFilingSectionContent)만 이 필드를 채운다. */
+  content: z.string().nullable().optional(),
 });
 export type FilingSection = z.infer<typeof FilingSection>;
 

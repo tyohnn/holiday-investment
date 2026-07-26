@@ -100,7 +100,30 @@ export async function getTrackings(corpCode: string): Promise<TrackingFact[]> {
   return parseAll(TrackingFact, data ?? [], "trackings");
 }
 
-export async function getNoteSections(corpCode: string, limit = 20): Promise<FilingSection[]> {
+/** 단일 섹션 원문 조회 — 목록(getNoteSections)과 분리. 138KB 짜리 content 를 목록에 얹지 않는다. */
+export async function getFilingSectionContent(rceptNo: string, secNo: number): Promise<FilingSection | null> {
+  const { data, error } = await supabase
+    .from('filing_sections')
+    .select('id,rcept_no,sec_no,title,is_note,is_biz,content')
+    .eq('rcept_no', rceptNo)
+    .eq('sec_no', secNo)
+    .maybeSingle();
+  if (error) throw error;
+  return data ? FilingSection.parse(data) : null;
+}
+
+/** rcept_no 단건 조회 — 섹션 상세 페이지가 소속 공시(제출인·보고서명·접수일·소유 회사)를 확인할 때 쓴다. */
+export async function getFilingByRceptNo(rceptNo: string): Promise<Filing | null> {
+  const { data, error } = await supabase.from('filings').select('*').eq('rcept_no', rceptNo).maybeSingle();
+  if (error) throw error;
+  return data ? Filing.parse(data) : null;
+}
+
+/** 목록 표시용 — filing_sections 에 소속 공시(보고서명·접수일)를 얹은 뷰. content 는 여기 없다
+ *  (100KB+ 인 섹션이 있어 목록에는 얹지 않는다 — getFilingSectionContent 로 개별 조회). */
+export type NoteSectionListItem = FilingSection & { report_nm: string; filing_rcept_dt: string };
+
+export async function getNoteSections(corpCode: string, limit = 20): Promise<NoteSectionListItem[]> {
   const { data: filings } = await supabase
     .from("filings")
     .select("rcept_no")
@@ -109,13 +132,22 @@ export async function getNoteSections(corpCode: string, limit = 20): Promise<Fil
     .limit(60);
   const rcepts = (filings ?? []).map((f: { rcept_no: string }) => f.rcept_no);
   if (!rcepts.length) return [];
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("filing_sections")
-    .select("id,rcept_no,sec_no,title,is_note,is_biz")
+    .select("id,rcept_no,sec_no,title,is_note,is_biz,filings(report_nm,rcept_dt)")
     .in("rcept_no", rcepts)
     .or("is_note.eq.true,is_biz.eq.true")
+    .order("rcept_no", { ascending: false })
     .limit(limit);
-  return parseAll(FilingSection, data ?? [], "filing_sections");
+  if (error) throw error;
+  return (data ?? []).flatMap((row) => {
+    // Supabase 타입은 임베드를 배열로 추론하지만 FK 단건 관계라 객체로 온다.
+    const raw = row as unknown as Record<string, unknown>;
+    const filing = raw.filings as { report_nm: string; rcept_dt: string } | null;
+    const parsed = FilingSection.safeParse(raw);
+    if (!parsed.success || !filing) return [];
+    return [{ ...parsed.data, report_nm: filing.report_nm, filing_rcept_dt: filing.rcept_dt }];
+  });
 }
 
 /** 종목 페이지가 필요한 것을 한 번에 (RSC 에서 병렬 fetch) */
