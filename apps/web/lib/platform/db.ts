@@ -150,17 +150,45 @@ export async function getNoteSections(corpCode: string, limit = 20): Promise<Not
   });
 }
 
+/** 개념별 연간 시계열 — annual_summary 에 없는 개념(cf_investing 등)용. */
+export async function getConceptSeries(
+  corpCode: string,
+  concept: string,
+): Promise<{ bsns_year: number; amount: number | null }[]> {
+  const { data, error } = await supabase
+    .from("financial_metrics")
+    .select("bsns_year, amount")
+    .eq("corp_code", corpCode)
+    .eq("concept", concept)
+    .eq("reprt_code", "11011")
+    .order("bsns_year");
+  if (error) throw error;
+  const byYear = new Map<number, number | null>();
+  for (const row of data ?? []) {
+    const year = Number(row.bsns_year);
+    const amount = row.amount === null || row.amount === undefined ? null : Number(row.amount);
+    // 연결/별도 중복 시 절대값이 큰 쪽을 채택
+    const prev = byYear.get(year);
+    if (prev === undefined || prev === null) byYear.set(year, amount);
+    else if (amount !== null && Math.abs(amount) > Math.abs(prev)) byYear.set(year, amount);
+  }
+  return [...byYear.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([bsns_year, amount]) => ({ bsns_year, amount }));
+}
+
 /** 종목 페이지가 필요한 것을 한 번에 (RSC 에서 병렬 fetch) */
 export async function getCompanyPageData(stockCode: string) {
   const company = await getCompany(stockCode);
   if (!company) return null;
-  const [annual, filings, corrections, events, trackings, sections] = await Promise.all([
+  const [annual, filings, corrections, events, trackings, sections, cfInvesting] = await Promise.all([
     getAnnualSummary(company.corp_code),
     getFilings(company.corp_code),
     getCorrectionChains(company.corp_code),
     getEvents(company.corp_code),
     getTrackings(company.corp_code),
     getNoteSections(company.corp_code),
+    getConceptSeries(company.corp_code, "cf_investing"),
   ]);
-  return { company, annual, filings, corrections, events, trackings, sections };
+  return { company, annual, filings, corrections, events, trackings, sections, cfInvesting };
 }
