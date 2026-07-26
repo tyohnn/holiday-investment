@@ -22,6 +22,11 @@ export function baseOptions(): BaseLayoutProps {
         url: '/docs/reference',
         active: 'nested-url',
       },
+      {
+        text: '종목 분석',
+        url: '/company',
+        active: 'nested-url',
+      },
     ],
     githubUrl: `https://github.com/${gitConfig.user}/${gitConfig.repo}`,
   };
