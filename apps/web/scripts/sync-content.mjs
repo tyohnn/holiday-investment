@@ -18,53 +18,86 @@ const REPO = path.resolve(ROOT, '../..');
 const SRC = path.join(REPO, '교재');
 const DEST = path.join(ROOT, 'content', 'docs');
 
-/** [destSlug, srcBasenameWithoutExt, optional nav title override] */
+/** [destSlug, srcBasenameWithoutExt] — 부 순서 = A→I 알파벳. 학습장은 허브 직후. */
 const BOOK1 = {
   folder: 'book1',
   title: '1권: 기업의 가치를 계산하는 법',
   pages: [
     { slug: 'index', src: '목차' },
-    '---제1부. 투자 전에 알아야 할 것 — 증권 기초 개념---',
-    { slug: 'I1', src: 'I1-자금조달과-지분희석' },
-    { slug: 'I2', src: 'I2-우선주와-지주회사' },
-    { slug: 'I3', src: 'I3-예탁-예금자보호와-파생상품' },
-    { slug: 'I4', src: 'I4-시장의-규칙' },
-    { slug: 'I5', src: 'I5-세금과-회계의-최소지식' },
-    '---제2부. 투자 철학과 원칙 — 어떤 게임을 하고 있는가---',
+    '---제1부 (A). 투자 철학과 원칙---',
     { slug: 'A1', src: 'A1-투자의-본질' },
     { slug: 'A2', src: 'A2-안전마진과-십루타' },
     { slug: 'A3', src: 'A3-주가의-3요소' },
     { slug: 'A4', src: 'A4-보유-규율' },
-    '---제3부. 기업 선정 — 어떤 회사를 보는가---',
+    '---제2부 (B). 기업 선정---',
     { slug: 'B1', src: 'B1-능력범위' },
     { slug: 'B2', src: 'B2-경제적-해자와-가격결정권' },
     { slug: 'B3', src: 'B3-산업-분석-프레임' },
+    { slug: 'B3a', src: 'B3a-산업축과-국면3문' },
+    { slug: 'B3b', src: 'B3b-산업-라이프사이클' },
+    { slug: 'B3c', src: 'B3c-버블vs혁명-3기준' },
     { slug: 'B4', src: 'B4-정성분석-피셔-15포인트' },
-    '---제4부. 정량 밸류에이션 기법---',
+    '---제3부 (C). 정량 밸류에이션 기법---',
     { slug: 'C1', src: 'C1-PER-바로-쓰기' },
+    { slug: 'C1a', src: 'C1a-PER이란-왜-쓰는가' },
+    { slug: 'C1b', src: 'C1b-실전-PER-계산' },
+    { slug: 'C1c', src: 'C1c-저PER함정-PEG-적정PER' },
     { slug: 'C2', src: 'C2-3년후-적정주가-5단계' },
+    { slug: 'C2a', src: 'C2a-5단계-개관과-풀이' },
+    { slug: 'C2b', src: 'C2b-9칸-매트릭스와-낙점' },
+    { slug: 'C2c', src: 'C2c-매수규칙과-다종목-적용' },
     { slug: 'C3', src: 'C3-매출-추정의-기술' },
     { slug: 'C4', src: 'C4-PSR' },
     { slug: 'C5', src: 'C5-상대가치와-저평가-사다리' },
-    '---제5부. 정보 소스 — 무엇을 읽고 어떻게 해석하는가---',
+    { slug: 'C5a', src: 'C5a-상대가치-기초' },
+    { slug: 'C5b', src: 'C5b-SOTP와-우선주-사다리' },
+    '---제4부 (D). 정보 소스---',
     { slug: 'D1', src: 'D1-1차-자료-읽기' },
     { slug: 'D2', src: 'D2-언론-리포트-수급-눈치' },
-    '---제6부. 포트폴리오 구성---',
+    { slug: 'D2a', src: 'D2a-언론과-리포트-독법' },
+    { slug: 'D2b', src: 'D2b-수급-눈치' },
+    '---제5부 (E). 포트폴리오 구성---',
     { slug: 'E1', src: 'E1-자산배분과-8대2' },
+    { slug: 'E1a', src: 'E1a-계좌설계-8대2' },
+    { slug: 'E1b', src: 'E1b-다층-자산배분' },
     { slug: 'E2', src: 'E2-종목-편입과-구성-5단계' },
     { slug: 'E3', src: 'E3-현금-비중-10-30' },
-    '---제7부. 운용 — 매도·교체·비중조절---',
+    { slug: 'E3a', src: 'E3a-현금비중의-역할' },
+    { slug: 'E3b', src: 'E3b-천장신호와-집행' },
+    '---제6부 (F). 운용---',
     { slug: 'F1', src: 'F1-매도와-종목교체' },
-    '---제8부. 심리와 행동 규율---',
+    { slug: 'F1a', src: 'F1a-매도-원칙' },
+    { slug: 'F1b', src: 'F1b-종목교체-절차' },
+    '---제7부 (G). 심리와 행동 규율---',
     { slug: 'G1', src: 'G1-감정-배제-장치' },
     { slug: 'G2', src: 'G2-수익금-인내-행복' },
-    '---제9부. 실전 케이스 라이브러리---',
+    '---제8부 (H). 실전 케이스 라이브러리---',
     { slug: 'H1', src: 'H1-현대차기아-삼양식품' },
     { slug: 'H2', src: 'H2-하이브' },
     { slug: 'H3', src: 'H3-이차전지-8대종목-대장정' },
     { slug: 'H4', src: 'H4-소외-성장주-발굴' },
+    '---제9부 (I). 증권 기초 개념 (선수 가능)---',
+    { slug: 'I1', src: 'I1-자금조달과-지분희석' },
+    { slug: 'I1a', src: 'I1a-조달5문과-유상증자' },
+    { slug: 'I1b', src: 'I1b-메자닌과-오버행' },
+    { slug: 'I1c', src: 'I1c-물적분할과-판정체크리스트' },
+    { slug: 'I2', src: 'I2-우선주와-지주회사' },
+    { slug: 'I2a', src: 'I2a-우선주와-괴리율' },
+    { slug: 'I2b', src: 'I2b-지주사-합산5단계' },
+    { slug: 'I3', src: 'I3-예탁-예금자보호와-파생상품' },
+    { slug: 'I4', src: 'I4-시장의-규칙' },
+    { slug: 'I4a', src: 'I4a-공매도-대차-ATS' },
+    { slug: 'I4b', src: 'I4b-상장폐지와-ETF' },
+    { slug: 'I5', src: 'I5-세금과-회계의-최소지식' },
     '---부록---',
     { slug: 'appendix', src: '부록-투자자의-태도와-공부법' },
+    { slug: 'appendix-a', src: '부록a-공부법과-독서' },
+    { slug: 'appendix-b', src: '부록b-자녀-경제교육' },
+    { slug: 'appendix-c', src: '부록c-말과-글-설득' },
+    { slug: 'appendix-d', src: '부록d-직장과-본업' },
+    { slug: 'appendix-e', src: '부록e-생활재무' },
+    { slug: 'appendix-f', src: '부록f-부동산-프레임' },
+    { slug: 'appendix-g', src: '부록g-통찰력과-태도' },
   ],
 };
 
@@ -73,34 +106,45 @@ const BOOK2 = {
   title: '2권: 이차전지 산업을 해부하는 법',
   pages: [
     { slug: 'index', src: '목차' },
-    '---제1부. 이차전지 과학 원리 — 구성·에너지밀도·소재---',
+    '---제1부 (A). 이차전지 과학 원리---',
     { slug: 'A1', src: 'A1-전기차와-배터리-흥망사' },
     { slug: 'A2', src: 'A2-이차전지-개념과-구성' },
+    { slug: 'A2a', src: 'A2a-전지는-화학이다' },
+    { slug: 'A2b', src: 'A2b-4대소재와-양극재-우선' },
+    { slug: 'A2c', src: 'A2c-레시피해자와-산업사' },
     { slug: 'A3', src: 'A3-에너지밀도와-하이니켈' },
+    { slug: 'A3a', src: 'A3a-에너지밀도-개념' },
+    { slug: 'A3b', src: 'A3b-하이니켈-투자함의' },
     { slug: 'A4', src: 'A4-분체기술-전구체-소성' },
-    '---제2부. 기술 로드맵 — 폼팩터·공정·차세대 전지---',
+    '---제2부 (B). 기술 로드맵---',
     { slug: 'B1', src: 'B1-폼팩터-전쟁-46파이' },
     { slug: 'B2', src: 'B2-제조공정과-건식공정' },
+    { slug: 'B2a', src: 'B2a-제조공정-지도' },
+    { slug: 'B2b', src: 'B2b-건식공정-함의' },
     { slug: 'B3', src: 'B3-미드니켈-LMR-단결정' },
     { slug: 'B4', src: 'B4-차세대-전지' },
-    '---제3부. 산업사·정책·지정학---',
+    '---제3부 (C). 산업사·정책·지정학---',
     { slug: 'C1', src: 'C1-2020과-2025' },
     { slug: 'C2', src: 'C2-IRA-FEOC-관세' },
     { slug: 'C3', src: 'C3-미중-패권과-중국-변수' },
     { slug: 'C4', src: 'C4-리튬-광물-사이클' },
-    '---제4부. 밸류체인 지도 — 셀·소재·장비·광물·특허---',
+    { slug: 'C4a', src: 'C4a-광물가격-사이클' },
+    { slug: 'C4b', src: 'C4b-투자-타이밍-함의' },
+    '---제4부 (D). 밸류체인 지도---',
     { slug: 'D1', src: 'D1-밸류체인-지도와-채찍효과' },
+    { slug: 'D1a', src: 'D1a-밸류체인-지도' },
+    { slug: 'D1b', src: 'D1b-채찍효과-사이클' },
     { slug: 'D2', src: 'D2-셀-제조사' },
     { slug: 'D3', src: 'D3-양극재-소재-체인' },
     { slug: 'D4', src: 'D4-장비-체인' },
     { slug: 'D5', src: 'D5-특허권' },
-    '---제5부. 기업 분석과 주가 평가 (스킬업 케이스 연결)---',
+    '---제5부 (E). 기업 분석과 주가 평가---',
     { slug: 'E1', src: 'E1-주가의-3요소-폭락-해부' },
     { slug: 'E2', src: 'E2-밸류에이션-공식' },
     { slug: 'E3', src: 'E3-셀3사-적정주가' },
     { slug: 'E4', src: 'E4-양극재3사와-LG화학-우선주' },
     { slug: 'E5', src: 'E5-팩트-추적과-매수-타이밍' },
-    '---제6부. 수요 전망과 시장 데이터---',
+    '---제6부 (F). 수요 전망과 시장 데이터---',
     { slug: 'F1', src: 'F1-캐즘-데이터-검증' },
     { slug: 'F2', src: 'F2-캐즘-탈출의-신호' },
     { slug: 'F3', src: 'F3-시황-업데이트' },
@@ -119,6 +163,37 @@ const SOURCE_MAP = new Map([
   ['book2/index.mdx', '교재2-이차전지/목차.md'],
 ]);
 
+/** Obsidian `[[wiki]]` / `[[wiki|label]]` → docs href */
+const WIKI_HREF = new Map();
+function registerWikiTargets(book) {
+  for (const item of book.pages) {
+    if (typeof item === 'string') continue;
+    const href = `/docs/${book.folder}/${item.slug}`;
+    WIKI_HREF.set(item.src, href);
+    WIKI_HREF.set(item.slug, href);
+    // basename without prefix codes sometimes linked as short slug
+    const short = item.src.match(/^([A-IH]\d+[a-g]?)/);
+    if (short) WIKI_HREF.set(short[1], href);
+  }
+}
+registerWikiTargets(BOOK1);
+registerWikiTargets(BOOK2);
+WIKI_HREF.set('부록-투자자의-태도와-공부법', '/docs/book1/appendix');
+WIKI_HREF.set('appendix', '/docs/book1/appendix');
+
+function rewriteWikiLinks(text) {
+  return text.replace(/\[\[([^\]|#]+)(?:#[^\]|]+)?(?:\|([^\]]+))?\]\]/g, (full, target, label) => {
+    const key = String(target)
+      .trim()
+      .replace(/^교재1-방법론\//, '')
+      .replace(/^교재2-이차전지\//, '')
+      .replace(/\.md$/i, '');
+    const href = WIKI_HREF.get(key);
+    if (!href) return full;
+    const textLabel = (label && label.trim()) || key;
+    return `[${textLabel}](${href})`;
+  });
+}
 function rmrf(dir) {
   fs.rmSync(dir, { recursive: true, force: true });
 }
@@ -206,7 +281,7 @@ description: ${yamlEscape(scrubNames(description))}
 
 function convertFile(srcFile, destFile, overrides = {}) {
   const raw = fs.readFileSync(srcFile, 'utf8');
-  const parsed = parseMarkdown(raw);
+  const parsed = parseMarkdown(rewriteWikiLinks(raw));
   writeDoc(
     destFile,
     overrides.title ?? parsed.title,
@@ -349,13 +424,19 @@ function scrubNames(text) {
 
 function rewriteIndexLinks(body) {
   return scrubNames(
-    body
-      .replace(/\]\(교재1-방법론\/목차\.md\)/g, '](/docs/book1)')
-      .replace(/\]\(교재2-이차전지\/목차\.md\)/g, '](/docs/book2)')
-      .replace(/\]\(보강계획\.md\)/g, '](/docs/reference/enrichment)')
-      .replace(/\]\(용어교정\.md\)/g, '](/docs/reference/glossary)')
-      .replace(/\]\(종목\/INDEX\.md\)/g, '](/docs/reference/stocks)')
-      .replace(/\]\(PLAN\.md\)/g, '](/docs/reference/plan)'),
+    rewriteWikiLinks(
+      body
+        .replace(/\]\(교재1-방법론\/목차\.md\)/g, '](/docs/book1)')
+        .replace(/\]\(교재2-이차전지\/목차\.md\)/g, '](/docs/book2)')
+        .replace(/\]\(교수법-개편계획\.md\)/g, '](/docs/reference/plan)')
+        .replace(/\]\(_템플릿-학습장\.md\)/g, '](/docs)')
+        .replace(/\]\(목차-학습경로\.md\)/g, '](/docs)')
+        .replace(/\]\(placeholder-index\.md\)/g, '](/docs)')
+        .replace(/\]\(보강계획\.md\)/g, '](/docs/reference/enrichment)')
+        .replace(/\]\(용어교정\.md\)/g, '](/docs/reference/glossary)')
+        .replace(/\]\(종목\/INDEX\.md\)/g, '](/docs/reference/stocks)')
+        .replace(/\]\(PLAN\.md\)/g, '](/docs/reference/plan)'),
+    ),
   );
 }
 
