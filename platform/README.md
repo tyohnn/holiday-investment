@@ -12,19 +12,68 @@ platform/
 └── data/raw/            # API 원본 JSON (gitignore — 재적재·디버깅용)
 ```
 
-## 실행
+## 실행 — 데이터 덤프에서 즉시 복원 (권장, 어떤 환경에서든)
+
+DART 재수집(종목당 3~5분) 없이, 커밋된 덤프로 지금 상태를 그대로 재현한다.
+
+```bash
+export PATH="$HOME/.local/share/supabase:$PATH"
+cd platform
+supabase start    # 로컬 스택 (REST :54321, DB :54322, Studio :54323)
+                   # → 마이그레이션 적용 + supabase/seed.sql 자동 로드 (companies·filings·
+                   #   financial_facts·report_items·events·registrations·ownership_txns·
+                   #   trackings·filing_docs 메타 — 3.7MB)
+
+# filing_sections(사업보고서 원문·주석, 3,052행)는 크기 때문에 별도 압축 파일 — 수동 1회
+gunzip -c supabase/seed-filing-sections.sql.gz | \
+  psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres"
+```
+
+이미 떠 있는 스택에 최신 시드를 다시 앉히려면 `supabase db reset`(마이그레이션 재적용 +
+`seed.sql` 자동 재로드 — **로컬 DB의 기존 데이터를 지운다**) 후 위 `gunzip` 한 줄만 다시 실행.
+
+## 처음부터 DART 재수집 (덤프 없이, 또는 새 종목 추가 시)
 
 ```bash
 # 전제: Docker 실행, supabase CLI (~/.local/share/supabase — PATH 필요), DART_API_KEY(.env.local)
 export PATH="$HOME/.local/share/supabase:$PATH"
 cd platform
-supabase start          # 로컬 스택 (REST :54321, DB :54322, Studio :54323)
-supabase migration up   # 스키마 적용 (전체 리셋은 supabase db reset — 데이터 삭제됨)
+supabase start
+supabase migration up
 
-python3 ingest/ingest.py 크래프톤            # 전 역사 적재 (~1분/종목, 멱등)
+python3 ingest/ingest.py 크래프톤            # 전 역사 적재 (원문 포함 3~5분/종목, 멱등)
 python3 ingest/ingest.py 에코프로비엠
 python3 ingest/ingest.py 크래프톤 --only fin  # 일부 단계만
 ```
+
+## 덤프 갱신 (데이터 추가·변경 후 커밋 전)
+
+```bash
+cd platform
+rm -f supabase/seed.sql
+supabase db dump --local --data-only --schema public \
+  -x public.account_concepts -x public.filing_sections -f supabase/seed.sql
+supabase db dump --local --data-only --schema public \
+  -x public.companies -x public.filings -x public.financial_facts \
+  -x public.report_items -x public.events -x public.registrations \
+  -x public.ownership_txns -x public.trackings -x public.filing_docs \
+  -x public.account_concepts -x public.analyses \
+  --use-copy -f /tmp/sections-only.sql
+gzip -9 -c /tmp/sections-only.sql > supabase/seed-filing-sections.sql.gz
+```
+
+`account_concepts`는 마이그레이션 0002에서 이미 INSERT로 시드되므로 데이터 덤프에서 항상
+제외한다(포함하면 PK 충돌). `filing_sections`만 분리하는 이유는 크기다 — 전체 51MB 중
+51MB가 이 테이블 하나(원문 텍스트, 섹션당 최대 26만 자)이고 나머지 9개 테이블 전부 합쳐도
+3MB 남짓이다. **`--use-copy`는 `supabase/seed.sql`(자동 로드분)에는 쓰지 않는다** — CLI의
+시드 로더가 COPY 블록을 파싱 못 해 깨진다(직접 겪은 실패: `db reset` 도중 seed 적용
+실패 → 스키마만 재생성된 빈 DB로 남음). COPY는 `psql -f`로 수동 복원하는
+`seed-filing-sections.sql.gz` 쪽에서만 안전하다.
+
+**갱신 후 검증 없이 커밋하지 않는다** — 마이그레이션 전체 + 두 시드를 별도 임시 DB
+(`CREATE DATABASE verify_seed`)에 처음부터 적용해 원본과 행 수가 일치하는지 확인하고
+버린다. 운영 중인 로컬 DB에서 직접 `db reset`으로 검증하다 시드가 깨지면 데이터가
+날아간다(실제로 한 번 날렸고, DART 재수집 + 트래킹 md 재이행으로 복구했다).
 
 ## 설계 결정 (v0 가설)
 
@@ -104,9 +153,31 @@ python3 ingest/ingest.py 크래프톤 --only fin  # 일부 단계만
 | 11 | 중복 키가 (주제·날짜·문장)이면 같은 공시를 다른 날짜 기준으로 쓴 중복을 놓친다 (실제 발생) | `(주제, 접수번호)` 1순위 키 (0007) |
 | 12 | 같은 사실이 두 주제에 걸침 (IPO 자금사용목적 = 자금조달 ∩ M&A) | primary topic + `tags` 배열 (0007) |
 
-## 다음 (A3)
+## A3 완료 (2026-07-25) — 데이터 계약 + 종목 1페이지
 
-- [ ] zod 스키마 + 한글 라벨 사전 (`platform/schema/`) — events·report_items payload 타입화
-      (account_id는 열린 집합이므로 UI 정형 축은 `account_concepts.concept` = 닫힌 enum)
-- [ ] 종목 1페이지 프로토타입 — annual_summary·filings·filing_correction_chains·events·
-      filing_sections·trackings 소비
+- **`packages/schema`** (`@investment/schema`) — 플랫폼 데이터 계약.
+  - `labels.ts`: **DART 원본 필드명 → 한글 라벨 사전**. 원본 키를 개명하지 않으므로 개발가이드와
+    1:1 대조가 되고 번역 버그가 존재할 수 없다. UI는 라벨을 보여주고 원본 키는 `title` 속성으로
+    병기한다. 업종코드(KSIC) 사전도 포함.
+  - `index.ts`: zod 계약. events는 단일 테이블 + `event_type` 판별자 + passthrough payload
+    (strict는 전 상장사에서 반드시 깨진다). **검증은 쓰기가 아니라 읽기 경계**에서 — ingest는
+    원본 보존, UI가 해석. `FinancialConcept` enum이 UI의 닫힌 축(account_id는 열린 집합).
+  - 포매터: `formatWon`(원→조/억), `formatFactDate`(정밀도별 원표기 복원) 등. DB는 원 단위 원본.
+- **`apps/web/lib/platform/db.ts`** — `getCompanyPageData(stockCode)` 하나로 페이지 데이터 병렬 fetch.
+- **`/company/[stockCode]`** — 헤더·재무차트(recharts 이중축)·핵심지표·사실시계열·공시타임라인·
+  정정체인·주요사항 이벤트. Server Component + 차트만 client.
+
+시행착오 로그 추가분:
+
+| # | 발견 | 대응 |
+|---|---|---|
+| 13 | `export * from "./labels.js"`(NodeNext 관례) — Turbopack은 확장자 자동 매핑을 안 해 빌드 100% 실패 | 확장자 없는 `"./labels"` 로 근본 수정 (번들러 무관하게 동작) |
+| 14 | recharts v3.10 `ComposedChart`+이중축에서 애니메이션 켜면 막대가 렌더되지 않음(DOM에 rect 없음) | 전 시리즈 `isAnimationActive={false}` — 차트 복제 시 기본값으로 |
+| 15 | `induty_code`가 코드만 있어 UI에 "업종코드 28202" 노출 | `SECTOR_NAMES` 사전 + `sectorName()` |
+| 16 | 라벨 사전이 실제 payload보다 얕음(회사합병 9/68필드, 신탁계약·유무상증자 유형 자체 누락) | 실제 payload 키를 DB에서 뽑아 사전 보강 — 합병 60여 필드, 신탁 체결·해지, 유무상증자(piic_/fric_ 접두사) 추가 |
+| 17 | `supabase db dump --use-copy`로 뜬 `seed.sql`을 `supabase db reset`이 자동 로드하다 COPY 블록 파싱에 실패 — **스키마만 재생성된 채 DB가 비어버림**(운영 중인 로컬 DB에서 직접 겪음, 트래킹 87건 포함 전체 소실) | 자동 로드용 `seed.sql`은 INSERT 형식(비-COPY)으로, 크기 때문에 분리한 `filing_sections`(51MB)만 COPY+gzip으로 별도 파일 유지하고 `psql -f` 수동 복원으로 한정. 검증은 운영 DB가 아니라 임시 DB(`verify_seed`)에서 |
+
+## 다음 (P-A 종료 → P-B)
+
+- [ ] A3 잔여: 트래킹 없는 종목(에코프로비엠) 트래킹 시드, 주석 섹션 뷰어(filing_sections 본문)
+- [ ] P-B: 스키마 호스티드 승격 → 전 상장사 백필 → 스크리너
