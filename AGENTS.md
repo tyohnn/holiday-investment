@@ -10,6 +10,33 @@ serves `교재/` — run from repo root with `pnpm install` / `pnpm dev`. Shared
 packages can go in `packages/*`. The knowledge-base Markdown remains the core
 deliverable; the site is a viewer over it.
 
+### Web app + platform (apps/web + Supabase) — the runnable application
+`pnpm install` (root) then `pnpm dev` serves the site at http://localhost:3000 (Next.js 16
++ Turbopack). `predev` runs `scripts/sync-content.mjs` which regenerates the gitignored
+`apps/web/content/docs/` from `교재/` (≈112 files). Node 22 + pnpm 10.x are used; the
+update script runs `pnpm install`.
+
+- **`/docs/**` works standalone** — pure Fumadocs viewer over `교재/`, no backend needed.
+- **`/company/**` needs the local Supabase stack** (`apps/web/lib/platform/db.ts` reads
+  PostgREST at `http://127.0.0.1:54321` with the built-in local anon key, so **no env vars
+  are required** — just have the stack running). Without it, `/company` 500s.
+  `/company/<stockCode>` 307-redirects to `/company/<stockCode>/revenue`. Seeded stock codes:
+  `259960` (크래프톤), `247540` (에코프로비엠).
+- `pnpm types:check` (root) = the lint/build proxy (`fumadocs-mdx && next typegen && tsc --noEmit`).
+
+**Running the Supabase stack (for `/company`)** — see `platform/README.md` for the full
+data workflow; the non-obvious cloud gotchas are:
+- Requires Docker + the `supabase` CLI (installed to `$HOME/.local/share/supabase`, must be
+  on `PATH`). On a fresh Cloud VM these may be absent — install Docker per the Cloud Agent
+  Docker workaround, and with **Docker 29** set `/etc/docker/daemon.json` to
+  `{"storage-driver":"fuse-overlayfs","features":{"containerd-snapshotter":false}}` or
+  `supabase start` containers fail to build.
+- Start: `export PATH="$HOME/.local/share/supabase:$PATH"; cd platform && supabase start`
+  (applies migrations + auto-loads `seed.sql`: 2 companies, 1426 filings, etc.).
+- **`filing_sections` (3,052 rows) is a separate compressed seed** and must be loaded once
+  by hand. The host has no `psql`; pipe it through the db container instead:
+  `gunzip -c supabase/seed-filing-sections.sql.gz | docker exec -i supabase_db_platform psql postgresql://postgres:postgres@127.0.0.1:5432/postgres`
+
 ### Dependencies (pre-installed in the VM snapshot)
 The pipeline shells out to these CLI tools (no code-level packages exist):
 - `yt-dlp` — installed at `/usr/local/bin/yt-dlp` (standalone binary)
