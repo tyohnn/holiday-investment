@@ -231,7 +231,10 @@ function escapeMdx(body) {
 }
 
 function escapePlain(text) {
-  let out = text.replace(/<([A-Za-z가-힣/_][^>\n]*)>/g, '&lt;$1&gt;');
+  // HTML comments (MEDIA/QUIZ placeholders) are invalid in MDX — `<!` is parsed as JSX.
+  // Keep the markers as entities so placeholders remain visible and searchable.
+  let out = text.replace(/<!--([\s\S]*?)-->/g, (_, inner) => `&lt;!--${inner}--&gt;`);
+  out = out.replace(/<([A-Za-z가-힣/_][^>\n]*)>/g, '&lt;$1&gt;');
   out = out.replace(/(?<!\\)\{/g, '\\{').replace(/(?<!\\)\}/g, '\\}');
   return out;
 }
