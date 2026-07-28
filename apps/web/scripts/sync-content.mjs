@@ -33,41 +33,22 @@ const BOOK1 = {
     { slug: 'B1', src: 'B1-능력범위' },
     { slug: 'B2', src: 'B2-경제적-해자와-가격결정권' },
     { slug: 'B3', src: 'B3-산업-분석-프레임' },
-    { slug: 'B3a', src: 'B3a-산업축과-국면3문' },
-    { slug: 'B3b', src: 'B3b-산업-라이프사이클' },
-    { slug: 'B3c', src: 'B3c-버블vs혁명-3기준' },
     { slug: 'B4', src: 'B4-정성분석-피셔-15포인트' },
     '---제3부 (C). 정량 밸류에이션 기법---',
     { slug: 'C1', src: 'C1-PER-바로-쓰기' },
-    { slug: 'C1a', src: 'C1a-PER이란-왜-쓰는가' },
-    { slug: 'C1b', src: 'C1b-실전-PER-계산' },
-    { slug: 'C1c', src: 'C1c-저PER함정-PEG-적정PER' },
     { slug: 'C2', src: 'C2-3년후-적정주가-5단계' },
-    { slug: 'C2a', src: 'C2a-5단계-개관과-풀이' },
-    { slug: 'C2b', src: 'C2b-9칸-매트릭스와-낙점' },
-    { slug: 'C2c', src: 'C2c-매수규칙과-다종목-적용' },
     { slug: 'C3', src: 'C3-매출-추정의-기술' },
     { slug: 'C4', src: 'C4-PSR' },
     { slug: 'C5', src: 'C5-상대가치와-저평가-사다리' },
-    { slug: 'C5a', src: 'C5a-상대가치-기초' },
-    { slug: 'C5b', src: 'C5b-SOTP와-우선주-사다리' },
     '---제4부 (D). 정보 소스---',
     { slug: 'D1', src: 'D1-1차-자료-읽기' },
     { slug: 'D2', src: 'D2-언론-리포트-수급-눈치' },
-    { slug: 'D2a', src: 'D2a-언론과-리포트-독법' },
-    { slug: 'D2b', src: 'D2b-수급-눈치' },
     '---제5부 (E). 포트폴리오 구성---',
     { slug: 'E1', src: 'E1-자산배분과-8대2' },
-    { slug: 'E1a', src: 'E1a-계좌설계-8대2' },
-    { slug: 'E1b', src: 'E1b-다층-자산배분' },
     { slug: 'E2', src: 'E2-종목-편입과-구성-5단계' },
     { slug: 'E3', src: 'E3-현금-비중-10-30' },
-    { slug: 'E3a', src: 'E3a-현금비중의-역할' },
-    { slug: 'E3b', src: 'E3b-천장신호와-집행' },
     '---제6부 (F). 운용---',
     { slug: 'F1', src: 'F1-매도와-종목교체' },
-    { slug: 'F1a', src: 'F1a-매도-원칙' },
-    { slug: 'F1b', src: 'F1b-종목교체-절차' },
     '---제7부 (G). 심리와 행동 규율---',
     { slug: 'G1', src: 'G1-감정-배제-장치' },
     { slug: 'G2', src: 'G2-수익금-인내-행복' },
@@ -78,26 +59,12 @@ const BOOK1 = {
     { slug: 'H4', src: 'H4-소외-성장주-발굴' },
     '---제9부 (I). 증권 기초 개념 (선수 가능)---',
     { slug: 'I1', src: 'I1-자금조달과-지분희석' },
-    { slug: 'I1a', src: 'I1a-조달5문과-유상증자' },
-    { slug: 'I1b', src: 'I1b-메자닌과-오버행' },
-    { slug: 'I1c', src: 'I1c-물적분할과-판정체크리스트' },
     { slug: 'I2', src: 'I2-우선주와-지주회사' },
-    { slug: 'I2a', src: 'I2a-우선주와-괴리율' },
-    { slug: 'I2b', src: 'I2b-지주사-합산5단계' },
     { slug: 'I3', src: 'I3-예탁-예금자보호와-파생상품' },
     { slug: 'I4', src: 'I4-시장의-규칙' },
-    { slug: 'I4a', src: 'I4a-공매도-대차-ATS' },
-    { slug: 'I4b', src: 'I4b-상장폐지와-ETF' },
     { slug: 'I5', src: 'I5-세금과-회계의-최소지식' },
     '---부록---',
     { slug: 'appendix', src: '부록-투자자의-태도와-공부법' },
-    { slug: 'appendix-a', src: '부록a-공부법과-독서' },
-    { slug: 'appendix-b', src: '부록b-자녀-경제교육' },
-    { slug: 'appendix-c', src: '부록c-말과-글-설득' },
-    { slug: 'appendix-d', src: '부록d-직장과-본업' },
-    { slug: 'appendix-e', src: '부록e-생활재무' },
-    { slug: 'appendix-f', src: '부록f-부동산-프레임' },
-    { slug: 'appendix-g', src: '부록g-통찰력과-태도' },
   ],
 };
 
@@ -109,18 +76,11 @@ const BOOK2 = {
     '---제1부 (A). 이차전지 과학 원리---',
     { slug: 'A1', src: 'A1-전기차와-배터리-흥망사' },
     { slug: 'A2', src: 'A2-이차전지-개념과-구성' },
-    { slug: 'A2a', src: 'A2a-전지는-화학이다' },
-    { slug: 'A2b', src: 'A2b-4대소재와-양극재-우선' },
-    { slug: 'A2c', src: 'A2c-레시피해자와-산업사' },
     { slug: 'A3', src: 'A3-에너지밀도와-하이니켈' },
-    { slug: 'A3a', src: 'A3a-에너지밀도-개념' },
-    { slug: 'A3b', src: 'A3b-하이니켈-투자함의' },
     { slug: 'A4', src: 'A4-분체기술-전구체-소성' },
     '---제2부 (B). 기술 로드맵---',
     { slug: 'B1', src: 'B1-폼팩터-전쟁-46파이' },
     { slug: 'B2', src: 'B2-제조공정과-건식공정' },
-    { slug: 'B2a', src: 'B2a-제조공정-지도' },
-    { slug: 'B2b', src: 'B2b-건식공정-함의' },
     { slug: 'B3', src: 'B3-미드니켈-LMR-단결정' },
     { slug: 'B4', src: 'B4-차세대-전지' },
     '---제3부 (C). 산업사·정책·지정학---',
@@ -128,12 +88,8 @@ const BOOK2 = {
     { slug: 'C2', src: 'C2-IRA-FEOC-관세' },
     { slug: 'C3', src: 'C3-미중-패권과-중국-변수' },
     { slug: 'C4', src: 'C4-리튬-광물-사이클' },
-    { slug: 'C4a', src: 'C4a-광물가격-사이클' },
-    { slug: 'C4b', src: 'C4b-투자-타이밍-함의' },
     '---제4부 (D). 밸류체인 지도---',
     { slug: 'D1', src: 'D1-밸류체인-지도와-채찍효과' },
-    { slug: 'D1a', src: 'D1a-밸류체인-지도' },
-    { slug: 'D1b', src: 'D1b-채찍효과-사이클' },
     { slug: 'D2', src: 'D2-셀-제조사' },
     { slug: 'D3', src: 'D3-양극재-소재-체인' },
     { slug: 'D4', src: 'D4-장비-체인' },
@@ -250,19 +206,26 @@ function parseMarkdown(raw) {
     body = body.replace(h1[0], '').replace(/^\n+/, '');
   }
 
-  const quote = body.match(/^>\s*(.+)$/m);
-  if (quote) {
-    description = quote[1].replace(/^>\s*/, '').trim();
-  }
-
   if (!title) title = 'Untitled';
-  if (!description) {
-    const para = body
-      .split(/\n\n+/)
-      .map((p) => p.replace(/^[#>*\-\s]+/, '').replace(/\n/g, ' ').trim())
-      .find((p) => p.length > 20);
-    description = para ? para.slice(0, 160) : title;
-  }
+
+  // Chapters open with prose (the `> 숫자로 읽는…` header quotes were removed in
+  // the 2026-07 rewrite), so take the first real paragraph — skipping headings,
+  // blockquotes and MEDIA/QUIZ placeholder comments.
+  const para = body
+    .split(/\n\n+/)
+    .map((p) => p.trim())
+    .find(
+      (p) =>
+        p &&
+        !p.startsWith('>') &&
+        !p.startsWith('#') &&
+        !p.startsWith('<!--') &&
+        !p.startsWith('|') &&
+        p.replace(/[#>*\-\s]+/g, '').length > 20,
+    );
+  description = para
+    ? para.replace(/\s+/g, ' ').replace(/\*\*/g, '').slice(0, 160)
+    : title;
 
   return { title, description, body: escapeMdx(body.trimStart()) };
 }
@@ -431,9 +394,7 @@ function rewriteIndexLinks(body) {
       body
         .replace(/\]\(교재1-방법론\/목차\.md\)/g, '](/docs/book1)')
         .replace(/\]\(교재2-이차전지\/목차\.md\)/g, '](/docs/book2)')
-        .replace(/\]\(교수법-개편계획\.md\)/g, '](/docs/reference/plan)')
-        .replace(/\]\(_템플릿-학습장\.md\)/g, '](/docs)')
-        .replace(/\]\(목차-학습경로\.md\)/g, '](/docs)')
+        .replace(/\]\(_집필스타일\.md\)/g, '](/docs)')
         .replace(/\]\(placeholder-index\.md\)/g, '](/docs)')
         .replace(/\]\(보강계획\.md\)/g, '](/docs/reference/enrichment)')
         .replace(/\]\(용어교정\.md\)/g, '](/docs/reference/glossary)')
