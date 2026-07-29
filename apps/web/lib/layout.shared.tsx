@@ -8,11 +8,6 @@ export function baseOptions(): BaseLayoutProps {
     },
     links: [
       {
-        text: '자료',
-        url: '/docs/reference',
-        active: 'nested-url',
-      },
-      {
         text: '종목 분석',
         url: '/company',
         active: 'nested-url',
