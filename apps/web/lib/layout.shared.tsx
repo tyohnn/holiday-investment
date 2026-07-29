@@ -8,11 +8,6 @@ export function baseOptions(): BaseLayoutProps {
     },
     links: [
       {
-        text: '2권 이차전지 산업을 해부하는 법',
-        url: '/docs/book2',
-        active: 'nested-url',
-      },
-      {
         text: '자료',
         url: '/docs/reference',
         active: 'nested-url',
