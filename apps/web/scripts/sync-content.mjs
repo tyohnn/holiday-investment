@@ -113,8 +113,6 @@ const SOURCE_MAP = new Map([
   ['reference/index.mdx', 'INDEX.md'],
   ['reference/stocks.mdx', '종목/INDEX.md'],
   ['reference/glossary.mdx', '용어교정.md'],
-  ['reference/enrichment.mdx', '보강계획.md'],
-  ['reference/plan.mdx', 'PLAN.md'],
   ['book1/index.mdx', '교재1-방법론/목차.md'],
   ['book2/index.mdx', '교재2-이차전지/목차.md'],
 ]);
@@ -195,8 +193,27 @@ function escapePlain(text) {
   return out;
 }
 
+/** Drop authoring/pipeline provenance that should not appear on the public site. */
+function stripAuthoringMeta(text) {
+  let out = text;
+  // Lecture→chapter coverage matrices (authoring only)
+  out = out.replace(/\n## 커버리지 매트릭스[\s\S]*$/m, '\n');
+  // Per-chapter source attribution bullets in 목차
+  out = out.replace(/^- 소스:.*(?:\n|$)/gm, '');
+  // Coverage verification footers
+  out = out.replace(/^\*\*검증\*\*:.*(?:\n|$)/gm, '');
+  // Pipeline provenance one-liners
+  out = out.replace(/^>?\s*강의\s*\d+편\s*전사.*(?:\n|$)/gm, '');
+  out = out.replace(/^>?\s*설계 근거:.*(?:\n|$)/gm, '');
+  out = out.replace(/^>?\s*\*\*소스 표기 규칙\*\*:.*(?:\n|$)/gm, '');
+  out = out.replace(/^설계 원칙:.*(?:\n|$)/gm, '');
+  // Collapse excess blank lines left by removals
+  out = out.replace(/\n{3,}/g, '\n\n');
+  return out;
+}
+
 function parseMarkdown(raw) {
-  let body = raw.replace(/^\uFEFF/, '');
+  let body = stripAuthoringMeta(raw.replace(/^\uFEFF/, ''));
   let title = '';
   let description = '';
 
@@ -245,9 +262,15 @@ description: ${yamlEscape(scrubNames(description))}
   );
 }
 
+function rewriteBookLinks(text) {
+  return text
+    .replace(/\]\(\.\.\/INDEX\.md\)/g, '](/docs)')
+    .replace(/\]\(INDEX\.md\)/g, '](/docs)');
+}
+
 function convertFile(srcFile, destFile, overrides = {}) {
   const raw = fs.readFileSync(srcFile, 'utf8');
-  const parsed = parseMarkdown(rewriteWikiLinks(raw));
+  const parsed = parseMarkdown(rewriteBookLinks(rewriteWikiLinks(raw)));
   writeDoc(
     destFile,
     overrides.title ?? parsed.title,
@@ -411,10 +434,10 @@ function rewriteIndexLinks(body) {
         .replace(/\]\(교재2-이차전지\/목차\.md\)/g, '](/docs/book2)')
         .replace(/\]\(_집필스타일\.md\)/g, '](/docs)')
         .replace(/\]\(placeholder-index\.md\)/g, '](/docs)')
-        .replace(/\]\(보강계획\.md\)/g, '](/docs/reference/enrichment)')
+        .replace(/\]\(보강계획\.md\)/g, '](/docs/reference)')
         .replace(/\]\(용어교정\.md\)/g, '](/docs/reference/glossary)')
         .replace(/\]\(종목\/INDEX\.md\)/g, '](/docs/reference/stocks)')
-        .replace(/\]\(PLAN\.md\)/g, '](/docs/reference/plan)'),
+        .replace(/\]\(PLAN\.md\)/g, '](/docs/reference)'),
     ),
   );
 }
@@ -459,20 +482,18 @@ function main() {
   mkdirp(refDir);
   writeJson(path.join(refDir, 'meta.json'), {
     title: '자료',
-    pages: ['index', 'stocks', 'glossary', 'enrichment', 'plan'],
+    pages: ['index', 'stocks', 'glossary'],
   });
 
   writeDoc(
     path.join(refDir, 'index.mdx'),
     '자료',
-    '종목 DB, 용어교정표, 보강계획, 프로젝트 PLAN',
-    `강의 노트에서 추출한 보조 자료입니다.
+    '종목 DB와 용어교정표',
+    `교재를 보완하는 참고 자료입니다.
 
 <Cards>
   <Card title="종목 DB" href="/docs/reference/stocks" />
   <Card title="용어교정표" href="/docs/reference/glossary" />
-  <Card title="보강계획" href="/docs/reference/enrichment" />
-  <Card title="PLAN" href="/docs/reference/plan" />
 </Cards>
 `,
   );
@@ -481,8 +502,6 @@ function main() {
     title: '종목 DB',
   });
   convertFile(path.join(SRC, '용어교정.md'), path.join(refDir, 'glossary.mdx'));
-  convertFile(path.join(SRC, '보강계획.md'), path.join(refDir, 'enrichment.mdx'));
-  convertFile(path.join(SRC, 'PLAN.md'), path.join(refDir, 'plan.mdx'));
 
   writeSourceMap();
 
