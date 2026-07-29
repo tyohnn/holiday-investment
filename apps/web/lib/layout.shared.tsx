@@ -6,13 +6,7 @@ export function baseOptions(): BaseLayoutProps {
     nav: {
       title: appName,
     },
-    links: [
-      {
-        text: '종목 분석',
-        url: '/company',
-        active: 'nested-url',
-      },
-    ],
+    links: [],
     githubUrl: `https://github.com/${gitConfig.user}/${gitConfig.repo}`,
   };
 }
