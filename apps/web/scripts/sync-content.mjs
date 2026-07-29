@@ -461,7 +461,7 @@ function main() {
 
   writeJson(path.join(DEST, 'meta.json'), {
     title: '숫자로 읽는 주식투자',
-    pages: ['index', '---교재---', 'book1', 'book2', '---자료---', 'reference'],
+    pages: ['---교재---', 'book1', 'book2', '---자료---', 'reference'],
   });
 
   {
