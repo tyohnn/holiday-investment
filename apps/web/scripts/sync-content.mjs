@@ -280,7 +280,12 @@ function convertFile(srcFile, destFile, overrides = {}) {
 }
 
 function navPages(pages) {
-  return pages.map((item) => (typeof item === 'string' ? item : item.slug));
+  // Fumadocs: listing `index` in `pages` removes folder.index, so the sidebar
+  // renders a non-navigable button instead of a link to /docs/<folder>.
+  // Keep index.mdx on disk; omit it from pages so the folder owns it as index.
+  return pages
+    .map((item) => (typeof item === 'string' ? item : item.slug))
+    .filter((slug) => slug !== 'index');
 }
 
 function syncBook(srcDir, book) {
@@ -461,7 +466,7 @@ function main() {
 
   writeJson(path.join(DEST, 'meta.json'), {
     title: '숫자로 읽는 주식투자',
-    pages: ['index', '---교재---', 'book1', 'book2', '---자료---', 'reference'],
+    pages: ['---교재---', 'book1', 'book2', '---자료---', 'reference'],
   });
 
   {
@@ -482,7 +487,7 @@ function main() {
   mkdirp(refDir);
   writeJson(path.join(refDir, 'meta.json'), {
     title: '자료',
-    pages: ['index', 'stocks', 'glossary'],
+    pages: ['stocks', 'glossary'],
   });
 
   writeDoc(

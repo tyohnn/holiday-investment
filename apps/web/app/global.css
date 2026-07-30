@@ -11,3 +11,15 @@ html > body[data-scroll-locked] {
   margin-right: 0px !important;
   --removed-body-scroll-bar-size: 0px !important;
 }
+
+/*
+ * Fumadocs sidebar uses Radix ScrollArea (type="scroll"). The viewport starts
+ * with inline overflow-y:hidden until the scrollbar effect enables scrolling.
+ * In some embeds/previews that state sticks and long page trees cannot scroll.
+ * Force the sidebar viewport to stay scrollable; native bars stay hidden via
+ * Radix's scrollbar-width:none stylesheet.
+ */
+#nd-sidebar [data-radix-scroll-area-viewport],
+#nd-sidebar-mobile [data-radix-scroll-area-viewport] {
+  overflow-y: auto !important;
+}
