@@ -51,15 +51,29 @@ article :where(a[data-footnote-ref]) {
   text-decoration: none;
   cursor: pointer;
   vertical-align: inherit;
-  /* Match heading `scroll-m-28` so ↩ back-jumps clear sticky header/toc. */
-  scroll-margin-top: 7rem;
+  /*
+   * Footnote marks sit at the end of a paragraph. scroll-margin must clear
+   * sticky header + in-page TOC popover AND leave room for lines above the mark.
+   * (Heading scroll-m-28 alone is not enough — the mark isn't the block start.)
+   */
+  scroll-margin-top: max(
+    10rem,
+    calc(
+      var(--fd-docs-row-2, 0px) + var(--fd-toc-popover-height, 0px) + 5rem
+    )
+  );
 }
 
 /* Downward jump to a footnote item (본문 ¹ → 출처) */
 .prose :where(section[data-footnotes] li),
 article :where(section[data-footnotes] li),
 section[data-footnotes] :where(li[id^='user-content-fn-']) {
-  scroll-margin-top: 7rem;
+  scroll-margin-top: max(
+    10rem,
+    calc(
+      var(--fd-docs-row-2, 0px) + var(--fd-toc-popover-height, 0px) + 5rem
+    )
+  );
 }
 
 .prose :where(a[data-footnote-ref]):hover,
