@@ -46,9 +46,19 @@ section.footnotes {
 
 .prose section[data-footnotes] h2,
 article section[data-footnotes] h2,
-section.footnotes h2 {
+section.footnotes h2,
+section[data-footnotes] #footnote-label {
+  /* Fumadocs/rehype marks the label sr-only; show it for textbook readers. */
+  position: static;
+  width: auto;
+  height: auto;
+  padding: 0;
+  margin: 0 0 0.75rem;
+  overflow: visible;
+  clip: auto;
+  white-space: normal;
+  border: 0;
   font-size: 0.95rem;
   font-weight: 600;
-  margin-bottom: 0.75rem;
   color: var(--color-fd-foreground, inherit);
 }
