@@ -23,3 +23,32 @@ html > body[data-scroll-locked] {
 #nd-sidebar-mobile [data-radix-scroll-area-viewport] {
   overflow-y: auto !important;
 }
+
+/* GFM footnotes (교재 구루·원전 인용) */
+.prose [data-footnote-ref],
+article [data-footnote-ref],
+sup a[data-footnote-ref] {
+  font-size: 0.75em;
+  font-weight: 600;
+  text-decoration: none;
+  margin-inline-start: 0.1em;
+}
+
+.prose section[data-footnotes],
+article section[data-footnotes],
+section.footnotes {
+  margin-top: 2.5rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--color-fd-border, #e5e5e5);
+  font-size: 0.875em;
+  color: var(--color-fd-muted-foreground, #737373);
+}
+
+.prose section[data-footnotes] h2,
+article section[data-footnotes] h2,
+section.footnotes h2 {
+  font-size: 0.95rem;
+  font-weight: 600;
+  margin-bottom: 0.75rem;
+  color: var(--color-fd-foreground, inherit);
+}
