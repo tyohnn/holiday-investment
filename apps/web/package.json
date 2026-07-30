@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@investment/schema": "workspace:*",
+    "@radix-ui/react-accordion": "^1.2.20",
     "@supabase/supabase-js": "^2.110.8",
     "cnfast": "^0.0.8",
     "fumadocs-core": "^16.12.1",

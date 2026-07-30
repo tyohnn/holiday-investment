@@ -6,15 +6,18 @@ import Link from 'fumadocs-core/link';
 import { usePathname } from 'fumadocs-core/framework';
 import { useTreePath } from 'fumadocs-ui/contexts/tree';
 import {
-  SidebarFolder,
-  SidebarFolderTrigger,
   useAutoScroll,
-  useFolder,
-  useFolderDepth,
   useSidebar,
 } from 'fumadocs-ui/components/sidebar/base';
-import { ChevronDown } from 'lucide-react';
-import { useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import {
+  Accordion,
+  AccordionChevronTrigger,
+  AccordionContent,
+  AccordionHeader,
+  AccordionItem,
+  AccordionTrigger,
+} from '@/components/ui/accordion';
 import { cn } from '@/lib/cn';
 
 function normalize(url: string) {
@@ -25,10 +28,6 @@ function isExactActive(href: string, pathname: string) {
   return normalize(href) === normalize(pathname);
 }
 
-function itemOffset(depth: number) {
-  return `calc(${2 + 3 * depth} * var(--spacing))`;
-}
-
 const rowClassName = cn(
   'group relative flex w-full flex-row items-stretch rounded-lg text-fd-muted-foreground',
   'transition-colors hover:bg-fd-accent/50 hover:text-fd-accent-foreground/80',
@@ -36,22 +35,11 @@ const rowClassName = cn(
 );
 
 const titleClassName = cn(
-  'flex min-w-0 flex-1 items-center gap-2 rounded-lg p-2 pe-1 text-start wrap-anywhere',
+  'flex min-w-0 flex-1 items-center gap-2 rounded-lg p-2 pe-1 text-start wrap-anywhere outline-none focus-visible:ring-2 focus-visible:ring-fd-ring',
   '[&_svg]:size-4 [&_svg]:shrink-0',
 );
 
-const chevronButtonClassName = cn(
-  'inline-flex shrink-0 items-center justify-center rounded-md px-1.5 text-fd-muted-foreground',
-  'transition-colors hover:bg-fd-accent hover:text-fd-accent-foreground',
-  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fd-ring',
-);
-
-/**
- * Split control:
- * - title area → navigates to folder index
- * - chevron button → expand / collapse only
- */
-function SplitFolderControl({
+function FolderIndexLink({
   href,
   external,
   active,
@@ -63,84 +51,28 @@ function SplitFolderControl({
   children: ReactNode;
 }) {
   const ref = useRef<HTMLAnchorElement>(null);
-  const depth = useFolderDepth();
-  const folder = useFolder();
   const { prefetch } = useSidebar();
   useAutoScroll(active, ref);
-  if (!folder) throw new Error('SplitFolderControl must be used inside SidebarFolder');
-  const { open, setOpen, collapsible } = folder;
 
   return (
-    <div
-      className={rowClassName}
-      style={{ paddingInlineStart: itemOffset(Math.max(depth - 1, 0)) }}
-    >
-      <Link
-        ref={ref}
-        href={href}
-        external={external}
-        data-active={active}
-        prefetch={prefetch}
-        className={titleClassName}
-      >
-        {children}
-      </Link>
-      {collapsible ? (
-        <button
-          type="button"
-          aria-label={open ? '접기' : '펼치기'}
-          aria-expanded={open}
-          className={chevronButtonClassName}
-          onClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            setOpen((prev) => !prev);
-          }}
-        >
-          <ChevronDown
-            className={cn(
-              'size-4 transition-transform',
-              !open && '-rotate-90 rtl:rotate-90',
-            )}
-          />
-        </button>
-      ) : null}
-    </div>
-  );
-}
-
-function FolderTrigger({ children }: { children: ReactNode }) {
-  const depth = useFolderDepth();
-  return (
-    <SidebarFolderTrigger
-      className={cn(rowClassName, titleClassName, 'w-full p-2')}
-      style={{ paddingInlineStart: itemOffset(Math.max(depth - 1, 0)) }}
+    <Link
+      ref={ref}
+      href={href}
+      external={external}
+      data-active={active}
+      prefetch={prefetch}
+      className={titleClassName}
     >
       {children}
-    </SidebarFolderTrigger>
+    </Link>
   );
 }
 
-/**
- * Show/hide from FolderContext.open directly.
- * Skip Radix CollapsibleContent exit animations — in some embeds animationend
- * never fires and the panel stays visually open after collapse.
- */
 function FolderContent({ children }: { children: ReactNode }) {
-  const folder = useFolder();
-  const depth = useFolderDepth();
-  if (!folder?.open) return null;
-
   return (
-    <div
-      className={cn(
-        'relative',
-        depth === 1 &&
-          "before:absolute before:inset-y-1 before:inset-s-2.5 before:w-px before:bg-fd-border before:content-['']",
-      )}
-    >
+    <AccordionContent className="relative pb-0 before:absolute before:inset-y-1 before:inset-s-2.5 before:w-px before:bg-fd-border before:content-['']">
       <div className="flex flex-col gap-0.5 pt-0.5">{children}</div>
-    </div>
+    </AccordionContent>
   );
 }
 
@@ -154,29 +86,49 @@ export function DocsSidebarFolder({
   const path = useTreePath();
   const pathname = usePathname();
   const inPath = path.includes(item);
+  const collapsible = item.collapsible !== false;
+  const [open, setOpen] = useState(
+    !collapsible || inPath || item.defaultOpen === true,
+  );
+
+  useEffect(() => {
+    if (inPath) setOpen(true);
+  }, [inPath]);
 
   return (
-    <SidebarFolder
-      collapsible={item.collapsible !== false}
-      defaultOpen={item.defaultOpen}
-      active={inPath}
+    <Accordion
+      type="single"
+      value={open ? 'content' : ''}
+      onValueChange={(value) => setOpen(value === 'content')}
+      collapsible={collapsible}
     >
-      {item.index ? (
-        <SplitFolderControl
-          href={item.index.url}
-          external={item.index.external}
-          active={isExactActive(item.index.url, pathname)}
-        >
-          {item.icon}
-          {item.name}
-        </SplitFolderControl>
-      ) : (
-        <FolderTrigger>
-          {item.icon}
-          {item.name}
-        </FolderTrigger>
-      )}
-      <FolderContent>{children}</FolderContent>
-    </SidebarFolder>
+      <AccordionItem value="content" className="border-b-0">
+        <AccordionHeader className={rowClassName}>
+          {item.index ? (
+            <FolderIndexLink
+              href={item.index.url}
+              external={item.index.external}
+              active={isExactActive(item.index.url, pathname)}
+            >
+              {item.icon}
+              {item.name}
+            </FolderIndexLink>
+          ) : (
+            <AccordionTrigger className="min-w-0 flex-1 p-2 pe-1 text-start hover:no-underline">
+              <span className="flex items-center gap-2">
+                {item.icon}
+                {item.name}
+              </span>
+            </AccordionTrigger>
+          )}
+          {item.index && collapsible ? (
+            <AccordionChevronTrigger
+              aria-label={open ? '접기' : '펼치기'}
+            />
+          ) : null}
+        </AccordionHeader>
+        <FolderContent>{children}</FolderContent>
+      </AccordionItem>
+    </Accordion>
   );
 }
