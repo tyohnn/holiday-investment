@@ -7,7 +7,6 @@ import { usePathname } from 'fumadocs-core/framework';
 import { useTreePath } from 'fumadocs-ui/contexts/tree';
 import {
   SidebarFolder,
-  SidebarFolderContent,
   SidebarFolderTrigger,
   useAutoScroll,
   useFolder,
@@ -92,7 +91,11 @@ function SplitFolderControl({
           aria-label={open ? '접기' : '펼치기'}
           aria-expanded={open}
           className={chevronButtonClassName}
-          onClick={() => setOpen(!open)}
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setOpen((prev) => !prev);
+          }}
         >
           <ChevronDown
             className={cn(
@@ -118,10 +121,18 @@ function FolderTrigger({ children }: { children: ReactNode }) {
   );
 }
 
+/**
+ * Show/hide from FolderContext.open directly.
+ * Skip Radix CollapsibleContent exit animations — in some embeds animationend
+ * never fires and the panel stays visually open after collapse.
+ */
 function FolderContent({ children }: { children: ReactNode }) {
+  const folder = useFolder();
   const depth = useFolderDepth();
+  if (!folder?.open) return null;
+
   return (
-    <SidebarFolderContent
+    <div
       className={cn(
         'relative',
         depth === 1 &&
@@ -129,7 +140,7 @@ function FolderContent({ children }: { children: ReactNode }) {
       )}
     >
       <div className="flex flex-col gap-0.5 pt-0.5">{children}</div>
-    </SidebarFolderContent>
+    </div>
   );
 }
 
@@ -146,7 +157,7 @@ export function DocsSidebarFolder({
 
   return (
     <SidebarFolder
-      collapsible={item.collapsible}
+      collapsible={item.collapsible !== false}
       defaultOpen={item.defaultOpen}
       active={inPath}
     >
