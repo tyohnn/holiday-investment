@@ -23,3 +23,89 @@ html > body[data-scroll-locked] {
 #nd-sidebar-mobile [data-radix-scroll-area-viewport] {
   overflow-y: auto !important;
 }
+
+/* GFM footnotes (교재 구루·원전 인용)
+ * Tailwind/Fumadocs preflight sets `sup { line-height: 0; top: -0.5em }`,
+ * which collapses the <a> hit box so the number looks present but isn't clickable.
+ */
+.prose :where(sup):has([data-footnote-ref]),
+article :where(sup):has([data-footnote-ref]) {
+  position: static;
+  top: auto;
+  line-height: 1;
+  font-size: 0.75em;
+  vertical-align: super;
+}
+
+.prose :where(a[data-footnote-ref]),
+article :where(a[data-footnote-ref]) {
+  display: inline-block;
+  min-width: 1.1em;
+  min-height: 1.1em;
+  padding: 0 0.2em;
+  margin-inline-start: 0.15em;
+  line-height: 1.2;
+  font-size: 1em;
+  font-weight: 700;
+  color: var(--color-fd-primary, #2563eb);
+  text-decoration: none;
+  cursor: pointer;
+  vertical-align: inherit;
+  /*
+   * Footnote marks sit at the end of a paragraph. scroll-margin must clear
+   * sticky header + in-page TOC popover AND leave room for lines above the mark.
+   * (Heading scroll-m-28 alone is not enough — the mark isn't the block start.)
+   */
+  scroll-margin-top: max(
+    10rem,
+    calc(
+      var(--fd-docs-row-2, 0px) + var(--fd-toc-popover-height, 0px) + 5rem
+    )
+  );
+}
+
+/* Downward jump to a footnote item (본문 ¹ → 출처) */
+.prose :where(section[data-footnotes] li),
+article :where(section[data-footnotes] li),
+section[data-footnotes] :where(li[id^='user-content-fn-']) {
+  scroll-margin-top: max(
+    10rem,
+    calc(
+      var(--fd-docs-row-2, 0px) + var(--fd-toc-popover-height, 0px) + 5rem
+    )
+  );
+}
+
+.prose :where(a[data-footnote-ref]):hover,
+article :where(a[data-footnote-ref]):hover {
+  text-decoration: underline;
+}
+
+.prose section[data-footnotes],
+article section[data-footnotes],
+section.footnotes {
+  margin-top: 2.5rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--color-fd-border, #e5e5e5);
+  font-size: 0.875em;
+  color: var(--color-fd-muted-foreground, #737373);
+}
+
+.prose section[data-footnotes] h2,
+article section[data-footnotes] h2,
+section.footnotes h2,
+section[data-footnotes] #footnote-label {
+  /* Fumadocs/rehype marks the label sr-only; show it for textbook readers. */
+  position: static;
+  width: auto;
+  height: auto;
+  padding: 0;
+  margin: 0 0 0.75rem;
+  overflow: visible;
+  clip: auto;
+  white-space: normal;
+  border: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--color-fd-foreground, inherit);
+}

@@ -22,5 +22,10 @@ export default defineConfig({
     // Display math still works via $$...$$.
     remarkPlugins: [[remarkMath, { singleDollarTextMath: false }]],
     rehypePlugins: [rehypeKatex],
+    // GFM footnotes (remark-gfm is already in the Fumadocs default preset).
+    remarkRehypeOptions: {
+      footnoteLabel: '출처',
+      footnoteBackLabel: '본문으로',
+    },
   },
 });
