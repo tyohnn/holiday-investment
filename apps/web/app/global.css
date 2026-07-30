@@ -51,6 +51,15 @@ article :where(a[data-footnote-ref]) {
   text-decoration: none;
   cursor: pointer;
   vertical-align: inherit;
+  /* Match heading `scroll-m-28` so ↩ back-jumps clear sticky header/toc. */
+  scroll-margin-top: 7rem;
+}
+
+/* Downward jump to a footnote item (본문 ¹ → 출처) */
+.prose :where(section[data-footnotes] li),
+article :where(section[data-footnotes] li),
+section[data-footnotes] :where(li[id^='user-content-fn-']) {
+  scroll-margin-top: 7rem;
 }
 
 .prose :where(a[data-footnote-ref]):hover,
