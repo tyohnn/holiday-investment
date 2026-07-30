@@ -24,14 +24,38 @@ html > body[data-scroll-locked] {
   overflow-y: auto !important;
 }
 
-/* GFM footnotes (교재 구루·원전 인용) */
-.prose [data-footnote-ref],
-article [data-footnote-ref],
-sup a[data-footnote-ref] {
+/* GFM footnotes (교재 구루·원전 인용)
+ * Tailwind/Fumadocs preflight sets `sup { line-height: 0; top: -0.5em }`,
+ * which collapses the <a> hit box so the number looks present but isn't clickable.
+ */
+.prose :where(sup):has([data-footnote-ref]),
+article :where(sup):has([data-footnote-ref]) {
+  position: static;
+  top: auto;
+  line-height: 1;
   font-size: 0.75em;
-  font-weight: 600;
+  vertical-align: super;
+}
+
+.prose :where(a[data-footnote-ref]),
+article :where(a[data-footnote-ref]) {
+  display: inline-block;
+  min-width: 1.1em;
+  min-height: 1.1em;
+  padding: 0 0.2em;
+  margin-inline-start: 0.15em;
+  line-height: 1.2;
+  font-size: 1em;
+  font-weight: 700;
+  color: var(--color-fd-primary, #2563eb);
   text-decoration: none;
-  margin-inline-start: 0.1em;
+  cursor: pointer;
+  vertical-align: inherit;
+}
+
+.prose :where(a[data-footnote-ref]):hover,
+article :where(a[data-footnote-ref]):hover {
+  text-decoration: underline;
 }
 
 .prose section[data-footnotes],
