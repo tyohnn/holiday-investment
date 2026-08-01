@@ -6,7 +6,17 @@
  *   - 사실 시계열은 trackings 원장 (md 는 생성물이므로 UI 는 DB 를 본다)
  *   - 정정 체인은 filing_correction_chains 뷰 (파생 관계는 저장하지 않는다)
  * payload(jsonb) 해석은 @investment/schema 의 라벨 사전이 담당한다.
+ *
+ * 이 모듈은 서버 전용이다. anon 클라이언트도 마찬가지로 서버(RSC)에서만 부른다는
+ * 전제가 있지만, trackings 읽기는 서비스 롤 키를 쓰므로 특히 중요하다 — 클라이언트
+ * 컴포넌트에서 이 파일을 import 하면 서비스 롤 키가 브라우저 번들에 노출된다.
+ * `server-only` 패키지로 빌드 타임에 막는다: 클라이언트 번들에 이 모듈이 섞여 들어가면
+ * 빌드 자체가 실패한다. (참고: apps/web/lib/platform/db.ts 의 모든 호출자는 현재
+ * page.tsx 의 서버 컴포넌트뿐이며, 클라이언트 컴포넌트는 타입만 `import type` 으로
+ * 참조한다 — RLS 락다운 작업에서 확인됨.)
  */
+import "server-only";
+
 import { createClient } from "@supabase/supabase-js";
 import {
   AnnualSummary,
@@ -24,8 +34,18 @@ const URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "http://127.0.0.1:54321";
 const ANON =
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0";
+// 서비스 롤 키 — trackings 전용(RLS 락다운 이후 anon 으로는 읽을 수 없다).
+// NEXT_PUBLIC_ 프리픽스가 아니므로 클라이언트 번들에는 포함되지 않는다.
+// 로컬 supabase start 의 데모 service_role 키는 모든 로컬 인스턴스에서 동일하고 비밀이
+// 아니다(platform/ingest/ingest.py 의 SERVICE_KEY 와 동일 — 그쪽 주석 참고).
+const SERVICE_KEY =
+  process.env.SUPABASE_SERVICE_KEY ??
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU";
 
 export const supabase = createClient(URL, ANON, { auth: { persistSession: false } });
+// 서비스 롤 클라이언트 — RLS 를 우회한다. trackings 처럼 비공개 테이블을 읽을 때만 쓴다.
+// 공개 테이블(companies, filings, financial_facts, …)은 계속 anon 클라이언트로 읽는다.
+const supabaseService = createClient(URL, SERVICE_KEY, { auth: { persistSession: false } });
 
 /** 스키마로 파싱하되, 계약 위반 행은 버리지 않고 로그만 남긴다(원본 보존 원칙의 연장). */
 function parseAll<T>(schema: z.ZodType<T>, rows: unknown[], label: string): T[] {
@@ -90,8 +110,9 @@ export async function getEvents(corpCode: string): Promise<DartEvent[]> {
   return parseAll(DartEvent, data ?? [], "events");
 }
 
+/** trackings 는 RLS 락다운 대상(비공개) — 서비스 롤 클라이언트로만 읽는다. */
 export async function getTrackings(corpCode: string): Promise<TrackingFact[]> {
-  const { data, error } = await supabase
+  const { data, error } = await supabaseService
     .from("trackings")
     .select("*")
     .eq("corp_code", corpCode)
