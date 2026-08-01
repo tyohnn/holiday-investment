@@ -52,6 +52,22 @@ PHASES = {
     3: ["docs"],
 }
 
+# ─────────────────────────────────────────────── 상장상태 게이트
+#
+# corpCode.xml 의 stock_code 는 "한때 종목코드를 배정받음"이지 "지금 거래 중"이 아니다(조사 완료 —
+# 3,978개 stock_code 보유 법인 상당수가 상장폐지, modify_date 는 대용 지표로 못 씀). OpenDART
+# company.json 의 corp_cls 는 30개 표본에서 모순 없이 생사를 갈랐다: Y(코스피)/K(코스닥)/N(코넥스)
+# 는 생존, 그 외(E=기타법인 등)는 지금 상장 상태가 아니다. company 단계가 이 값을 이미 관측하므로
+# (ingest.py load_company), filings/fin/phase2·3 이 이 회사에 또 ~102콜을 쓰기 전에 여기서 막는다.
+LIVE_CORP_CLASSES = {"Y", "K", "N"}
+
+
+def is_delisted_cls(corp_cls):
+    """corp_cls 가 '지금은 상장이 아님'으로 확정됐는지. None(=company 단계 미실행, 모름)은
+    절대 True 가 되면 안 된다 — "모른다"가 조용히 "건너뛴다"로 새는 걸 막는 게 이 함수의 존재
+    이유다. corp_cls 가 문자열인데 Y/K/N 이 아니면(E 등) 게이트 대상."""
+    return corp_cls is not None and corp_cls not in LIVE_CORP_CLASSES
+
 
 # ─────────────────────────────────────────────── 작은 유틸
 
@@ -328,6 +344,25 @@ def mark_failed(corp_code, stage, err, old_attempts):
          prefer="return=minimal")
 
 
+def mark_skipped(corp_code, stage, reason):
+    """게이트가 판단해서 아예 시도하지 않은 (회사,단계). done(끝남)도 failed(실패함)도 아닌
+    세 번째 종결 상태 — attempts/calls_spent 는 그대로 둔다(이 회사 데이터의 실패가 아니므로).
+    last_error 자리를 재사용해 게이트 사유(corp_cls 값)를 남겨 status 가 정직하게 보고하고,
+    나중에 판단을 뒤집을 근거를 남긴다."""
+    rest("PATCH", "ingest_progress?%s" % _progress_filter(corp_code, stage),
+         {"status": "skipped", "last_error": (reason or "")[:2000], "completed_at": now_iso(),
+          "started_at": None, "updated_at": now_iso()},
+         prefer="return=minimal")
+
+
+def record_listing_status(corp_code, corp_cls):
+    """company 단계가 방금 관측한 raw corp_cls 를 ingest_corps 에 적어둔다 — 이후 이 회사의
+    filings/fin/phase2·3 게이트 판단이 이 값을 본다. corp_cls 가 None(company API 실패 등)이면
+    NULL 로 남겨 "모름"을 보존한다(게이트 미적용 상태 유지)."""
+    rest("PATCH", "ingest_corps?corp_code=eq.%s" % urllib.parse.quote(corp_code),
+         {"corp_cls": corp_cls}, prefer="return=minimal")
+
+
 def reclaim_stale_running():
     """크래시(kill -9 등, 신호를 못 받는 경우)로 running 에 멈춘 행을 나이 기준으로 회수한다.
     정상 종료 경로(Ctrl-C/SIGTERM)는 이미 mark_pending 으로 즉시 되돌리므로, 이건 그 백스톱."""
@@ -387,19 +422,24 @@ def resolve_corp_codes_from_stock(stock_codes):
     return list(found.values())
 
 
-def discover_jobs(stages, company_filter, limit):
+def discover_jobs(stages, company_filter, limit, include_skipped=False):
     """대기 중인 (corp_code, stage) 작업을 찾는다. 회사 내부에서는 ingest.STAGES 의 정본
     순서(company→filings→fin→…)를 지킨다 — company 가 companies 테이블에 먼저 있어야
-    filings/financial_facts 의 FK(corp_code references companies)가 통과한다."""
+    filings/financial_facts 의 FK(corp_code references companies)가 통과한다.
+
+    include_skipped: True 면 이전에 게이트로 skipped 처리된 행도 다시 대상에 넣는다 —
+    --include-delisted 로 게이트를 끄고 돌릴 때 "미래에 한 술어만 바꿔서 un-skip" 하는
+    지점이 바로 여기다(상태 목록에 'skipped' 를 넣느냐 마느냐)."""
     corp_filter = None
     if company_filter:
         corp_filter = resolve_corp_codes_from_stock(company_filter)
         if not corp_filter:
             return []
 
-    q = ("ingest_progress?stage=in.(%s)&status=in.(pending,failed)&attempts=lt.%d"
+    statuses = "pending,failed,skipped" if include_skipped else "pending,failed"
+    q = ("ingest_progress?stage=in.(%s)&status=in.(%s)&attempts=lt.%d"
          "&select=corp_code,stage,attempts&order=corp_code,stage" %
-         (",".join(stages), MAX_JOB_ATTEMPTS))
+         (",".join(stages), statuses, MAX_JOB_ATTEMPTS))
     if corp_filter is not None:
         q += "&corp_code=in.(%s)" % ",".join(corp_filter)
     rows = rest_get_all(q)
@@ -426,8 +466,8 @@ def fetch_corp_info(corp_codes):
     out, chunk_size = {}, 200  # in.() URL 길이 한계 방지
     for i in range(0, len(corp_codes), chunk_size):
         chunk = corp_codes[i:i + chunk_size]
-        q = ("ingest_corps?corp_code=in.(%s)&select=corp_code,corp_name,stock_code&order=corp_code"
-             % ",".join(chunk))
+        q = ("ingest_corps?corp_code=in.(%s)&select=corp_code,corp_name,stock_code,corp_cls"
+             "&order=corp_code" % ",".join(chunk))
         for r in rest_get_all(q):
             out[r["corp_code"]] = r
     return out
@@ -454,30 +494,45 @@ def cmd_run(args):
     if not args.dry_run:
         reclaim_stale_running()
 
-    jobs = discover_jobs(stages, company_filter, args.limit)
+    # include_delisted 면 이전에 게이트로 skipped 된 행도 다시 후보에 넣는다 — "한 술어만
+    # 바꿔서 un-skip" 이 여기서 일어난다.
+    jobs = discover_jobs(stages, company_filter, args.limit, include_skipped=args.include_delisted)
     if not jobs:
         print("대기 중인 작업 없음 (phase %d, 단계 %s) — seed 를 먼저 돌렸는지, 이미 다 끝났는지 확인"
               % (args.phase, ",".join(stages)))
         return
 
+    # corp_cls 는 dry-run 미리보기와 실제 게이트 판단 둘 다에 필요하므로 여기서 한 번만 가져온다.
+    corp_codes = sorted({j["corp_code"] for j in jobs})
+    corps = fetch_corp_info(corp_codes)
+
+    def _gated(j):
+        return (j["stage"] != "company" and not args.include_delisted and
+                is_delisted_cls(corps.get(j["corp_code"], {}).get("corp_cls")))
+
     if args.dry_run:
-        by_stage = {}
+        by_stage, gated_by_stage = {}, {}
         for j in jobs:
-            by_stage[j["stage"]] = by_stage.get(j["stage"], 0) + 1
+            bucket = gated_by_stage if _gated(j) else by_stage
+            bucket[j["stage"]] = bucket.get(j["stage"], 0) + 1
         print("=== DRY RUN — phase %d (%s) === 실제 API 호출 0건" % (args.phase, ",".join(stages)))
-        total = 0
+        total, total_gated = 0, 0
         for s in stages:
             n = by_stage.get(s, 0)
+            gated = gated_by_stage.get(s, 0)
+            total_gated += gated
+            note = ("  (게이트 제외 %d건, corp_cls Y/K/N 아님)" % gated) if gated else ""
             per = estimate_stage_calls(s, args.since)
             if per is None:
-                print("  %-10s 작업 %5d건 × 회사당 가변(공시 건수만큼, docs 단계) = 미정" % (s, n))
+                print("  %-10s 작업 %5d건 × 회사당 가변(공시 건수만큼, docs 단계) = 미정%s" % (s, n, note))
             else:
                 sub = n * per
                 total += sub
-                print("  %-10s 작업 %5d건 × 회사당 약 %4d콜 = %8d콜" % (s, n, per, sub))
+                print("  %-10s 작업 %5d건 × 회사당 약 %4d콜 = %8d콜%s" % (s, n, per, sub, note))
         companies_touched = len({j["corp_code"] for j in jobs})
-        print("총 작업(회사×단계): %d건 · 대상 회사: %d개" % (len(jobs), companies_touched))
-        print("예상 API 호출수(대략, docs 제외): %d" % total)
+        print("총 작업(회사×단계): %d건 · 게이트 제외: %d건(0콜) · 대상 회사: %d개" %
+              (len(jobs) - total_gated, total_gated, companies_touched))
+        print("예상 API 호출수(대략, docs·게이트 제외 회사 제외): %d" % total)
         return
 
     keys = resolve_keys()
@@ -488,24 +543,31 @@ def cmd_run(args):
     pool = KeyPool(keys, args.budget, today)
     install_patches(on_call=pool.record_call)
 
-    corp_codes = sorted({j["corp_code"] for j in jobs})
-    corps = fetch_corp_info(corp_codes)
-
     _install_signal_handlers()
-    done_n = fail_n = quota_n = 0
+    done_n = fail_n = quota_n = skip_n = 0
     try:
         for j in jobs:
             corp_code, stage = j["corp_code"], j["stage"]
-            if pool.all_exhausted():
-                print("모든 키가 오늘 한도를 소진했다 — 정상 종료(체크포인트는 그대로이니 내일/키 추가 "
-                      "후 이어서 실행 가능)")
-                break
-            key = pool.next_key()
             corp = corps.get(corp_code)
             if not corp:
                 mark_failed(corp_code, stage, "ingest_corps 에 없는 corp_code", j["attempts"])
                 fail_n += 1
                 continue
+
+            # 상장상태 게이트: API 콜을 전혀 쓰지 않으므로 쿼터 소진 여부와 무관하게 먼저 처리한다.
+            if _gated(j):
+                mark_skipped(corp_code, stage, "게이트: corp_cls=%s (Y/K/N 아님 — 상장폐지·비상장 "
+                             "추정, --include-delisted 로 재검토 가능)" % corp.get("corp_cls"))
+                skip_n += 1
+                print("  [게이트skip] %s/%s(%s) — corp_cls=%s" %
+                      (corp.get("corp_name", corp_code), stage, corp_code, corp.get("corp_cls")))
+                continue
+
+            if pool.all_exhausted():
+                print("모든 키가 오늘 한도를 소진했다 — 정상 종료(체크포인트는 그대로이니 내일/키 추가 "
+                      "후 이어서 실행 가능)")
+                break
+            key = pool.next_key()
 
             # 주의: 여기서 finally 로 _CURRENT_JOB 을 지우면 안 된다 — KeyboardInterrupt/
             # _Terminated 는 BaseException 이라 아래 `except Exception`엔 안 잡히고 그대로
@@ -519,8 +581,16 @@ def cmd_run(args):
             _CURRENT_JOB["corp_code"], _CURRENT_JOB["stage"] = corp_code, stage
             mark_running(corp_code, stage)
             try:
-                STAGE_FN[stage](key, corp, args.since)
+                result = STAGE_FN[stage](key, corp, args.since)
                 mark_done(corp_code, stage)
+                if stage == "company":
+                    # 방금 관측한 corp_cls 를 큐에 적어둔다 — 같은 실행 안에서 뒤따르는
+                    # filings/fin 작업(jobs 리스트 순서상 이후에 옴, discover_jobs 가
+                    # company→filings→fin 순으로 정렬)이 이 in-memory 갱신을 그대로 보고
+                    # 즉시 게이트를 적용한다(재조회 없이).
+                    corp_cls = (result or {}).get("corp_cls")
+                    record_listing_status(corp_code, corp_cls)
+                    corp["corp_cls"] = corp_cls
                 done_n += 1
             except QuotaExhausted as e:
                 pool.mark_exhausted(e.key)
@@ -545,7 +615,7 @@ def cmd_run(args):
         print("\n중단 신호 수신 — 진행 중이던 작업은 pending 으로 복귀, 체크포인트 정상, 이어서 실행 가능")
         sys.exit(130)
 
-    print("완료: done=%d failed=%d 키소진재대기=%d" % (done_n, fail_n, quota_n))
+    print("완료: done=%d failed=%d 키소진재대기=%d 게이트skip=%d" % (done_n, fail_n, quota_n, skip_n))
 
 
 # ─────────────────────────────────────────────── status
@@ -572,6 +642,15 @@ def cmd_status(args):
         print("(비어 있음 — 먼저 `backfill.py seed` 실행)")
         return
 
+    # 상장상태 게이트가 뭘 근거로 판단하는지 — company 단계가 관측한 corp_cls 의 생사 split.
+    cls_rows = rest_get_all("ingest_corps?select=corp_cls&order=corp_code")
+    live_n = sum(1 for r in cls_rows if r.get("corp_cls") in LIVE_CORP_CLASSES)
+    dead_n = sum(1 for r in cls_rows if is_delisted_cls(r.get("corp_cls")))
+    unknown_n = universe_n - live_n - dead_n
+    print("=== 상장상태(ingest_corps.corp_cls, company 단계 관측치) ===")
+    print("  live(Y/K/N)=%-6d dead(그 외, 예 E)=%-6d unknown(company 미실행)=%-6d" %
+          (live_n, dead_n, unknown_n))
+
     prog_rows = rest_get_all("ingest_progress?select=stage,status&order=corp_code,stage")
     counts = {}
     for r in prog_rows:
@@ -579,17 +658,26 @@ def cmd_status(args):
         counts[r["stage"]][r["status"]] += 1
 
     remaining_calls = 0
+    total_skipped = 0
     for phase, stages in PHASES.items():
         print("\n[phase %d] %s" % (phase, ",".join(stages)))
         for s in stages:
             c = counts.get(s, {})
             pending, running = c.get("pending", 0), c.get("running", 0)
             done, failed = c.get("done", 0), c.get("failed", 0)
-            print("  %-10s pending=%-6d running=%-6d done=%-6d failed=%-6d" %
-                  (s, pending, running, done, failed))
+            skipped = c.get("skipped", 0)
+            total_skipped += skipped
+            print("  %-10s pending=%-6d running=%-6d done=%-6d failed=%-6d skipped=%-6d" %
+                  (s, pending, running, done, failed, skipped))
             per = estimate_stage_calls(s, ingest.HISTORY_START)
             if per is not None:
+                # skipped 는 게이트가 이미 "안 돈다"고 확정한 것 — 잔여 콜 추정에서 제외한다
+                # (이게 이 게이트가 절약하는 콜 수를 status 가 정직하게 반영하는 지점).
                 remaining_calls += (pending + running + failed) * per
+
+    if total_skipped:
+        print("\n  게이트로 skipped 된 (회사,단계) 총 %d건 — 상장상태 dead 로 판정돼 API 콜 소비 "
+              "없이 건너뜀(--include-delisted 로 재검토 가능)" % total_skipped)
 
     docs_c = counts.get("docs", {})
     docs_left = docs_c.get("pending", 0) + docs_c.get("running", 0) + docs_c.get("failed", 0)
@@ -644,6 +732,10 @@ def main():
     r.add_argument("--budget", type=int, default=DEFAULT_DAILY_BUDGET, help="키당 일일 호출 예산")
     r.add_argument("--max-attempts", type=int, default=MAX_JOB_ATTEMPTS,
                     help="이 횟수 이상 실패한 (회사,단계)는 자동 재시도 대상에서 제외")
+    r.add_argument("--include-delisted", action="store_true",
+                    help="상장상태 게이트를 끄고 corp_cls 가 Y/K/N 이 아닌(상장폐지·비상장 추정) "
+                         "회사도 처리 — 이전에 skipped 된 (회사,단계)도 다시 후보에 넣는다. "
+                         "기본은 게이트 켜짐(스킵)")
 
     st = sub.add_parser("status", help="진행 현황·오늘 키 사용량·ETA 요약")
     st.add_argument("--budget", type=int, default=DEFAULT_DAILY_BUDGET)

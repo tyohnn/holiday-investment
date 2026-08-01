@@ -119,6 +119,7 @@ def load_company(key, corp):
         "updated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
     }], on_conflict="corp_code")
     print("  companies: 1")
+    return prof  # 호출부(backfill.py)가 재조회 없이 corp_cls 를 읽어 상장상태 게이트에 쓴다
 
 
 def load_filings(key, corp, since_year):
