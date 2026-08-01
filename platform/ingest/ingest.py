@@ -181,7 +181,10 @@ def load_report_items(key, corp, since_year):
     this_year = dt.date.today().year
     total = 0
     for item in api.REPORT_ITEMS:
-        for y in range(max(since_year, FIN_START_DEFAULT), this_year):
+        # 주의: 상한을 this_year(배타)로 두면 당해년도 정기보고서 항목이 영영 수집되지
+        # 않는다 — load_financials/load_events 는 this_year를 포함하는데 여기만 빠져
+        # 있었다(버그, P-B 백필 착수 전 발견). +1 로 포함시킨다.
+        for y in range(max(since_year, FIN_START_DEFAULT), this_year + 1):
             try:
                 rows = api.report_item(key, corp["corp_code"], item, y)
             except api.DartError:
