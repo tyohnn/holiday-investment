@@ -1,0 +1,282 @@
+{
+  "contractVersion": "1.0",
+  "mode": "greenfield",
+  "contentSource": {
+    "ssot": "notion",
+    "notion": {
+      "rootPageId": "3af346da-c456-80c4-ab4c-d1d869fc6a7b",
+      "rootPageUrl": "https://app.notion.com/p/paxhumana/3af346dac45680c4ab4cd1d869fc6a7b",
+      "schemaVersion": "1.0"
+    }
+  },
+  "paths": {
+    "notionRoot": "https://app.notion.com/p/paxhumana/3af346dac45680c4ab4cd1d869fc6a7b"
+  },
+  "informationArchitecture": {
+    "schemaVersion": "2.0",
+    "sections": [
+      {
+        "id": "home",
+        "title": "Home",
+        "path": "index",
+        "required": true,
+        "visible": true
+      },
+      {
+        "id": "vision",
+        "title": "Vision",
+        "path": "vision",
+        "required": true,
+        "visible": true
+      },
+      {
+        "id": "starting",
+        "title": "Start here",
+        "path": "starting",
+        "required": true,
+        "visible": true
+      },
+      {
+        "id": "domain",
+        "title": "Domain",
+        "path": "domain",
+        "required": true,
+        "visible": true
+      },
+      {
+        "id": "workflow",
+        "title": "Workflow",
+        "path": "workflow",
+        "required": true,
+        "visible": true
+      },
+      {
+        "id": "planning",
+        "title": "Planning",
+        "path": "planning",
+        "required": true,
+        "visible": true
+      },
+      {
+        "id": "plans",
+        "title": "Plans",
+        "path": "plans",
+        "required": true,
+        "visible": true
+      },
+      {
+        "id": "adr",
+        "title": "ADRs",
+        "path": "adr",
+        "required": true,
+        "visible": true
+      },
+      {
+        "id": "spec",
+        "title": "Spec",
+        "path": "spec",
+        "required": true,
+        "visible": true
+      }
+    ],
+    "catalogs": [
+      {
+        "id": "glossary",
+        "label": "Glossary",
+        "prefix": [
+          "domain",
+          "glossary"
+        ],
+        "indexUrl": "/docs/domain/glossary",
+        "indexOnly": true
+      },
+      {
+        "id": "models",
+        "label": "Domain models",
+        "prefix": [
+          "domain",
+          "models"
+        ],
+        "indexUrl": "/docs/domain/models",
+        "indexOnly": true
+      },
+      {
+        "id": "policies",
+        "label": "Domain policies",
+        "prefix": [
+          "domain",
+          "policies"
+        ],
+        "indexUrl": "/docs/domain/policies",
+        "indexOnly": true
+      },
+      {
+        "id": "prds",
+        "label": "Product requirements",
+        "prefix": [
+          "planning",
+          "prds"
+        ],
+        "indexUrl": "/docs/planning/prds",
+        "indexOnly": true
+      },
+      {
+        "id": "stories",
+        "label": "User stories",
+        "prefix": [
+          "planning",
+          "stories"
+        ],
+        "indexUrl": "/docs/planning/stories",
+        "indexOnly": true
+      },
+      {
+        "id": "spec-data-model",
+        "label": "Data model",
+        "prefix": [
+          "spec",
+          "data-model"
+        ],
+        "indexUrl": "/docs/spec/data-model",
+        "indexOnly": true
+      },
+      {
+        "id": "spec-system-model",
+        "label": "System model",
+        "prefix": [
+          "spec",
+          "system-model"
+        ],
+        "indexUrl": "/docs/spec/system-model",
+        "indexOnly": true
+      },
+      {
+        "id": "plans",
+        "label": "Implementation plans",
+        "prefix": [
+          "plans"
+        ],
+        "indexUrl": "/docs/plans",
+        "indexOnly": true
+      },
+      {
+        "id": "adr",
+        "label": "ADR",
+        "prefix": [
+          "adr"
+        ],
+        "indexUrl": "/docs/adr",
+        "indexOnly": true
+      }
+    ],
+    "kindToDatabase": {
+      "prd": "dbs.prds",
+      "story": "dbs.stories",
+      "plan": "dbs.plans",
+      "adr": "dbs.adrs",
+      "spec": "dbs.data-model"
+    },
+    "nav": {
+      "topLevel": [
+        "pages.home",
+        "pages.vision",
+        "pages.starting",
+        "pages.workflow",
+        "pages.domain",
+        "pages.planning",
+        "pages.spec",
+        "pages.plans",
+        "pages.adrs"
+      ],
+      "localRootOrder": [
+        "pages.home",
+        "pages.vision",
+        "pages.starting",
+        "pages.domain",
+        "pages.workflow",
+        "pages.planning",
+        "pages.plans",
+        "pages.adrs",
+        "pages.spec"
+      ],
+      "nested": {
+        "pages.workflow": [
+          "pages.workflow-planning",
+          "pages.development"
+        ],
+        "pages.domain": [
+          "pages.glossary",
+          "pages.models",
+          "pages.policies"
+        ],
+        "pages.planning": [
+          "pages.prds",
+          "pages.stories"
+        ],
+        "pages.spec": [
+          "pages.data-model",
+          "pages.system-model"
+        ]
+      }
+    },
+    "graphDigest": "9d4c738f5ad6bf16c7843976432b123465e89b7c4e1c9f02c9a279a32bea0141"
+  },
+  "lifecycles": {
+    "prd": {
+      "field": "status",
+      "values": [
+        "draft",
+        "active",
+        "done"
+      ]
+    },
+    "story": {
+      "field": null,
+      "values": []
+    },
+    "spec": {
+      "field": "stage",
+      "values": [
+        "draft",
+        "accepted",
+        "superseded"
+      ]
+    },
+    "adr": {
+      "field": "stage",
+      "values": [
+        "accepted",
+        "locked",
+        "superseded"
+      ]
+    },
+    "plan": {
+      "field": "stage",
+      "values": [
+        "draft",
+        "ready",
+        "active",
+        "done",
+        "superseded"
+      ]
+    }
+  },
+  "ui": {
+    "base": "none",
+    "distribution": "none",
+    "shellDependencies": [],
+    "vocabulary": []
+  },
+  "ownership": {
+    "omdGenerated": [
+      ".omd/project.json",
+      ".omd/schemas/"
+    ],
+    "omdManaged": [
+      "AGENTS.md",
+      "CLAUDE.md"
+    ],
+    "importedOwned": [],
+    "projectOwned": []
+  }
+}

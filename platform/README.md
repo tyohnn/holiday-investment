@@ -136,7 +136,7 @@ gzip -9 -c /tmp/sections-only.sql > supabase/seed-filing-sections.sql.gz
 
 같은 갱신 과제를 두 서브에이전트(sonnet)에게 **md 편집 / CLI 원장**으로 각각 시켜 판정
 기준 5개로 비교했고, **B안(DB 원장 정본 + md는 생성 뷰)** 을 채택했다. 상세 비교표는
-[docs/리서치-데이터-설계-원칙.md](../docs/리서치-데이터-설계-원칙.md) "A2 실험 결과".
+[A2 실험 결과](https://app.notion.com/p/3af346dac45681fba445d73e79a4bddf)에 있다.
 
 - 마찰: 도구 호출 9회(원장) vs 20회(md) · 토큰 102k vs 111k · 3.6분 vs 5.2분
 - 결정타는 **md의 조용한 실패**: 월 단위 날짜 1행 파싱 소실, 문서 내 자기모순 발생 직전,

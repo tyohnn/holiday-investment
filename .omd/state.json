@@ -1,0 +1,145 @@
+{
+  "contractVersion": "1.0",
+  "skillVersion": "0.2.0",
+  "templateVersion": "0.2.0",
+  "uiSnapshot": {
+    "distribution": "none",
+    "vocabularyDigest": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+  },
+  "projectDigest": "2af68319416c0c348b880fc830d636e70dfce2b82df50aabb8756b9b37066bbd",
+  "inventory": {
+    "sections": [
+      "home",
+      "vision",
+      "starting",
+      "domain",
+      "workflow",
+      "planning",
+      "plans",
+      "adr",
+      "spec"
+    ],
+    "catalogs": [
+      "glossary",
+      "models",
+      "policies",
+      "prds",
+      "stories",
+      "spec-data-model",
+      "spec-system-model",
+      "plans",
+      "adr"
+    ],
+    "vocabulary": [],
+    "contentSource": "notion"
+  },
+  "files": {},
+  "provider": {
+    "notion": {
+      "schemaVersion": "1.1",
+      "schemaDigest": "e4edb5dfc75f353f14c8f64f2612bbe2e15bfe6af4078a2103d1f04b7832d33b",
+      "lastObservedAt": "2026-08-01T14:25:59.000Z",
+      "lastManifestDigest": "e4edb5dfc75f353f14c8f64f2612bbe2e15bfe6af4078a2103d1f04b7832d33b",
+      "mappings": {
+        "pages.home": {
+          "id": "3af346da-c456-80c4-ab4c-d1d869fc6a7b",
+          "type": "page",
+          "parentKey": "root",
+          "url": "https://app.notion.com/p/paxhumana/3af346dac45680c4ab4cd1d869fc6a7b"
+        },
+        "dbs.glossary": {
+          "id": "e30c5e12-2353-4156-8063-2b5a8ed6c3fe",
+          "type": "database",
+          "parentKey": "pages.home",
+          "url": "https://app.notion.com/p/e30c5e122353415680632b5a8ed6c3fe",
+          "dataSourceId": "collection://be1f56be-6a86-4d3b-a074-b1564f65233b"
+        },
+        "dbs.models": {
+          "id": "1fac944a-6398-4f83-9e12-753df93216e7",
+          "type": "database",
+          "parentKey": "pages.home",
+          "url": "https://app.notion.com/p/1fac944a63984f839e12753df93216e7",
+          "dataSourceId": "collection://ac576138-5b46-4aea-aa36-02375e2ce3f3"
+        },
+        "dbs.policies": {
+          "id": "86d7af26-0db7-473c-9614-048ad07c0741",
+          "type": "database",
+          "parentKey": "pages.home",
+          "url": "https://app.notion.com/p/86d7af260db7473c9614048ad07c0741",
+          "dataSourceId": "collection://1553b838-6c8f-4a4e-9ba1-5ad82ed6d3db"
+        },
+        "dbs.prds": {
+          "id": "552b3ddc-aab1-47ec-889c-73ad2cab8e98",
+          "type": "database",
+          "parentKey": "pages.home",
+          "url": "https://app.notion.com/p/552b3ddcaab147ec889c73ad2cab8e98",
+          "dataSourceId": "collection://eb54ed09-70d5-47f2-8eef-cff9cfeb519a"
+        },
+        "dbs.stories": {
+          "id": "0922a8f1-f352-4412-ace0-c4b48534185c",
+          "type": "database",
+          "parentKey": "pages.home",
+          "url": "https://app.notion.com/p/0922a8f1f3524412ace0c4b48534185c",
+          "dataSourceId": "collection://686e5653-fc99-4274-bc89-b2a7d40fa2b9"
+        },
+        "dbs.data-model": {
+          "id": "15715d85-7fce-48cc-9d00-284f836bf736",
+          "type": "database",
+          "parentKey": "pages.home",
+          "url": "https://app.notion.com/p/15715d857fce48cc9d00284f836bf736",
+          "dataSourceId": "collection://46d40e47-c2b7-4d2d-b9e3-c63d44016f5e"
+        },
+        "dbs.system-model": {
+          "id": "6e5ebf95-6848-4b67-9d79-c39c6bee1c1d",
+          "type": "database",
+          "parentKey": "pages.home",
+          "url": "https://app.notion.com/p/6e5ebf9568484b679d79c39c6bee1c1d",
+          "dataSourceId": "collection://0c401234-35d3-4094-a3a1-eac68a8a6b59"
+        },
+        "dbs.plans": {
+          "id": "5cdb1bf9-2272-4373-8aa3-a43305f6e5ae",
+          "type": "database",
+          "parentKey": "pages.home",
+          "url": "https://app.notion.com/p/5cdb1bf9227243738aa3a43305f6e5ae",
+          "dataSourceId": "collection://08de6c4f-909b-4165-8227-c9d13feed5d9"
+        },
+        "dbs.adrs": {
+          "id": "3f87ced6-0cfd-49a7-bf16-ec40c280909b",
+          "type": "database",
+          "parentKey": "pages.home",
+          "url": "https://app.notion.com/p/3f87ced60cfd49a7bf16ec40c280909b",
+          "dataSourceId": "collection://e8fc8986-7111-4730-a09e-287ff4fa20d7"
+        }
+      },
+      "pendingOperationIds": [],
+      "completedOperationIds": [
+        "ensure:pages.home",
+        "ensure:dbs.glossary",
+        "inline:dbs.glossary",
+        "ensure:dbs.models",
+        "inline:dbs.models",
+        "ensure:dbs.policies",
+        "inline:dbs.policies",
+        "ensure:dbs.prds",
+        "inline:dbs.prds",
+        "ensure:dbs.stories",
+        "inline:dbs.stories",
+        "ensure:dbs.data-model",
+        "inline:dbs.data-model",
+        "ensure:dbs.system-model",
+        "inline:dbs.system-model",
+        "ensure:dbs.plans",
+        "inline:dbs.plans",
+        "ensure:dbs.adrs",
+        "inline:dbs.adrs",
+        "relation:dbs.prds:Stories:dbs.stories",
+        "relation:dbs.stories:PRDs:dbs.prds",
+        "relation:dbs.plans:PRD:dbs.prds",
+        "relation:dbs.plans:Stories:dbs.stories",
+        "relation:dbs.plans:Specs:dbs.data-model",
+        "relation:dbs.plans:Specs (System model):dbs.system-model",
+        "body:pages.home"
+      ]
+    }
+  }
+}
