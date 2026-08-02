@@ -7,13 +7,18 @@
  *   - 정정 체인은 filing_correction_chains 뷰 (파생 관계는 저장하지 않는다)
  * payload(jsonb) 해석은 @investment/schema 의 라벨 사전이 담당한다.
  *
- * 이 모듈은 서버 전용이다. anon 클라이언트도 마찬가지로 서버(RSC)에서만 부른다는
- * 전제가 있지만, trackings 읽기는 서비스 롤 키를 쓰므로 특히 중요하다 — 클라이언트
- * 컴포넌트에서 이 파일을 import 하면 서비스 롤 키가 브라우저 번들에 노출된다.
- * `server-only` 패키지로 빌드 타임에 막는다: 클라이언트 번들에 이 모듈이 섞여 들어가면
- * 빌드 자체가 실패한다. (참고: apps/web/lib/platform/db.ts 의 모든 호출자는 현재
- * page.tsx 의 서버 컴포넌트뿐이며, 클라이언트 컴포넌트는 타입만 `import type` 으로
- * 참조한다 — RLS 락다운 작업에서 확인됨.)
+ * 모든 읽기가 서비스 롤로 나간다. anon 으로 읽을 수 있는 게 하나도 남지 않았기
+ * 때문이다 — 20260802000005 가 public 스키마의 테이블·뷰 전부에서 anon/authenticated
+ * 권한을 회수했다(정책도 없음 = 전면 거부). 이건 우회가 아니라 의도한 최종 형태다:
+ * anon 키는 설계상 클라이언트 번들에 실려 나가므로 anon 이 읽을 수 있는 것은 곧
+ * 인터넷 전체가 읽을 수 있는 것이고, 읽기를 전부 서버로 돌리면 배포된 번들이
+ * 노출하는 자격증명이 0개가 된다. 그래서 anon 클라이언트는 아예 없앴다.
+ *
+ * 이 모듈은 서버 전용이다 — 클라이언트 컴포넌트에서 import 하면 서비스 롤 키가
+ * 브라우저 번들에 그대로 실린다. `server-only` 패키지로 빌드 타임에 막는다:
+ * 클라이언트 번들에 이 모듈이 섞여 들어가면 빌드 자체가 실패한다.
+ * (참고: 현재 호출자는 모두 page.tsx 의 서버 컴포넌트이며, 클라이언트 컴포넌트는
+ * 타입만 `import type` 으로 참조한다 — RLS 락다운 작업에서 확인됨.)
  */
 import "server-only";
 
@@ -30,21 +35,19 @@ import {
 import { z } from "zod";
 
 const URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "http://127.0.0.1:54321";
-// 로컬 개발용 공개 anon 키 (RLS 로 읽기만 허용됨 — 비밀 아님)
-const ANON =
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0";
-// 서비스 롤 키 — trackings 전용(RLS 락다운 이후 anon 으로는 읽을 수 없다).
-// NEXT_PUBLIC_ 프리픽스가 아니므로 클라이언트 번들에는 포함되지 않는다.
-// 로컬 supabase start 의 데모 service_role 키는 모든 로컬 인스턴스에서 동일하고 비밀이
-// 아니다(platform/ingest/ingest.py 의 SERVICE_KEY 와 동일 — 그쪽 주석 참고).
+// 서비스 롤 키 — RLS 를 우회하는 유일한 입구. NEXT_PUBLIC_ 프리픽스가 아니므로
+// 클라이언트 번들에는 포함되지 않는다(위 `server-only` 가 그 전제를 빌드로 강제한다).
+// 폴백은 로컬 supabase start 의 데모 service_role 키로, 모든 로컬 인스턴스에서 동일하고
+// 비밀이 아니다(platform/ingest/ingest.py 의 SERVICE_KEY 와 동일 — 그쪽 주석 참고).
+// 호스티드를 볼 때는 apps/web/.env.local 에 NEXT_PUBLIC_SUPABASE_URL 과
+// SUPABASE_SERVICE_KEY 를 둔다(gitignore 됨).
 const SERVICE_KEY =
   process.env.SUPABASE_SERVICE_KEY ??
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU";
 
-export const supabase = createClient(URL, ANON, { auth: { persistSession: false } });
-// 서비스 롤 클라이언트 — RLS 를 우회한다. trackings 처럼 비공개 테이블을 읽을 때만 쓴다.
-// 공개 테이블(companies, filings, financial_facts, …)은 계속 anon 클라이언트로 읽는다.
+// 이 파일의 모든 질의가 쓰는 단 하나의 클라이언트. anon 클라이언트는 제거했다 —
+// 잠금 이후 anon 으로 읽을 수 있는 릴레이션이 하나도 없어 죽은 코드일 뿐이고,
+// 남겨두면 "여긴 anon 으로도 되겠지" 하고 되살아난다.
 const supabaseService = createClient(URL, SERVICE_KEY, { auth: { persistSession: false } });
 
 /** 스키마로 파싱하되, 계약 위반 행은 버리지 않고 로그만 남긴다(원본 보존 원칙의 연장). */
@@ -59,18 +62,18 @@ function parseAll<T>(schema: z.ZodType<T>, rows: unknown[], label: string): T[] 
 }
 
 export async function listCompanies(): Promise<Company[]> {
-  const { data, error } = await supabase.from("companies").select("*").order("name");
+  const { data, error } = await supabaseService.from("companies").select("*").order("name");
   if (error) throw error;
   return parseAll(Company, data ?? [], "companies");
 }
 
 export async function getCompany(stockCode: string): Promise<Company | null> {
-  const { data } = await supabase.from("companies").select("*").eq("stock_code", stockCode).maybeSingle();
+  const { data } = await supabaseService.from("companies").select("*").eq("stock_code", stockCode).maybeSingle();
   return data ? Company.parse(data) : null;
 }
 
 export async function getAnnualSummary(corpCode: string): Promise<AnnualSummary[]> {
-  const { data, error } = await supabase
+  const { data, error } = await supabaseService
     .from("annual_summary")
     .select("*")
     .eq("corp_code", corpCode)
@@ -80,7 +83,7 @@ export async function getAnnualSummary(corpCode: string): Promise<AnnualSummary[
 }
 
 export async function getFilings(corpCode: string, limit = 40): Promise<Filing[]> {
-  const { data, error } = await supabase
+  const { data, error } = await supabaseService
     .from("filings")
     .select("*")
     .eq("corp_code", corpCode)
@@ -91,7 +94,7 @@ export async function getFilings(corpCode: string, limit = 40): Promise<Filing[]
 }
 
 export async function getCorrectionChains(corpCode: string, limit = 10): Promise<CorrectionChain[]> {
-  const { data } = await supabase
+  const { data } = await supabaseService
     .from("filing_correction_chains")
     .select("*")
     .eq("corp_code", corpCode)
@@ -101,7 +104,7 @@ export async function getCorrectionChains(corpCode: string, limit = 10): Promise
 }
 
 export async function getEvents(corpCode: string): Promise<DartEvent[]> {
-  const { data, error } = await supabase
+  const { data, error } = await supabaseService
     .from("events")
     .select("*")
     .eq("corp_code", corpCode)
@@ -110,7 +113,7 @@ export async function getEvents(corpCode: string): Promise<DartEvent[]> {
   return parseAll(DartEvent, data ?? [], "events");
 }
 
-/** trackings 는 RLS 락다운 대상(비공개) — 서비스 롤 클라이언트로만 읽는다. */
+/** 수작업 큐레이션 원장 — md 가 아니라 DB 가 원본이다. */
 export async function getTrackings(corpCode: string): Promise<TrackingFact[]> {
   const { data, error } = await supabaseService
     .from("trackings")
@@ -123,7 +126,7 @@ export async function getTrackings(corpCode: string): Promise<TrackingFact[]> {
 
 /** 단일 섹션 원문 조회 — 목록(getNoteSections)과 분리. 138KB 짜리 content 를 목록에 얹지 않는다. */
 export async function getFilingSectionContent(rceptNo: string, secNo: number): Promise<FilingSection | null> {
-  const { data, error } = await supabase
+  const { data, error } = await supabaseService
     .from('filing_sections')
     .select('id,rcept_no,sec_no,title,is_note,is_biz,content')
     .eq('rcept_no', rceptNo)
@@ -135,7 +138,7 @@ export async function getFilingSectionContent(rceptNo: string, secNo: number): P
 
 /** rcept_no 단건 조회 — 섹션 상세 페이지가 소속 공시(제출인·보고서명·접수일·소유 회사)를 확인할 때 쓴다. */
 export async function getFilingByRceptNo(rceptNo: string): Promise<Filing | null> {
-  const { data, error } = await supabase.from('filings').select('*').eq('rcept_no', rceptNo).maybeSingle();
+  const { data, error } = await supabaseService.from('filings').select('*').eq('rcept_no', rceptNo).maybeSingle();
   if (error) throw error;
   return data ? Filing.parse(data) : null;
 }
@@ -145,7 +148,7 @@ export async function getFilingByRceptNo(rceptNo: string): Promise<Filing | null
 export type NoteSectionListItem = FilingSection & { report_nm: string; filing_rcept_dt: string };
 
 export async function getNoteSections(corpCode: string, limit = 20): Promise<NoteSectionListItem[]> {
-  const { data: filings } = await supabase
+  const { data: filings } = await supabaseService
     .from("filings")
     .select("rcept_no")
     .eq("corp_code", corpCode)
@@ -153,7 +156,7 @@ export async function getNoteSections(corpCode: string, limit = 20): Promise<Not
     .limit(60);
   const rcepts = (filings ?? []).map((f: { rcept_no: string }) => f.rcept_no);
   if (!rcepts.length) return [];
-  const { data, error } = await supabase
+  const { data, error } = await supabaseService
     .from("filing_sections")
     .select("id,rcept_no,sec_no,title,is_note,is_biz,filings(report_nm,rcept_dt)")
     .in("rcept_no", rcepts)
@@ -176,7 +179,7 @@ export async function getConceptSeries(
   corpCode: string,
   concept: string,
 ): Promise<{ bsns_year: number; amount: number | null }[]> {
-  const { data, error } = await supabase
+  const { data, error } = await supabaseService
     .from("financial_metrics")
     .select("bsns_year, amount")
     .eq("corp_code", corpCode)

@@ -18,8 +18,13 @@ update script runs `pnpm install`.
 
 - **`/docs/**` works standalone** — pure Fumadocs viewer over `교재/`, no backend needed.
 - **`/company/**` needs the local Supabase stack** (`apps/web/lib/platform/db.ts` reads
-  PostgREST at `http://127.0.0.1:54321` with the built-in local anon key, so **no env vars
-  are required** — just have the stack running). Without it, `/company` 500s.
+  PostgREST at `http://127.0.0.1:54321` with the built-in local **service_role** key, so
+  **no env vars are required** — just have the stack running). Every read goes through the
+  service role: since migration `20260802000005` nothing in `public` is anon-readable, by
+  design (the anon key ships in the client bundle, so anon-readable == world-readable).
+  To point the app at the hosted project instead, set `NEXT_PUBLIC_SUPABASE_URL` and
+  `SUPABASE_SERVICE_KEY` in `apps/web/.env.local` (gitignored). Without a backend,
+  `/company` 500s.
   `/company/<stockCode>` 307-redirects to `/company/<stockCode>/revenue`. Seeded stock codes:
   `259960` (크래프톤), `247540` (에코프로비엠).
 - `pnpm types:check` (root) = the lint/build proxy (`fumadocs-mdx && next typegen && tsc --noEmit`).
