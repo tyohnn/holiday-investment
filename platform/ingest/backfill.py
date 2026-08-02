@@ -15,8 +15,10 @@ ingest.py 는 회사 1개를 처리하는 워커로 그대로 둔다(단계 함�
   estimate_stage_calls() 가 이 실측치를 재현하는 연도창 공식으로 근사한다(연도가 지날수록
   이 값도 같이 늘어나야 하므로 상수로 박지 않는다).
 
-전제: supabase start 가 떠 있고, DART_API_KEY(단일) 또는 DART_API_KEYS(쉼표 구분, 로테이션용)
-가 설정돼 있다.
+전제: DART_API_KEY(단일) 또는 DART_API_KEYS(쉼표 구분, 로테이션용)가 설정돼 있다.
+대상 DB 는 SUPABASE_REST_URL/SUPABASE_SERVICE_KEY 로 정해지고(환경변수 > 레포 루트
+.env.local > 로컬 기본값), 세 명령 모두 시작하자마자 해석된 대상 호스트를 찍는다 —
+로컬 스택을 쓸 거면 그 전에 supabase start 가 떠 있어야 한다.
 """
 import argparse
 import datetime as dt
@@ -381,6 +383,7 @@ def reclaim_stale_running():
 # ─────────────────────────────────────────────── seed
 
 def cmd_seed(args):
+    ingest.print_target()
     keys = resolve_keys()
     if not keys:
         print("DART_API_KEY(S) 없음 — .env.local 또는 환경변수 확인", file=sys.stderr)
@@ -487,6 +490,7 @@ STAGE_FN = {
 
 def cmd_run(args):
     global MAX_JOB_ATTEMPTS
+    ingest.print_target()
     MAX_JOB_ATTEMPTS = args.max_attempts
     stages = PHASES[args.phase]
     company_filter = [c.strip() for c in args.companies.split(",")] if args.companies else None
@@ -631,6 +635,7 @@ def _avg_filings_per_company():
 
 
 def cmd_status(args):
+    ingest.print_target()
     budget = args.budget
     today = dt.date.today().isoformat()
     keys = resolve_keys()
