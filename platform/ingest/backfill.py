@@ -15,7 +15,9 @@ ingest.py 는 회사 1개를 처리하는 워커로 그대로 둔다(단계 함�
   estimate_stage_calls() 가 이 실측치를 재현하는 연도창 공식으로 근사한다(연도가 지날수록
   이 값도 같이 늘어나야 하므로 상수로 박지 않는다).
 
-전제: DART_API_KEY(단일) 또는 DART_API_KEYS(쉼표 구분, 로테이션용)가 설정돼 있다.
+전제: DART_API_KEY(단일) 또는 DART_API_KEYS(쉼표 구분, 로테이션용)가 설정돼 있다 —
+SUPABASE_REST_URL/SUPABASE_SERVICE_KEY 와 마찬가지로 프로세스 환경 > 레포 루트
+.env.local 순으로 찾는다(resolve_keys() 참고).
 대상 DB 는 SUPABASE_REST_URL/SUPABASE_SERVICE_KEY 로 정해지고(환경변수 > 레포 루트
 .env.local > 로컬 기본값), 세 명령 모두 시작하자마자 해석된 대상 호스트를 찍는다 —
 로컬 스택을 쓸 거면 그 전에 supabase start 가 떠 있어야 한다.
@@ -84,12 +86,16 @@ def key_id(key):
 
 
 def resolve_keys():
-    """DART_API_KEYS(쉼표 구분) 우선, 없으면 기존 단일 DART_API_KEY 로 폴백."""
-    raw = os.environ.get("DART_API_KEYS", "")
+    """DART_API_KEYS(쉼표 구분) 우선, 없으면 단일 DART_API_KEY 로 폴백 — 우선순위는 ingest.py 의
+    env_setting() 과 동일하게 프로세스 환경 > 레포 루트 .env.local 이고, 두 이름 모두에 대해
+    이 순서를 지킨다: 프로세스 환경 DART_API_KEYS > .env.local DART_API_KEYS > 프로세스 환경
+    DART_API_KEY > .env.local DART_API_KEY > dart_api.resolve_key() (CWD 기준 .env/.env.local,
+    전역 설정까지 보는 최후 수단 — 기존 동작 보존용)."""
+    raw = ingest.env_setting("DART_API_KEYS", "")
     keys = [k.strip() for k in raw.split(",") if k.strip()]
     if keys:
         return keys
-    single = api.resolve_key() or api.read_env_file(os.path.join(_REPO, ".env.local")).get("DART_API_KEY")
+    single = ingest.env_setting("DART_API_KEY", None) or api.resolve_key()
     return [single] if single else []
 
 
