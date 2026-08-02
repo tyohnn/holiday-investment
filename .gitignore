@@ -32,3 +32,6 @@ __pycache__/
 
 # platform 로컬 산출물
 platform/data/
+
+# Supabase CLI 잔여물 (레포 루트에서 CLI 실행 시 재생성됨)
+/supabase/
