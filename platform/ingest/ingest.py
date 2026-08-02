@@ -116,12 +116,41 @@ def upsert(table, rows, on_conflict):
              prefer="resolution=merge-duplicates,return=minimal")
 
 
-def replace_scope(table, filters, rows):
-    """스코프 삭제 후 삽입 — 멱등 적재의 기본형. filters 예: {'corp_code':'eq.X','item':'eq.배당'}"""
+def replace_scope(table, filters, rows, on_conflict=None):
+    """스코프 삭제 후 삽입 — 멱등 적재의 기본형. filters 예: {'corp_code':'eq.X','item':'eq.배당'}
+
+    on_conflict 를 주면 삽입을 upsert 로 돌린다. 삭제·삽입 두 요청 사이에는 트랜잭션이
+    없어서(PostgREST 요청 단위로 끊긴다) 같은 스코프를 동시에 처리하는 프로세스가 있으면
+    delete→delete→insert→insert 로 엇물려 행이 두 배가 될 수 있다. 대상 테이블에
+    자연키 유니크 인덱스가 있으면 merge-duplicates 가 그 창을 닫는다 —
+    뒤 삽입이 앞 삽입을 덮어써서, 몇 번을 엇물려도 결과 집합은 같다.
+    """
     q = urllib.parse.urlencode(filters)  # 한글 값(eq.배당 등) percent-encoding
     rest("DELETE", "%s?%s" % (table, q))
+    path = table if on_conflict is None else "%s?on_conflict=%s" % (table, on_conflict)
+    prefer = ("return=minimal" if on_conflict is None
+              else "resolution=merge-duplicates,return=minimal")
     for i in range(0, len(rows), 500):
-        rest("POST", table, rows[i:i + 500], prefer="return=minimal")
+        rest("POST", path, rows[i:i + 500], prefer=prefer)
+
+
+def dedupe_by(rows, key_cols, label):
+    """자연키가 겹치는 행을 첫 번째만 남기고 제거한다.
+
+    Postgres 의 ON CONFLICT 는 "한 INSERT 문 안에서 같은 키를 두 번" 을 처리하지 못하고
+    (cannot affect row a second time) 배치 전체를 실패시킨다. 그래서 upsert 로 보내기 전에
+    파이썬에서 먼저 접어야 한다. 지금까지 실측한 DART 응답에는 이 중복이 0건이므로
+    (raw 51만 행 검사) 정상 경로에서는 no-op 이다 — 소리 없이 지나가면 안 되니 찍는다."""
+    seen, out = set(), []
+    for r in rows:
+        k = tuple(r.get(c) for c in key_cols)
+        if k in seen:
+            continue
+        seen.add(k)
+        out.append(r)
+    if len(out) != len(rows):
+        print("  ! %s: 응답 내 자연키 중복 %d행 제거" % (label, len(rows) - len(out)))
+    return out
 
 
 def save_raw(corp_code, name, obj):
@@ -199,6 +228,23 @@ def load_filings(key, corp, since_year):
     print("  filings: %d (정정 %d)" % (len(db_rows), sum(r["is_correction"] for r in db_rows)))
 
 
+# financial_facts 의 자연키 — 20260803000001 의 유니크 인덱스와 컬럼·순서가 같아야 한다
+# (PostgREST 의 on_conflict 는 이 목록으로 인덱스를 추론한다).
+#
+# id 를 뺀 전 컬럼이다. 더 좁은 키
+#   (corp_code, bsns_year, reprt_code, fs_div, sj_div, account_id, account_nm,
+#    account_detail, ord, rcept_no)
+# 가 의미상 더 옳고 — 한 보고서가 한 계정·한 자본항목에 보고하는 금액은 하나뿐이므로
+# 금액은 키가 아니라 값이다 — raw 51만 행에서 위반 0건으로 실측도 됐다. 그런데 지금
+# 당장은 쓸 수 없다: 이미 적재된 915개사 6.2M 행은 account_detail 이 통째로 NULL 이라
+# (이번 사고의 원인) 좁은 키로는 SCE 행들이 서로 충돌한다. 금액까지 넣은 전 컬럼 키는
+# 그 행들과 공존하면서도 "완전히 똑같은 행"의 재발은 확실히 막는다.
+# 좁은 키로의 강화는 915개사를 account_detail 포함으로 재적재한 뒤의 후속 과제다.
+FIN_KEY = ("corp_code", "bsns_year", "reprt_code", "fs_div", "sj_div",
+           "account_id", "account_nm", "account_detail", "ord",
+           "amount", "amount_prev", "amount_prev2", "currency", "rcept_no")
+
+
 def load_financials(key, corp, since_year):
     this_year = dt.date.today().year
     total = 0
@@ -212,16 +258,26 @@ def load_financials(key, corp, since_year):
                 "corp_code": corp["corp_code"], "bsns_year": y, "reprt_code": reprt,
                 "fs_div": fs, "sj_div": r.get("sj_div", ""), "account_id": r.get("account_id"),
                 "account_nm": r.get("account_nm", ""),
+                # ★ 자본변동표(SCE)의 두 번째 축. 이걸 버리면 "자본금/이익잉여금/
+                #   기타포괄손익누계액/비지배지분…" 열이 전부 같은 행으로 뭉개져서,
+                #   멀쩡한 서로 다른 셀이 완전 중복 행으로 보인다(이번 사고의 원인).
+                "account_detail": r.get("account_detail"),
                 "amount": num(r.get("thstrm_amount")),
                 "amount_prev": num(r.get("frmtrm_amount")),
                 "amount_prev2": num(r.get("bfefrmtrm_amount")),
                 "ord": num(r.get("ord")), "currency": r.get("currency"),
                 "rcept_no": r.get("rcept_no"),
             } for r in rows]
+            db_rows = dedupe_by(db_rows, FIN_KEY, "financial_facts %d/%s" % (y, reprt))
+            # 삭제 필터에 fs_div 를 넣지 않는 것은 의도적이다. finstate_all 은 CFS 를
+            # 먼저 시도하고 없으면 OFS 로 폴백하므로, 같은 (corp, year, reprt) 의
+            # fs_div 가 연도·재적재 시점에 따라 바뀐다. 필터에 fs_div 를 넣으면 이전
+            # 적재가 남긴 반대쪽 fs_div 행이 지워지지 않고 살아남아 연결·별도 재무제표가
+            # 한 스코프에 섞인다 — 지금보다 나쁜 오염이다. 스코프는 넓게 지우는 게 맞다.
             replace_scope("financial_facts",
                           {"corp_code": "eq.%s" % corp["corp_code"],
                            "bsns_year": "eq.%d" % y, "reprt_code": "eq.%s" % reprt},
-                          db_rows)
+                          db_rows, on_conflict=",".join(FIN_KEY))
             total += len(db_rows)
     print("  financial_facts: %d" % total)
 
