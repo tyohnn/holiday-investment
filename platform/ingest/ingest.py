@@ -228,8 +228,9 @@ def load_filings(key, corp, since_year):
     print("  filings: %d (정정 %d)" % (len(db_rows), sum(r["is_correction"] for r in db_rows)))
 
 
-# financial_facts 의 자연키 — 20260803000001 의 유니크 인덱스와 컬럼·순서가 같아야 한다
-# (PostgREST 의 on_conflict 는 이 목록으로 인덱스를 추론한다).
+# financial_facts 의 자연키 — 20260803000002 의 유니크 인덱스(ff_natural_key)와
+# 컬럼·순서가 글자 그대로 같아야 한다(PostgREST 의 on_conflict 는 이 목록으로 인덱스를
+# 추론한다 — 하나만 어긋나도 42P10 으로 죽는다). 컬럼을 더할 때는 반드시 같이 고친다.
 #
 # id 를 뺀 전 컬럼이다. 더 좁은 키
 #   (corp_code, bsns_year, reprt_code, fs_div, sj_div, account_id, account_nm,
@@ -242,7 +243,9 @@ def load_filings(key, corp, since_year):
 # 좁은 키로의 강화는 915개사를 account_detail 포함으로 재적재한 뒤의 후속 과제다.
 FIN_KEY = ("corp_code", "bsns_year", "reprt_code", "fs_div", "sj_div",
            "account_id", "account_nm", "account_detail", "ord",
-           "amount", "amount_prev", "amount_prev2", "currency", "rcept_no")
+           "amount", "amount_prev", "amount_prev2",
+           "amount_prev_q", "amount_cum", "amount_prev_cum",
+           "currency", "rcept_no")
 
 
 def load_financials(key, corp, since_year):
@@ -265,6 +268,16 @@ def load_financials(key, corp, since_year):
                 "amount": num(r.get("thstrm_amount")),
                 "amount_prev": num(r.get("frmtrm_amount")),
                 "amount_prev2": num(r.get("bfefrmtrm_amount")),
+                # ★ 분기·반기 보고서 전용 금액 셋(20260803000002). 위 셋만 읽으면
+                #   분기 플로우(IS·CIS·CF·SCE) 행의 비교값이 90% 가까이 NULL 이 된다 —
+                #   DART 가 안 준 게 아니라 다른 필드로 주는데 안 읽었던 것이다.
+                #   실측(raw 6,000파일 103만행) 유효값률: frmtrm_q_amount 는 분기 행의
+                #   68~69%(연간 0%), *_add_amount 는 IS·CIS 행의 98%대(연간 0%).
+                #   frmtrm_q_amount 를 amount_prev 에 합치지 않는 이유는 마이그레이션
+                #   주석 참고 — 한 컬럼에 전기/전기동분기 두 의미가 섞인다.
+                "amount_prev_q": num(r.get("frmtrm_q_amount")),      # 전기 동분기
+                "amount_cum": num(r.get("thstrm_add_amount")),       # 당기 누적(YTD)
+                "amount_prev_cum": num(r.get("frmtrm_add_amount")),  # 전기 누적(YTD)
                 "ord": num(r.get("ord")), "currency": r.get("currency"),
                 "rcept_no": r.get("rcept_no"),
             } for r in rows]
