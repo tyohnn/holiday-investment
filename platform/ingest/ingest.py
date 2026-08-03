@@ -21,6 +21,7 @@ import datetime as dt
 import json
 import os
 import re
+import ssl
 import sys
 import urllib.parse
 import urllib.request
@@ -30,9 +31,23 @@ _REPO = os.path.dirname(os.path.dirname(_HERE))
 sys.path.insert(0, os.path.join(_REPO, "plugin", "skills", "company-analysis", "scripts"))
 import dart_api as api  # noqa: E402
 
-REST = os.environ.get("SUPABASE_REST_URL", "http://127.0.0.1:54321/rest/v1")
+# 주의: 프로세스 환경만 보면 안 된다. .env.local 에 호스티드 주소를 적어두고도 셸에
+# export 하지 않으면 조용히 기본값(로컬 Docker 스택)으로 떨어져서, 호스티드에 백필하고
+# 있다고 믿으며 노트북 DB 를 채우는 사고가 실제로 났다. 조용한 게 문제의 본체였다.
+# 그래서 (1) DART_API_KEY 와 똑같이 레포 루트 .env.local 을 폴백으로 읽고(프로세스
+# 환경이 여전히 우선 — 일회성 오버라이드가 가능해야 한다), (2) print_target() 으로 매
+# 명령이 시작 전에 해석된 대상을 소리내어 찍는다. 키는 절대 찍지 않는다.
+_ENV_FILE = api.read_env_file(os.path.join(_REPO, ".env.local"))
+
+
+def env_setting(name, default):
+    """프로세스 환경 > 레포 루트 .env.local > 기본값."""
+    return os.environ.get(name) or _ENV_FILE.get(name) or default
+
+
+REST = env_setting("SUPABASE_REST_URL", "http://127.0.0.1:54321/rest/v1")
 # supabase local 의 공용 데모 service_role 키 (모든 로컬 인스턴스 동일 — 비밀 아님)
-SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY",
+SERVICE_KEY = env_setting("SUPABASE_SERVICE_KEY",
     "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."
     "eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0."
     "EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU")
@@ -43,7 +58,40 @@ HISTORY_START = 2000              # 전자공시 전면화
 CORRECTION_RE = re.compile(r"\[기재정정")
 
 
+# ─────────────────────────────────────────────── 대상 표시
+
+def target_host():
+    return urllib.parse.urlsplit(REST).netloc or REST
+
+
+def is_local_target():
+    host = target_host().split(":")[0]
+    return host in ("127.0.0.1", "localhost", "::1", "0.0.0.0")
+
+
+def target_label():
+    return "%s (로컬)" % target_host() if is_local_target() else target_host()
+
+
+def print_target():
+    """해석된 대상 DB 호스트를 명령 시작 전에 출력한다 — 어떤 DB 를 채우고 있는지가
+    조용하면 안 된다(위 env_setting 주석 참고). 호스트만 찍고 키는 절대 찍지 않는다."""
+    print("대상: %s" % target_label())
+
+
 # ─────────────────────────────────────────────── REST 헬퍼
+
+# 이 연결은 service_role 키를 실어 나른다 — 검증 생략 폴백(_net.py 의 마지막 수단)을
+# 여기 복사해오면 안 된다. _net.py 의 폴백은 DART 공개 read-only API 전용이고, 여기서
+# 검증을 끄면 그 키가 중간자에게 그대로 노출된다. python.org 파이썬은 시스템 CA 를
+# 안 써서 hosted(https://*.supabase.co)에 CERTIFICATE_VERIFY_FAILED 가 나므로,
+# 해법은 검증을 끄는 게 아니라 certifi 의 CA 번들을 명시적으로 물리는 것이다.
+try:
+    import certifi
+    _SSL_CTX = ssl.create_default_context(cafile=certifi.where())
+except ImportError:  # certifi 가 없으면 표준 기본 컨텍스트 — 여전히 검증은 한다
+    _SSL_CTX = ssl.create_default_context()
+
 
 def rest(method, path, body=None, prefer=None):
     url = "%s/%s" % (REST, path)
@@ -54,7 +102,7 @@ def rest(method, path, body=None, prefer=None):
     data = json.dumps(body, ensure_ascii=False).encode() if body is not None else None
     req = urllib.request.Request(url, data=data, headers=headers, method=method)
     try:
-        with urllib.request.urlopen(req, timeout=60) as resp:
+        with urllib.request.urlopen(req, timeout=60, context=_SSL_CTX) as resp:
             raw = resp.read()
             return json.loads(raw) if raw else None
     except urllib.error.HTTPError as e:
@@ -119,6 +167,7 @@ def load_company(key, corp):
         "updated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
     }], on_conflict="corp_code")
     print("  companies: 1")
+    return prof  # 호출부(backfill.py)가 재조회 없이 corp_cls 를 읽어 상장상태 게이트에 쓴다
 
 
 def load_filings(key, corp, since_year):
@@ -181,7 +230,10 @@ def load_report_items(key, corp, since_year):
     this_year = dt.date.today().year
     total = 0
     for item in api.REPORT_ITEMS:
-        for y in range(max(since_year, FIN_START_DEFAULT), this_year):
+        # 주의: 상한을 this_year(배타)로 두면 당해년도 정기보고서 항목이 영영 수집되지
+        # 않는다 — load_financials/load_events 는 this_year를 포함하는데 여기만 빠져
+        # 있었다(버그, P-B 백필 착수 전 발견). +1 로 포함시킨다.
+        for y in range(max(since_year, FIN_START_DEFAULT), this_year + 1):
             try:
                 rows = api.report_item(key, corp["corp_code"], item, y)
             except api.DartError:
@@ -328,6 +380,7 @@ def main():
     p.add_argument("--only", help="쉼표 구분 단계 (%s)" % ",".join(STAGES))
     p.add_argument("--redo-docs", action="store_true", help="원문을 기존 것 포함해 다시 수집")
     args = p.parse_args()
+    print_target()
 
     key = api.resolve_key() or api.read_env_file(os.path.join(_REPO, ".env.local")).get("DART_API_KEY")
     if not key:
