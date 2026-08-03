@@ -320,7 +320,7 @@ def _install_signal_handlers():
     # SIGINT(Ctrl-C)는 파이썬 기본 동작(KeyboardInterrupt)을 그대로 쓴다.
 
 
-_CURRENT_JOB = {"corp_code": None, "stage": None}
+_CURRENT_JOB = {"corp_code": None, "stage": None, "calls_before": None}
 
 
 # ─────────────────────────────────────────────── 체크포인트 갱신
@@ -331,24 +331,35 @@ def mark_running(corp_code, stage):
          prefer="return=minimal")
 
 
-def mark_done(corp_code, stage):
+def mark_done(corp_code, stage, calls_spent):
+    """calls_spent 는 "이번 시도" 소비량이다(누적 아님, "직전 시도" 의미론 — 근거는
+    20260803000003 마이그레이션 및 이 값을 계산하는 cmd_run 쪽 주석 참고). 재시도로 부풀려진
+    합계가 아니라 "이 단계가 한 번 성공하는 데 드는 비용"을 그대로 반영해야 회사별 분포
+    (min/median/max) 측정에 쓸 수 있다."""
     rest("PATCH", "ingest_progress?%s" % _progress_filter(corp_code, stage),
-         {"status": "done", "completed_at": now_iso(), "last_error": None, "updated_at": now_iso()},
+         {"status": "done", "completed_at": now_iso(), "last_error": None,
+          "calls_spent": calls_spent, "updated_at": now_iso()},
          prefer="return=minimal")
 
 
-def mark_pending(corp_code, stage):
+def mark_pending(corp_code, stage, calls_spent=None):
     """진행 중이던 작업을 대기로 되돌린다 — 쿼터 소진 재대기열, 중단 시 복구 둘 다 여기로.
-    attempts 는 건드리지 않는다(이 회사 데이터의 실패가 아니므로 소모 취급 안 함)."""
-    rest("PATCH", "ingest_progress?%s" % _progress_filter(corp_code, stage),
-         {"status": "pending", "started_at": None, "updated_at": now_iso()},
+    attempts 는 건드리지 않는다(이 회사 데이터의 실패가 아니므로 소모 취급 안 함).
+    calls_spent: 이번(중단된) 시도가 실제로 쓴 호출수를 아는 호출자만 넘긴다(cmd_run 안,
+    스냅샷/델타 계산 가능한 경로). None 이면 필드 자체를 PATCH 에서 뺀다 — 크래시 회수
+    (reclaim_stale_running) 처럼 이번 시도의 소비량을 모르는 경로가 기존 값을 0 으로
+    지워버리지 않게 하기 위함(직전 시도 의미론이라도 "모른다"를 "0 이다"로 덮어쓰면 안 된다)."""
+    payload = {"status": "pending", "started_at": None, "updated_at": now_iso()}
+    if calls_spent is not None:
+        payload["calls_spent"] = calls_spent
+    rest("PATCH", "ingest_progress?%s" % _progress_filter(corp_code, stage), payload,
          prefer="return=minimal")
 
 
-def mark_failed(corp_code, stage, err, old_attempts):
+def mark_failed(corp_code, stage, err, old_attempts, calls_spent):
     rest("PATCH", "ingest_progress?%s" % _progress_filter(corp_code, stage),
          {"status": "failed", "attempts": old_attempts + 1, "last_error": (err or "")[:2000],
-          "started_at": None, "updated_at": now_iso()},
+          "calls_spent": calls_spent, "started_at": None, "updated_at": now_iso()},
          prefer="return=minimal")
 
 
@@ -588,11 +599,18 @@ def cmd_run(args):
             # 정상 종료 경로(성공/QuotaExhausted/Exception) 각각에서만 명시적으로 지운다 —
             # 중단으로 여기를 못 지나가면 바깥 핸들러가 여전히 채워진 _CURRENT_JOB 을 보고
             # 되돌릴 수 있다.
-            _CURRENT_JOB["corp_code"], _CURRENT_JOB["stage"] = corp_code, stage
+            # calls_spent 스냅샷/델타: 이 잡은 한 번에 하나만 돈다(cmd_run 루프가 순차 실행),
+            # 그 사이 pool.used 총합의 증가분은 전부 이 잡이 낸 호출뿐이다 — 잡에 넘겨진
+            # key 하나만 합산해도 되지만(어차피 STAGE_FN 은 그 key 로만 호출한다), 풀 전체를
+            # 합산해도 결과는 같고 "이 key 만 써야 한다"는 가정에 덜 의존해 더 안전하다.
+            calls_before = sum(pool.used.values())
+            _CURRENT_JOB["corp_code"], _CURRENT_JOB["stage"], _CURRENT_JOB["calls_before"] = (
+                corp_code, stage, calls_before)
             mark_running(corp_code, stage)
             try:
                 result = STAGE_FN[stage](key, corp, args.since)
-                mark_done(corp_code, stage)
+                calls_spent = sum(pool.used.values()) - calls_before
+                mark_done(corp_code, stage, calls_spent)
                 if stage == "company":
                     # 방금 관측한 corp_cls 를 큐에 적어둔다 — 같은 실행 안에서 뒤따르는
                     # filings/fin 작업(jobs 리스트 순서상 이후에 옴, discover_jobs 가
@@ -603,24 +621,29 @@ def cmd_run(args):
                     corp["corp_cls"] = corp_cls
                 done_n += 1
             except QuotaExhausted as e:
+                calls_spent = sum(pool.used.values()) - calls_before
                 pool.mark_exhausted(e.key)
                 pool.flush(e.key)
-                mark_pending(corp_code, stage)
+                mark_pending(corp_code, stage, calls_spent)
                 quota_n += 1
                 print("  [키소진] %s/%s(%s) — 재대기열 반영, 다음 키로 회전" %
                       (corp.get("corp_name", corp_code), stage, corp_code))
-                _CURRENT_JOB["corp_code"], _CURRENT_JOB["stage"] = None, None
+                _CURRENT_JOB["corp_code"], _CURRENT_JOB["stage"], _CURRENT_JOB["calls_before"] = (
+                    None, None, None)
                 continue
             except Exception as e:
-                mark_failed(corp_code, stage, str(e), j["attempts"])
+                calls_spent = sum(pool.used.values()) - calls_before
+                mark_failed(corp_code, stage, str(e), j["attempts"], calls_spent)
                 fail_n += 1
                 print("  [실패] %s/%s(%s) — %s" %
                       (corp.get("corp_name", corp_code), stage, corp_code, str(e)[:200]))
-            _CURRENT_JOB["corp_code"], _CURRENT_JOB["stage"] = None, None
+            _CURRENT_JOB["corp_code"], _CURRENT_JOB["stage"], _CURRENT_JOB["calls_before"] = (
+                None, None, None)
             pool.flush(key)
     except (KeyboardInterrupt, _Terminated):
         if _CURRENT_JOB["corp_code"]:
-            mark_pending(_CURRENT_JOB["corp_code"], _CURRENT_JOB["stage"])
+            calls_spent = sum(pool.used.values()) - (_CURRENT_JOB["calls_before"] or 0)
+            mark_pending(_CURRENT_JOB["corp_code"], _CURRENT_JOB["stage"], calls_spent)
         pool.flush()
         print("\n중단 신호 수신 — 진행 중이던 작업은 pending 으로 복귀, 체크포인트 정상, 이어서 실행 가능")
         sys.exit(130)
