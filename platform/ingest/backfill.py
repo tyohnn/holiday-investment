@@ -600,7 +600,10 @@ def cmd_run(args):
             corp_code, stage = j["corp_code"], j["stage"]
             corp = corps.get(corp_code)
             if not corp:
-                mark_failed(corp_code, stage, "ingest_corps 에 없는 corp_code", j["attempts"])
+                # 큐에 없는 corp_code — 잡을 시작조차 못 했으므로 소비한 콜은 0 이다.
+                _safe_checkpoint("mark_failed %s/%s" % (corp_code, stage),
+                                 mark_failed, corp_code, stage,
+                                 "ingest_corps 에 없는 corp_code", j["attempts"], 0)
                 fail_n += 1
                 continue
 
