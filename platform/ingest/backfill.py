@@ -73,6 +73,84 @@ def is_delisted_cls(corp_cls):
     return corp_cls is not None and corp_cls not in LIVE_CORP_CLASSES
 
 
+# ─────────────────────────────────────────────── 시장 게이트
+#
+# 상장상태 게이트가 "죽었냐"를 가른다면 이건 살아 있는 것들 중 "어느 시장이냐"를 고른다. 둘은
+# 직교하고 순서대로 겹쳐 적용된다 — 시장 게이트를 켜도 상장폐지 판정은 그대로 살아 있다.
+#
+# 이런 걸 왜 두느냐: 시장별로 데이터 수확량이 극단적으로 다르다. Phase 1 실측에서 생존 2,756개
+# 중 financial_facts 가 0행인 회사가 97개였는데, 그중 88개가 코넥스였다(코넥스 108개의 81.5%.
+# 코스피 833개 중 3개, 코스닥 1,815개 중 6개와 비교하면 자릿수가 다르다). 회사당 콜이 비싼
+# 단계(phase 2 ≈ 401콜)에서 이런 시장을 통째로 뺄 수 있어야 예산을 어디에 쓸지 고를 수 있다.
+#
+# 다만 기본값은 전 시장(Y,K,N)이다 — 게이트는 "쓸 수 있게 만들어 둔 손잡이"이지 기본 정책이
+# 아니다. 어느 시장을 뺄지는 측정으로 정하는 것이고(단계마다 답이 다를 수 있다 — fin 이 비었다고
+# items/events 도 비라는 법은 없다), 기본값을 좁혀두면 그 측정을 안 한 채 굳어버린다.
+MARKET_NAMES = {"Y": "코스피", "K": "코스닥", "N": "코넥스"}
+ALL_MARKETS = frozenset(LIVE_CORP_CLASSES)
+
+# 게이트 종류 — mark_skipped 사유 문자열의 접두사로 그대로 쓰인다. status 는 이 접두사만 보고
+# "어느 필터가 뺐는지"를 되읽는다(사유가 곧 기록이고, 기록이 곧 되돌릴 근거다).
+GATE_DELISTED = "상장상태"
+GATE_MARKET = "시장"
+GATE_PREFIX = "게이트(%s): "
+
+
+def parse_markets(spec):
+    """--markets 값(쉼표 구분 corp_cls)을 집합으로. 오타를 조용히 넘기면 "아무것도 안 도는"
+    실행이 되므로(예: 소문자 'y' → 전부 게이트) 알 수 없는 값은 즉시 에러로 끊는다."""
+    if spec is None:
+        return ALL_MARKETS
+    vals = {v.strip().upper() for v in spec.split(",") if v.strip()}
+    unknown = vals - ALL_MARKETS
+    if unknown:
+        raise SystemExit("--markets 값이 잘못됨: %s — 가능한 값은 %s (%s)" %
+                         (",".join(sorted(unknown)), ",".join(sorted(ALL_MARKETS)),
+                          " ".join("%s=%s" % (k, MARKET_NAMES[k]) for k in sorted(ALL_MARKETS))))
+    if not vals:
+        raise SystemExit("--markets 가 비었다 — 최소 한 시장은 지정해야 한다")
+    return frozenset(vals)
+
+
+def describe_markets(markets):
+    return ",".join("%s(%s)" % (m, MARKET_NAMES[m]) for m in sorted(markets))
+
+
+def is_market_excluded(corp_cls, markets):
+    """살아 있는데 이번 실행이 고른 시장이 아닌 경우. is_delisted_cls 와 같은 규율로 None(모름)은
+    절대 True 가 아니고, 애초에 Y/K/N 이 아닌 값은 여기 관할이 아니다(상장상태 게이트 몫)."""
+    return corp_cls in LIVE_CORP_CLASSES and corp_cls not in markets
+
+
+def gate_reason(stage, corp_cls, markets, include_delisted):
+    """이 (단계, corp_cls)를 어떤 게이트가 막는지 — 막지 않으면 None.
+
+    company 단계는 어떤 게이트도 적용받지 않는다: corp_cls 를 관측하는 게 바로 그 단계라서,
+    게이트를 걸면 자기가 판단 근거를 만드는 걸 자기가 막는 순환이 된다.
+
+    상장상태를 시장보다 먼저 본다 — 상장폐지 회사에 "코넥스라서 뺐다"고 적으면 사유가 거짓이 된다."""
+    if stage == "company":
+        return None
+    if not include_delisted and is_delisted_cls(corp_cls):
+        return (GATE_PREFIX % GATE_DELISTED) + (
+            "corp_cls=%s (Y/K/N 아님 — 상장폐지·비상장 추정, --include-delisted 로 재검토 가능)"
+            % corp_cls)
+    if is_market_excluded(corp_cls, markets):
+        return (GATE_PREFIX % GATE_MARKET) + (
+            "corp_cls=%s(%s) — 이번 실행 대상 시장 %s 에 없음(--markets 를 넓혀 재검토 가능)"
+            % (corp_cls, MARKET_NAMES.get(corp_cls, "?"), ",".join(sorted(markets))))
+    return None
+
+
+def gate_kind(reason):
+    """mark_skipped 로 저장된 사유 문자열에서 게이트 종류를 되읽는다 — status 가 skipped 를
+    필터별로 쪼개 보고하기 위한 역함수. 접두사 규약을 벗어난 옛 행은 None(=미분류)."""
+    for kind in (GATE_DELISTED, GATE_MARKET):
+        if (reason or "").startswith(GATE_PREFIX % kind):
+            return kind
+    return None
+
+
 # ─────────────────────────────────────────────── 작은 유틸
 
 def now_iso():
@@ -471,24 +549,25 @@ def resolve_corp_codes_from_stock(stock_codes):
     return list(found.values())
 
 
-def discover_jobs(stages, company_filter, limit, include_skipped=False):
+def discover_jobs(stages, company_filter):
     """대기 중인 (corp_code, stage) 작업을 찾는다. 회사 내부에서는 ingest.STAGES 의 정본
     순서(company→filings→fin→…)를 지킨다 — company 가 companies 테이블에 먼저 있어야
     filings/financial_facts 의 FK(corp_code references companies)가 통과한다.
 
-    include_skipped: True 면 이전에 게이트로 skipped 처리된 행도 다시 대상에 넣는다 —
-    --include-delisted 로 게이트를 끄고 돌릴 때 "미래에 한 술어만 바꿔서 un-skip" 하는
-    지점이 바로 여기다(상태 목록에 'skipped' 를 넣느냐 마느냐)."""
+    이전에 게이트로 skipped 된 행도 항상 후보에 넣고 status 를 같이 실어 보낸다. 그 행을 실제로
+    다시 돌릴지는 호출부가 지금 설정으로 다시 게이트를 물려보고 정한다 — 여전히 막히면 조용히
+    빠지고, 안 막히면(--include-delisted 를 켰거나 --markets 를 넓혔거나) 그대로 돈다. 게이트
+    종류가 둘로 늘면서 "어떤 플래그가 어떤 skipped 를 되살리는가"를 여기서 열거하는 건 유지가
+    안 된다 — 되살림 조건은 게이트 술어 자신이어야 한다(gate_reason 하나만 보면 되도록)."""
     corp_filter = None
     if company_filter:
         corp_filter = resolve_corp_codes_from_stock(company_filter)
         if not corp_filter:
             return []
 
-    statuses = "pending,failed,skipped" if include_skipped else "pending,failed"
-    q = ("ingest_progress?stage=in.(%s)&status=in.(%s)&attempts=lt.%d"
-         "&select=corp_code,stage,attempts&order=corp_code,stage" %
-         (",".join(stages), statuses, MAX_JOB_ATTEMPTS))
+    q = ("ingest_progress?stage=in.(%s)&status=in.(pending,failed,skipped)&attempts=lt.%d"
+         "&select=corp_code,stage,status,attempts&order=corp_code,stage" %
+         (",".join(stages), MAX_JOB_ATTEMPTS))
     if corp_filter is not None:
         q += "&corp_code=in.(%s)" % ",".join(corp_filter)
     rows = rest_get_all(q)
@@ -499,15 +578,15 @@ def discover_jobs(stages, company_filter, limit, include_skipped=False):
         if c not in by_corp:
             by_corp[c] = {}
             order.append(c)
-        by_corp[c][r["stage"]] = r["attempts"]
+        by_corp[c][r["stage"]] = r
 
     jobs = []
     for c in order:
         for s in ingest.STAGES:
             if s in by_corp[c]:
-                jobs.append({"corp_code": c, "stage": s, "attempts": by_corp[c][s]})
-                if limit and len(jobs) >= limit:
-                    return jobs
+                r = by_corp[c][s]
+                jobs.append({"corp_code": c, "stage": s, "attempts": r["attempts"],
+                             "status": r["status"]})
     return jobs
 
 
@@ -540,13 +619,14 @@ def cmd_run(args):
     MAX_JOB_ATTEMPTS = args.max_attempts
     stages = PHASES[args.phase]
     company_filter = [c.strip() for c in args.companies.split(",")] if args.companies else None
+    markets = parse_markets(args.markets)
+    print("대상 시장: %s%s" % (describe_markets(markets),
+                              "  (상장상태 게이트 해제됨)" if args.include_delisted else ""))
 
     if not args.dry_run:
         reclaim_stale_running()
 
-    # include_delisted 면 이전에 게이트로 skipped 된 행도 다시 후보에 넣는다 — "한 술어만
-    # 바꿔서 un-skip" 이 여기서 일어난다.
-    jobs = discover_jobs(stages, company_filter, args.limit, include_skipped=args.include_delisted)
+    jobs = discover_jobs(stages, company_filter)
     if not jobs:
         print("대기 중인 작업 없음 (phase %d, 단계 %s) — seed 를 먼저 돌렸는지, 이미 다 끝났는지 확인"
               % (args.phase, ",".join(stages)))
@@ -556,22 +636,42 @@ def cmd_run(args):
     corp_codes = sorted({j["corp_code"] for j in jobs})
     corps = fetch_corp_info(corp_codes)
 
-    def _gated(j):
-        return (j["stage"] != "company" and not args.include_delisted and
-                is_delisted_cls(corps.get(j["corp_code"], {}).get("corp_cls")))
+    def _gate(j):
+        return gate_reason(j["stage"], corps.get(j["corp_code"], {}).get("corp_cls"),
+                           markets, args.include_delisted)
+
+    # 이미 skipped 인데 지금 설정으로도 여전히 막히는 행은 아예 목록에서 뺀다 — 같은 판단을 다시
+    # 적어봐야 PATCH 만 늘고(생존 외 1,222개 × 단계 수) 로그만 시끄럽다. 게이트를 넓혀서
+    # 되살아난 것과 애초에 대기 중이던 것만 남는다.
+    jobs = [j for j in jobs if not (j["status"] == "skipped" and _gate(j))]
+    if args.limit:
+        jobs = jobs[:args.limit]
+    revived_n = sum(1 for j in jobs if j["status"] == "skipped")
+    if revived_n:
+        print("게이트가 넓어져 다시 후보가 된 skipped 작업: %d건" % revived_n)
+    if not jobs:
+        print("대기 중인 작업 없음 — 남은 건 전부 현재 게이트(시장 %s%s)에 막힌 skipped 다"
+              % (",".join(sorted(markets)), "" if args.include_delisted else " + 상장상태"))
+        return
 
     if args.dry_run:
         by_stage, gated_by_stage = {}, {}
         for j in jobs:
-            bucket = gated_by_stage if _gated(j) else by_stage
-            bucket[j["stage"]] = bucket.get(j["stage"], 0) + 1
+            kind = gate_kind(_gate(j))
+            if kind:
+                gated_by_stage.setdefault(j["stage"], {}).setdefault(kind, 0)
+                gated_by_stage[j["stage"]][kind] += 1
+            else:
+                by_stage[j["stage"]] = by_stage.get(j["stage"], 0) + 1
         print("=== DRY RUN — phase %d (%s) === 실제 API 호출 0건" % (args.phase, ",".join(stages)))
         total, total_gated = 0, 0
         for s in stages:
             n = by_stage.get(s, 0)
-            gated = gated_by_stage.get(s, 0)
+            g = gated_by_stage.get(s, {})
+            gated = sum(g.values())
             total_gated += gated
-            note = ("  (게이트 제외 %d건, corp_cls Y/K/N 아님)" % gated) if gated else ""
+            note = ("  (게이트 제외 %d건: %s)" %
+                    (gated, ", ".join("%s %d건" % (k, v) for k, v in sorted(g.items())))) if gated else ""
             per = estimate_stage_calls(s, args.since)
             if per is None:
                 print("  %-10s 작업 %5d건 × 회사당 가변(공시 건수만큼, docs 단계) = 미정%s" % (s, n, note))
@@ -579,7 +679,7 @@ def cmd_run(args):
                 sub = n * per
                 total += sub
                 print("  %-10s 작업 %5d건 × 회사당 약 %4d콜 = %8d콜%s" % (s, n, per, sub, note))
-        companies_touched = len({j["corp_code"] for j in jobs})
+        companies_touched = len({j["corp_code"] for j in jobs if not _gate(j)})
         print("총 작업(회사×단계): %d건 · 게이트 제외: %d건(0콜) · 대상 회사: %d개" %
               (len(jobs) - total_gated, total_gated, companies_touched))
         print("예상 API 호출수(대략, docs·게이트 제외 회사 제외): %d" % total)
@@ -607,13 +707,14 @@ def cmd_run(args):
                 fail_n += 1
                 continue
 
-            # 상장상태 게이트: API 콜을 전혀 쓰지 않으므로 쿼터 소진 여부와 무관하게 먼저 처리한다.
-            if _gated(j):
-                mark_skipped(corp_code, stage, "게이트: corp_cls=%s (Y/K/N 아님 — 상장폐지·비상장 "
-                             "추정, --include-delisted 로 재검토 가능)" % corp.get("corp_cls"))
+            # 게이트(상장상태·시장): API 콜을 전혀 쓰지 않으므로 쿼터 소진 여부와 무관하게 먼저 처리한다.
+            reason = _gate(j)
+            if reason:
+                mark_skipped(corp_code, stage, reason)
                 skip_n += 1
-                print("  [게이트skip] %s/%s(%s) — corp_cls=%s" %
-                      (corp.get("corp_name", corp_code), stage, corp_code, corp.get("corp_cls")))
+                print("  [게이트skip/%s] %s/%s(%s) — corp_cls=%s" %
+                      (gate_kind(reason), corp.get("corp_name", corp_code), stage, corp_code,
+                       corp.get("corp_cls")))
                 continue
 
             if pool.all_exhausted():
@@ -713,20 +814,44 @@ def cmd_status(args):
         print("(비어 있음 — 먼저 `backfill.py seed` 실행)")
         return
 
-    # 상장상태 게이트가 뭘 근거로 판단하는지 — company 단계가 관측한 corp_cls 의 생사 split.
-    cls_rows = rest_get_all("ingest_corps?select=corp_cls&order=corp_code")
-    live_n = sum(1 for r in cls_rows if r.get("corp_cls") in LIVE_CORP_CLASSES)
-    dead_n = sum(1 for r in cls_rows if is_delisted_cls(r.get("corp_cls")))
+    markets = parse_markets(args.markets)
+
+    # 게이트가 뭘 근거로 판단하는지 — company 단계가 관측한 corp_cls 의 생사·시장 split.
+    cls_rows = rest_get_all("ingest_corps?select=corp_code,corp_cls&order=corp_code")
+    cls_by_corp = {r["corp_code"]: r.get("corp_cls") for r in cls_rows}
+    live_n = sum(1 for v in cls_by_corp.values() if v in LIVE_CORP_CLASSES)
+    dead_n = sum(1 for v in cls_by_corp.values() if is_delisted_cls(v))
     unknown_n = universe_n - live_n - dead_n
     print("=== 상장상태(ingest_corps.corp_cls, company 단계 관측치) ===")
     print("  live(Y/K/N)=%-6d dead(그 외, 예 E)=%-6d unknown(company 미실행)=%-6d" %
           (live_n, dead_n, unknown_n))
+    by_market = {}
+    for v in cls_by_corp.values():
+        if v in LIVE_CORP_CLASSES:
+            by_market[v] = by_market.get(v, 0) + 1
+    print("  live 시장별: %s" % "  ".join(
+        "%s(%s)=%d%s" % (m, MARKET_NAMES[m], by_market.get(m, 0), "" if m in markets else " [제외]")
+        for m in sorted(ALL_MARKETS)))
+    print("=== 이번 리포트가 가정한 시장 필터: %s (--markets 로 변경) ===" % describe_markets(markets))
 
-    prog_rows = rest_get_all("ingest_progress?select=stage,status&order=corp_code,stage")
-    counts = {}
+    prog_rows = rest_get_all("ingest_progress?select=corp_code,stage,status&order=corp_code,stage")
+    counts, out_of_market = {}, {}
     for r in prog_rows:
         counts.setdefault(r["stage"], {}).setdefault(r["status"], 0)
         counts[r["stage"]][r["status"]] += 1
+        # 아직 안 끝난 작업 중 "지금 --markets 로는 안 돌 것" — ETA 에서 빼야 정직하다.
+        if (r["status"] in ("pending", "running", "failed") and r["stage"] != "company"
+                and is_market_excluded(cls_by_corp.get(r["corp_code"]), markets)):
+            out_of_market[r["stage"]] = out_of_market.get(r["stage"], 0) + 1
+
+    # skipped 를 어느 게이트가 만들었는지 — 사유 문자열의 접두사로 되읽는다(gate_kind).
+    skipped_rows = rest_get_all("ingest_progress?status=eq.skipped&select=stage,last_error"
+                                 "&order=corp_code,stage")
+    skipped_by_kind = {}
+    for r in skipped_rows:
+        k = gate_kind(r.get("last_error")) or "미분류"
+        skipped_by_kind.setdefault(r["stage"], {}).setdefault(k, 0)
+        skipped_by_kind[r["stage"]][k] += 1
 
     remaining_calls = 0
     total_skipped = 0
@@ -738,17 +863,24 @@ def cmd_status(args):
             done, failed = c.get("done", 0), c.get("failed", 0)
             skipped = c.get("skipped", 0)
             total_skipped += skipped
-            print("  %-10s pending=%-6d running=%-6d done=%-6d failed=%-6d skipped=%-6d" %
-                  (s, pending, running, done, failed, skipped))
+            kinds = skipped_by_kind.get(s, {})
+            detail = ("  [%s]" % ", ".join("%s %d" % (k, v) for k, v in sorted(kinds.items()))) if kinds else ""
+            oom = out_of_market.get(s, 0)
+            oom_note = ("  (그중 %d건은 현재 --markets 대상 밖 — 아래 ETA 에서 제외)" % oom) if oom else ""
+            print("  %-10s pending=%-6d running=%-6d done=%-6d failed=%-6d skipped=%-6d%s%s" %
+                  (s, pending, running, done, failed, skipped, detail, oom_note))
             per = estimate_stage_calls(s, ingest.HISTORY_START)
             if per is not None:
                 # skipped 는 게이트가 이미 "안 돈다"고 확정한 것 — 잔여 콜 추정에서 제외한다
                 # (이게 이 게이트가 절약하는 콜 수를 status 가 정직하게 반영하는 지점).
-                remaining_calls += (pending + running + failed) * per
+                # 시장 필터로 빠질 것(out_of_market)도 같은 이유로 뺀다 — 아직 pending 이지만
+                # 이 필터로 도는 한 절대 콜을 안 쓴다.
+                remaining_calls += max(0, pending + running + failed - oom) * per
 
     if total_skipped:
-        print("\n  게이트로 skipped 된 (회사,단계) 총 %d건 — 상장상태 dead 로 판정돼 API 콜 소비 "
-              "없이 건너뜀(--include-delisted 로 재검토 가능)" % total_skipped)
+        print("\n  게이트로 skipped 된 (회사,단계) 총 %d건 — API 콜 소비 없이 건너뜀. "
+              "상장상태 게이트는 --include-delisted, 시장 게이트는 --markets 를 넓혀 재검토 가능"
+              % total_skipped)
 
     docs_c = counts.get("docs", {})
     docs_left = docs_c.get("pending", 0) + docs_c.get("running", 0) + docs_c.get("failed", 0)
@@ -807,9 +939,16 @@ def main():
                     help="상장상태 게이트를 끄고 corp_cls 가 Y/K/N 이 아닌(상장폐지·비상장 추정) "
                          "회사도 처리 — 이전에 skipped 된 (회사,단계)도 다시 후보에 넣는다. "
                          "기본은 게이트 켜짐(스킵)")
+    r.add_argument("--markets", default=None,
+                    help="처리할 시장(corp_cls) 쉼표 구분 — Y=코스피, K=코스닥, N=코넥스. "
+                         "기본은 전 시장(Y,K,N)이라 지정 안 하면 동작이 바뀌지 않는다. 예: "
+                         "--markets Y,K 는 코넥스를 skipped 로 남기고 건너뛴다(상장상태 게이트와 "
+                         "겹쳐서 적용되며, 나중에 --markets 를 넓혀 다시 돌리면 되살아난다)")
 
     st = sub.add_parser("status", help="진행 현황·오늘 키 사용량·ETA 요약")
     st.add_argument("--budget", type=int, default=DEFAULT_DAILY_BUDGET)
+    st.add_argument("--markets", default=None,
+                    help="이 시장 필터로 돌린다고 가정하고 잔여 콜·ETA 를 계산 (기본 Y,K,N)")
 
     args = p.parse_args()
     {"seed": cmd_seed, "run": cmd_run, "status": cmd_status}[args.cmd](args)
