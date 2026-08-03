@@ -228,19 +228,24 @@ def load_filings(key, corp, since_year):
     print("  filings: %d (정정 %d)" % (len(db_rows), sum(r["is_correction"] for r in db_rows)))
 
 
-# financial_facts 의 자연키 — 20260803000002 의 유니크 인덱스(ff_natural_key)와
-# 컬럼·순서가 글자 그대로 같아야 한다(PostgREST 의 on_conflict 는 이 목록으로 인덱스를
-# 추론한다 — 하나만 어긋나도 42P10 으로 죽는다). 컬럼을 더할 때는 반드시 같이 고친다.
+# financial_facts 의 자연키는 **DB 가 단독으로 정의한다** — financial_facts.natural_key
+# 생성 컬럼(20260803000002)의 식이 유일한 정의이고, ff_natural_key 유니크 인덱스가 그
+# 한 컬럼에 걸린다. 그래서 upsert 의 on_conflict 도 컬럼 하나만 가리킨다(아래 상수).
 #
-# id 를 뺀 전 컬럼이다. 더 좁은 키
-#   (corp_code, bsns_year, reprt_code, fs_div, sj_div, account_id, account_nm,
-#    account_detail, ord, rcept_no)
-# 가 의미상 더 옳고 — 한 보고서가 한 계정·한 자본항목에 보고하는 금액은 하나뿐이므로
-# 금액은 키가 아니라 값이다 — raw 51만 행에서 위반 0건으로 실측도 됐다. 그런데 지금
-# 당장은 쓸 수 없다: 이미 적재된 915개사 6.2M 행은 account_detail 이 통째로 NULL 이라
-# (이번 사고의 원인) 좁은 키로는 SCE 행들이 서로 충돌한다. 금액까지 넣은 전 컬럼 키는
-# 그 행들과 공존하면서도 "완전히 똑같은 행"의 재발은 확실히 막는다.
-# 좁은 키로의 강화는 915개사를 account_detail 포함으로 재적재한 뒤의 후속 과제다.
+# 이전에는 인덱스가 "id 를 뺀 전 컬럼" 목록이었고 여기 FIN_KEY 튜플이 그 목록과 글자
+# 그대로 같아야 했다(PostgREST 의 on_conflict 는 컬럼 목록으로 인덱스를 추론한다).
+# 정의가 두 곳에 있으니 어긋나도 런타임 42P10 으로만 드러났고, 그건 그 자체가 결함이었다.
+# 이제 그 이중 소스가 없다 — 키에 컬럼을 더하거나 빼는 일은 마이그레이션에서만 한다.
+FIN_CONFLICT = "natural_key"
+
+# ★ FIN_KEY 는 더 이상 인덱스 계약이 아니다. 남은 용도는 하나뿐 — 아래 dedupe_by 가
+#   "한 INSERT 문 안에 같은 키가 두 번" 을 미리 접기 위해 쓰는 클라이언트 측 사본이다
+#   (Postgres 의 ON CONFLICT 는 그 경우를 21000 으로 배치째 실패시킨다 — 실측 확인).
+#   그래서 이 튜플은 DB 의 정의와 **정확히 같을 필요는 없고, 더 촘촘하기만 하면 안 된다**:
+#   DB 가 같다고 볼 두 행을 여기서 다르다고 보면 배치가 깨진다. 지금은 일치한다 —
+#   텍스트는 양쪽 다 문자열 동등성이고, 숫자는 파이썬의 1 == 1.0 과 Postgres numeric 의
+#   1 = 1.00(마이그레이션의 trim_scale 정규화)이 같은 판정이며, None 끼리도 양쪽 다 같다.
+#   컬럼을 추가할 때 여기 빠뜨려도 배치는 안전하게 통과한다(덜 접을 뿐 DB 가 잡는다).
 FIN_KEY = ("corp_code", "bsns_year", "reprt_code", "fs_div", "sj_div",
            "account_id", "account_nm", "account_detail", "ord",
            "amount", "amount_prev", "amount_prev2",
@@ -290,7 +295,7 @@ def load_financials(key, corp, since_year):
             replace_scope("financial_facts",
                           {"corp_code": "eq.%s" % corp["corp_code"],
                            "bsns_year": "eq.%d" % y, "reprt_code": "eq.%s" % reprt},
-                          db_rows, on_conflict=",".join(FIN_KEY))
+                          db_rows, on_conflict=FIN_CONFLICT)
             total += len(db_rows)
     print("  financial_facts: %d" % total)
 
