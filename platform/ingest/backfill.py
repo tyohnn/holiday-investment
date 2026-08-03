@@ -374,6 +374,35 @@ def mark_skipped(corp_code, stage, reason):
          prefer="return=minimal")
 
 
+def _safe_checkpoint(label, fn, *args, **kwargs):
+    """체크포인트/쿼터 기록(mark_*, pool.flush)이 ingest.rest() 의 재시도까지 다 쓰고도
+    실패하면, 그 예외를 cmd_run 루프 밖으로 흘려보내지 않는다.
+
+    실제로 이랬다 — mark_failed 안에서 DNS 조회가 실패해 PATCH 자체가 못 나갔고, 재시도가
+    없던 그 예외가 루프를 통째로 죽여서 몇 시간짜리 실행이 끝나버렸다(해당 작업은 DB 에
+    running 으로 멈춘 채). rest() 에 재시도를 넣은 지금도 마지막 시도까지 다 실패할 여지는
+    남는다(장시간 절전, DNS 설정 붕괴처럼 backoff 상한보다 오래가는 단절) — 그 경우 한 번
+    더 감싸서 시도해봐야 소용없다(이미 여러 번 실패한 뒤이므로).
+
+    그래서 여기서 예외를 삼키고 루프를 계속 돌게 한다. 대신:
+      1) 조용히 넘기지 않는다 — 어떤 기록이 왜 유실됐는지 stderr 에 크게 찍는다.
+      2) mark_running 이후의 실패라면 그 (회사,단계) 행은 DB 에 running 으로 남는데, 이건
+         reclaim_stale_running() 이 원래 위해 있는 상황이다 — RUNNING_STALE_MINUTES 뒤
+         다음 실행이 자동으로 pending 회수 → 재시도(각 단계는 스코프 교체라 재실행해도
+         안전, ingest.py 모듈 docstring의 멱등성 설계 참고). 데이터가 아니라 "이번 시도의
+         기록"만 유실되므로 체크포인트 자체는 (지연될지언정) 무결하다.
+    반환값 False 는 호출부가 굳이 분기할 필요는 없지만(현재는 안 쓴다), 테스트에서 성공
+    여부를 확인할 수 있게 남겨둔다."""
+    try:
+        fn(*args, **kwargs)
+        return True
+    except Exception as e:
+        print("  [기록 실패] %s — rest() 재시도 소진 후에도 실패, running 으로 남을 수 있음"
+              "(다음 실행의 reclaim_stale_running 이 %d분 후 회수): %s" %
+              (label, RUNNING_STALE_MINUTES, str(e)[:300]), file=sys.stderr)
+        return False
+
+
 def record_listing_status(corp_code, corp_cls):
     """company 단계가 방금 관측한 raw corp_cls 를 ingest_corps 에 적어둔다 — 이후 이 회사의
     filings/fin/phase2·3 게이트 판단이 이 값을 본다. corp_cls 가 None(company API 실패 등)이면
@@ -610,21 +639,24 @@ def cmd_run(args):
             try:
                 result = STAGE_FN[stage](key, corp, args.since)
                 calls_spent = sum(pool.used.values()) - calls_before
-                mark_done(corp_code, stage, calls_spent)
+                _safe_checkpoint("mark_done %s/%s" % (corp_code, stage),
+                                  mark_done, corp_code, stage, calls_spent)
                 if stage == "company":
                     # 방금 관측한 corp_cls 를 큐에 적어둔다 — 같은 실행 안에서 뒤따르는
                     # filings/fin 작업(jobs 리스트 순서상 이후에 옴, discover_jobs 가
                     # company→filings→fin 순으로 정렬)이 이 in-memory 갱신을 그대로 보고
                     # 즉시 게이트를 적용한다(재조회 없이).
                     corp_cls = (result or {}).get("corp_cls")
-                    record_listing_status(corp_code, corp_cls)
+                    _safe_checkpoint("record_listing_status %s" % corp_code,
+                                      record_listing_status, corp_code, corp_cls)
                     corp["corp_cls"] = corp_cls
                 done_n += 1
             except QuotaExhausted as e:
                 calls_spent = sum(pool.used.values()) - calls_before
                 pool.mark_exhausted(e.key)
-                pool.flush(e.key)
-                mark_pending(corp_code, stage, calls_spent)
+                _safe_checkpoint("pool.flush(quota) %s" % key_id(e.key), pool.flush, e.key)
+                _safe_checkpoint("mark_pending %s/%s" % (corp_code, stage),
+                                  mark_pending, corp_code, stage, calls_spent)
                 quota_n += 1
                 print("  [키소진] %s/%s(%s) — 재대기열 반영, 다음 키로 회전" %
                       (corp.get("corp_name", corp_code), stage, corp_code))
@@ -633,18 +665,20 @@ def cmd_run(args):
                 continue
             except Exception as e:
                 calls_spent = sum(pool.used.values()) - calls_before
-                mark_failed(corp_code, stage, str(e), j["attempts"], calls_spent)
+                _safe_checkpoint("mark_failed %s/%s" % (corp_code, stage),
+                                  mark_failed, corp_code, stage, str(e), j["attempts"], calls_spent)
                 fail_n += 1
                 print("  [실패] %s/%s(%s) — %s" %
                       (corp.get("corp_name", corp_code), stage, corp_code, str(e)[:200]))
             _CURRENT_JOB["corp_code"], _CURRENT_JOB["stage"], _CURRENT_JOB["calls_before"] = (
                 None, None, None)
-            pool.flush(key)
+            _safe_checkpoint("pool.flush %s" % key_id(key), pool.flush, key)
     except (KeyboardInterrupt, _Terminated):
         if _CURRENT_JOB["corp_code"]:
             calls_spent = sum(pool.used.values()) - (_CURRENT_JOB["calls_before"] or 0)
-            mark_pending(_CURRENT_JOB["corp_code"], _CURRENT_JOB["stage"], calls_spent)
-        pool.flush()
+            _safe_checkpoint("mark_pending %s/%s" % (_CURRENT_JOB["corp_code"], _CURRENT_JOB["stage"]),
+                              mark_pending, _CURRENT_JOB["corp_code"], _CURRENT_JOB["stage"], calls_spent)
+        _safe_checkpoint("pool.flush(all)", pool.flush)
         print("\n중단 신호 수신 — 진행 중이던 작업은 pending 으로 복귀, 체크포인트 정상, 이어서 실행 가능")
         sys.exit(130)
 

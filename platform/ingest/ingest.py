@@ -20,9 +20,12 @@ import argparse
 import datetime as dt
 import json
 import os
+import random
 import re
+import socket
 import ssl
 import sys
+import time
 import urllib.parse
 import urllib.request
 
@@ -93,21 +96,77 @@ except ImportError:  # certifi 가 없으면 표준 기본 컨텍스트 — 여�
     _SSL_CTX = ssl.create_default_context()
 
 
+# 이 런은 몇 시간짜리 배치이고, 지금까지 세 번 죽었다 — 그중 최소 두 번은 rest() 에 재시도가
+# 전혀 없어서다(디스크 풀 503, DNS 조회 실패 URLError). 아래는 "무엇을 재시도할지"의 근거다.
+#
+# 재시도 대상:
+#   - urllib.error.URLError 인데 HTTPError 는 아닌 것: 서버가 아예 응답하지 못한 경우다 —
+#     DNS 실패("nodename nor servname provided, or not known", 이번 사고 원인), 연결
+#     거부·리셋, 소켓 타임아웃이 전부 이 형태로 온다(urlopen 은 이들을 대개 URLError 로
+#     감싼다). 전형적인 트랜스포트 재시도 대상.
+#   - socket.timeout/TimeoutError·ConnectionResetError·ssl.SSLError: urlopen 이 항상
+#     URLError 로 감싸주는 건 아니다(응답을 읽는 도중 등에는 원본 예외가 그대로 샐 수
+#     있다) — 방어적으로 명시해 잡는다.
+#   - HTTPError 이면서 5xx 또는 429: 5xx 는 서버·인프라 쪽 일시 장애(과부하·재시작 등)일
+#     가능성이 높고, 429 는 "지금 말고 나중에" 라는 명시적 신호다.
+#     PostgREST 의 503/53100(statement_timeout·insufficient resources) 은 애매하다 —
+#     디스크가 꽉 찬 경우(실제로 한 번 이랬다)처럼 재시도해도 절대 안 풀리는 원인도 있고,
+#     순간적 커넥션·리소스 경합처럼 몇 초 뒤엔 풀리는 원인도 있다. 응답 바디를 파싱해
+#     53100 을 따로 가려내지 않는 이유: 가려내 봐야 결론이 같다. 진짜 디스크 풀이면
+#     재시도가 전부 실패하고 원래대로 예외가 올라가 mark_failed 로 가며(추가 비용은 아래
+#     상한이 보장하는 최대 지연뿐 — 몇 시간짜리 배치에 문제 안 됨), 진짜 일시적이면
+#     재시도가 그 시도 자체를 구해준다. 그래서 5xx 를 뭉뚱그려 재시도해도 손해가 없다.
+#
+# 재시도 안 함:
+#   - HTTPError 이면서 4xx(429 제외): 클라이언트 쪽 문제다 — 23505 유니크 위반, 42501
+#     권한 거부, 잘못된 payload 는 응답이 바뀔 리 없다. 재시도는 시간만 태우고 진짜
+#     원인을 더 늦게 드러낼 뿐이라 즉시 올린다.
+_REST_MAX_ATTEMPTS = 5   # DART 쪽 backoff(backfill.py _run_with_retry)와 같은 상한 — 근거 동일
+_REST_BACKOFF_CAP = 30   # 초
+
+
+def _is_retryable_rest_error(exc):
+    if isinstance(exc, urllib.error.HTTPError):
+        return exc.code >= 500 or exc.code == 429
+    if isinstance(exc, urllib.error.URLError):
+        return True
+    if isinstance(exc, (socket.timeout, TimeoutError, ConnectionResetError, ssl.SSLError)):
+        return True
+    return False
+
+
+def _sleep_backoff(attempt):
+    base = min(2 ** attempt, _REST_BACKOFF_CAP)
+    time.sleep(base + random.uniform(0, base))  # 지수 백오프 + 지터
+
+
 def rest(method, path, body=None, prefer=None):
-    url = "%s/%s" % (REST, path)
     headers = {"apikey": SERVICE_KEY, "Authorization": "Bearer %s" % SERVICE_KEY,
                "Content-Type": "application/json"}
     if prefer:
         headers["Prefer"] = prefer
+    url = "%s/%s" % (REST, path)
     data = json.dumps(body, ensure_ascii=False).encode() if body is not None else None
-    req = urllib.request.Request(url, data=data, headers=headers, method=method)
-    try:
-        with urllib.request.urlopen(req, timeout=60, context=_SSL_CTX) as resp:
-            raw = resp.read()
-            return json.loads(raw) if raw else None
-    except urllib.error.HTTPError as e:
-        detail = e.read().decode("utf-8", "replace")[:500]
-        raise RuntimeError("PostgREST %s %s → %s: %s" % (method, path, e.code, detail))
+
+    for attempt in range(1, _REST_MAX_ATTEMPTS + 1):
+        req = urllib.request.Request(url, data=data, headers=headers, method=method)
+        try:
+            with urllib.request.urlopen(req, timeout=60, context=_SSL_CTX) as resp:
+                raw = resp.read()
+                return json.loads(raw) if raw else None
+        except urllib.error.HTTPError as e:
+            detail = e.read().decode("utf-8", "replace")[:500]
+            if _is_retryable_rest_error(e) and attempt < _REST_MAX_ATTEMPTS:
+                _sleep_backoff(attempt)
+                continue
+            raise RuntimeError("PostgREST %s %s → %s: %s" % (method, path, e.code, detail))
+        except Exception as e:
+            # URLError·socket.timeout 등 — 재시도 대상이 아니거나 상한을 다 썼으면 원본
+            # 예외를 그대로 올린다(감싸지 않는다 — 호출부가 지금과 똑같이 처리할 수 있게).
+            if _is_retryable_rest_error(e) and attempt < _REST_MAX_ATTEMPTS:
+                _sleep_backoff(attempt)
+                continue
+            raise
 
 
 def upsert(table, rows, on_conflict):
