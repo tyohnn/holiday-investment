@@ -121,8 +121,21 @@ except ImportError:  # certifi 가 없으면 표준 기본 컨텍스트 — 여�
 #   - HTTPError 이면서 4xx(429 제외): 클라이언트 쪽 문제다 — 23505 유니크 위반, 42501
 #     권한 거부, 잘못된 payload 는 응답이 바뀔 리 없다. 재시도는 시간만 태우고 진짜
 #     원인을 더 늦게 드러낼 뿐이라 즉시 올린다.
-_REST_MAX_ATTEMPTS = 5   # DART 쪽 backoff(backfill.py _run_with_retry)와 같은 상한 — 근거 동일
-_REST_BACKOFF_CAP = 30   # 초
+# 상한을 DART 쪽(backfill.py _run_with_retry)보다 크게 잡는 이유 — 막는 대상이 다르다.
+# DART 재시도는 "서버가 잠깐 삐끗함"을 넘기는 용도라 1분이면 충분하다. 여기서 막아야 하는 건
+# 그게 아니라 **이 노트북의 네트워크가 통째로 사라지는 것**이다(절전 진입, 와이파이 재접속,
+# DNS 재설정). 실측: Phase 1 에서 3번, Phase 2 에서 1번, 전부 같은 예외로 죽었다 —
+# URLError [Errno 8] nodename nor servname provided(= DNS 조회 실패). 5회·30초 상한은 총
+# 대기가 1분 남짓이라 그보다 긴 단절을 못 넘긴다.
+#
+# 10회 · 300초 상한이면 총 대기가 15분을 넘어(2,4,8,…,300,300 + 지터) 절전 복귀·재접속을
+# 견딘다. 며칠짜리 배치에서 15분 더 기다리는 비용은 사실상 0이고, 반대로 못 넘기면 실행이
+# 통째로 죽어 사람이 붙어야 한다 — 비대칭이 크다.
+#
+# 이걸 늘려도 "영원히 매달리는" 상태는 안 된다: 상한을 다 쓰면 예외가 그대로 올라가고
+# backfill 의 _safe_checkpoint → mark_failed 경로가 평소처럼 돈다.
+_REST_MAX_ATTEMPTS = 10
+_REST_BACKOFF_CAP = 300  # 초
 
 
 def _is_retryable_rest_error(exc):
@@ -312,6 +325,64 @@ FIN_KEY = ("corp_code", "bsns_year", "reprt_code", "fs_div", "sj_div",
            "currency", "rcept_no")
 
 
+def fin_db_rows(corp_code, year, reprt, fs, rows):
+    """DART finstate_all 응답 행 → financial_facts 행. **매핑의 단일 소스.**
+
+    load_financials(온라인, API 응답)와 restore_fin_from_raw.py(오프라인, data/raw 에
+    저장된 같은 응답)가 둘 다 이 함수를 부른다. 매핑을 복사하면 두 경로가 조용히 갈라져
+    "재적재했더니 신규 적재와 다른 행이 들어가는" 사고가 나므로, 사본을 만들지 않는다.
+
+    fs(fs_div)만 응답 밖에서 온다 — DART 는 fs_div 를 요청 파라미터로만 받고 응답 행에는
+    싣지 않기 때문에(dart_api.finstate_all 주석), 오프라인 경로는 이 값을 DB 의 기존
+    스코프에서 읽어 넘긴다.
+    """
+    db_rows = [{
+            "corp_code": corp_code, "bsns_year": year, "reprt_code": reprt,
+            "fs_div": fs, "sj_div": r.get("sj_div", ""), "account_id": r.get("account_id"),
+            "account_nm": r.get("account_nm", ""),
+            # ★ 자본변동표(SCE)의 두 번째 축. 이걸 버리면 "자본금/이익잉여금/
+            #   기타포괄손익누계액/비지배지분…" 열이 전부 같은 행으로 뭉개져서,
+            #   멀쩡한 서로 다른 셀이 완전 중복 행으로 보인다(이번 사고의 원인).
+            "account_detail": r.get("account_detail"),
+            "amount": num(r.get("thstrm_amount")),
+            "amount_prev": num(r.get("frmtrm_amount")),
+            "amount_prev2": num(r.get("bfefrmtrm_amount")),
+            # ★ 분기·반기 보고서 전용 금액 셋(20260803000002). 위 셋만 읽으면
+            #   분기 플로우(IS·CIS·CF·SCE) 행의 비교값이 90% 가까이 NULL 이 된다 —
+            #   DART 가 안 준 게 아니라 다른 필드로 주는데 안 읽었던 것이다.
+            #   실측(raw 6,000파일 103만행) 유효값률: frmtrm_q_amount 는 분기 행의
+            #   68~69%(연간 0%), *_add_amount 는 IS·CIS 행의 98%대(연간 0%).
+            #   frmtrm_q_amount 를 amount_prev 에 합치지 않는 이유는 마이그레이션
+            #   주석 참고 — 한 컬럼에 전기/전기동분기 두 의미가 섞인다.
+            "amount_prev_q": num(r.get("frmtrm_q_amount")),      # 전기 동분기
+            "amount_cum": num(r.get("thstrm_add_amount")),       # 당기 누적(YTD)
+            "amount_prev_cum": num(r.get("frmtrm_add_amount")),  # 전기 누적(YTD)
+            "ord": num(r.get("ord")), "currency": r.get("currency"),
+            "rcept_no": r.get("rcept_no"),
+        } for r in rows]
+    return dedupe_by(db_rows, FIN_KEY, "financial_facts %s %s/%s" % (corp_code, year, reprt))
+
+
+def write_fin_scope(corp_code, year, reprt, fs, rows):
+    """한 (회사, 연도, 보고서) 스코프를 통째로 교체한다. 온라인·오프라인 공통 쓰기 경로.
+
+    replace_scope 의 delete→insert 가 여기서 본질적이다: 매핑이 바뀌면(account_detail
+    복원, 분기 금액 3컬럼) 같은 사실의 natural_key 가 달라지므로 순수 upsert 로는 옛 행이
+    나란히 남는다. 스코프를 먼저 비우는 것이 '누적'이 아니라 '교체'를 만든다.
+    """
+    db_rows = fin_db_rows(corp_code, year, reprt, fs, rows)
+    # 삭제 필터에 fs_div 를 넣지 않는 것은 의도적이다. finstate_all 은 CFS 를
+    # 먼저 시도하고 없으면 OFS 로 폴백하므로, 같은 (corp, year, reprt) 의
+    # fs_div 가 연도·재적재 시점에 따라 바뀐다. 필터에 fs_div 를 넣으면 이전
+    # 적재가 남긴 반대쪽 fs_div 행이 지워지지 않고 살아남아 연결·별도 재무제표가
+    # 한 스코프에 섞인다 — 지금보다 나쁜 오염이다. 스코프는 넓게 지우는 게 맞다.
+    replace_scope("financial_facts",
+                  {"corp_code": "eq.%s" % corp_code,
+                   "bsns_year": "eq.%s" % year, "reprt_code": "eq.%s" % reprt},
+                  db_rows, on_conflict=FIN_CONFLICT)
+    return len(db_rows)
+
+
 def load_financials(key, corp, since_year):
     this_year = dt.date.today().year
     total = 0
@@ -321,41 +392,7 @@ def load_financials(key, corp, since_year):
             if not rows:
                 continue
             save_raw(corp["corp_code"], "fin_%d_%s" % (y, reprt), rows)
-            db_rows = [{
-                "corp_code": corp["corp_code"], "bsns_year": y, "reprt_code": reprt,
-                "fs_div": fs, "sj_div": r.get("sj_div", ""), "account_id": r.get("account_id"),
-                "account_nm": r.get("account_nm", ""),
-                # ★ 자본변동표(SCE)의 두 번째 축. 이걸 버리면 "자본금/이익잉여금/
-                #   기타포괄손익누계액/비지배지분…" 열이 전부 같은 행으로 뭉개져서,
-                #   멀쩡한 서로 다른 셀이 완전 중복 행으로 보인다(이번 사고의 원인).
-                "account_detail": r.get("account_detail"),
-                "amount": num(r.get("thstrm_amount")),
-                "amount_prev": num(r.get("frmtrm_amount")),
-                "amount_prev2": num(r.get("bfefrmtrm_amount")),
-                # ★ 분기·반기 보고서 전용 금액 셋(20260803000002). 위 셋만 읽으면
-                #   분기 플로우(IS·CIS·CF·SCE) 행의 비교값이 90% 가까이 NULL 이 된다 —
-                #   DART 가 안 준 게 아니라 다른 필드로 주는데 안 읽었던 것이다.
-                #   실측(raw 6,000파일 103만행) 유효값률: frmtrm_q_amount 는 분기 행의
-                #   68~69%(연간 0%), *_add_amount 는 IS·CIS 행의 98%대(연간 0%).
-                #   frmtrm_q_amount 를 amount_prev 에 합치지 않는 이유는 마이그레이션
-                #   주석 참고 — 한 컬럼에 전기/전기동분기 두 의미가 섞인다.
-                "amount_prev_q": num(r.get("frmtrm_q_amount")),      # 전기 동분기
-                "amount_cum": num(r.get("thstrm_add_amount")),       # 당기 누적(YTD)
-                "amount_prev_cum": num(r.get("frmtrm_add_amount")),  # 전기 누적(YTD)
-                "ord": num(r.get("ord")), "currency": r.get("currency"),
-                "rcept_no": r.get("rcept_no"),
-            } for r in rows]
-            db_rows = dedupe_by(db_rows, FIN_KEY, "financial_facts %d/%s" % (y, reprt))
-            # 삭제 필터에 fs_div 를 넣지 않는 것은 의도적이다. finstate_all 은 CFS 를
-            # 먼저 시도하고 없으면 OFS 로 폴백하므로, 같은 (corp, year, reprt) 의
-            # fs_div 가 연도·재적재 시점에 따라 바뀐다. 필터에 fs_div 를 넣으면 이전
-            # 적재가 남긴 반대쪽 fs_div 행이 지워지지 않고 살아남아 연결·별도 재무제표가
-            # 한 스코프에 섞인다 — 지금보다 나쁜 오염이다. 스코프는 넓게 지우는 게 맞다.
-            replace_scope("financial_facts",
-                          {"corp_code": "eq.%s" % corp["corp_code"],
-                           "bsns_year": "eq.%d" % y, "reprt_code": "eq.%s" % reprt},
-                          db_rows, on_conflict=FIN_CONFLICT)
-            total += len(db_rows)
+            total += write_fin_scope(corp["corp_code"], y, reprt, fs, rows)
     print("  financial_facts: %d" % total)
 
 
