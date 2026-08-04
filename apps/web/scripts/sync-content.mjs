@@ -18,6 +18,28 @@ const REPO = path.resolve(ROOT, '../..');
 const SRC = path.join(REPO, '교재');
 const DEST = path.join(ROOT, 'content', 'docs');
 
+/**
+ * ── HIDE/SHOW A BOOK ──────────────────────────────────────────────────
+ * Single flag: `lib/hidden-books.json`. A book listed there with `true`
+ * gets no content/docs pages, no meta.json entry, and no source-map.json
+ * entry; every `[[wiki|label]]` link into it is rendered as plain label
+ * text (no href) instead of a live link, so nothing 404s. The original
+ * 교재/ markdown is never touched — this only changes what gets synced.
+ *
+ * To re-publish a book: edit `lib/hidden-books.json` (remove its line or
+ * set it to `false`), then rerun `pnpm sync`. Do not edit anything below
+ * this comment to toggle visibility — it all reads HIDDEN_BOOKS.
+ * ─────────────────────────────────────────────────────────────────────
+ */
+const HIDDEN_BOOKS = new Set(
+  Object.entries(JSON.parse(fs.readFileSync(path.join(ROOT, 'lib', 'hidden-books.json'), 'utf8')))
+    .filter(([key, value]) => key !== '_comment' && value === true)
+    .map(([key]) => key),
+);
+function isHidden(book) {
+  return HIDDEN_BOOKS.has(book.folder);
+}
+
 /** [destSlug, srcBasenameWithoutExt] — 부 순서 = A→I 알파벳. 학습장은 허브 직후. */
 const BOOK1 = {
   folder: 'book1',
@@ -113,16 +135,23 @@ const SOURCE_MAP = new Map([
   ['reference/index.mdx', 'INDEX.md'],
   ['reference/stocks.mdx', '종목/INDEX.md'],
   ['reference/glossary.mdx', '용어교정.md'],
-  ['book1/index.mdx', '교재1-방법론/목차.md'],
-  ['book2/index.mdx', '교재2-이차전지/목차.md'],
+  ...(isHidden(BOOK1) ? [] : [['book1/index.mdx', '교재1-방법론/목차.md']]),
+  ...(isHidden(BOOK2) ? [] : [['book2/index.mdx', '교재2-이차전지/목차.md']]),
 ]);
 
-/** Obsidian `[[wiki]]` / `[[wiki|label]]` → docs href */
+/**
+ * Obsidian `[[wiki]]` / `[[wiki|label]]` → docs href.
+ *
+ * Value is `null` for targets that live in a hidden book: the target is
+ * known (so it's not left as raw `[[...]]`) but has no page to link to, so
+ * rewriteWikiLinks() below renders label-only plain text instead of a link.
+ */
 const WIKI_HREF = new Map();
 function registerWikiTargets(book) {
+  const hidden = isHidden(book);
   for (const item of book.pages) {
     if (typeof item === 'string') continue;
-    const href = `/docs/${book.folder}/${item.slug}`;
+    const href = hidden ? null : `/docs/${book.folder}/${item.slug}`;
     WIKI_HREF.set(item.src, href);
     WIKI_HREF.set(item.slug, href);
     // basename without prefix codes sometimes linked as short slug
@@ -142,9 +171,10 @@ function rewriteWikiLinks(text) {
       .replace(/^교재1-방법론\//, '')
       .replace(/^교재2-이차전지\//, '')
       .replace(/\.md$/i, '');
+    if (!WIKI_HREF.has(key)) return full;
     const href = WIKI_HREF.get(key);
-    if (!href) return full;
     const textLabel = (label && label.trim()) || key;
+    if (href == null) return textLabel; // target's book is hidden — plain text, no link, no [[...]]
     return `[${textLabel}](${href})`;
   });
 }
@@ -168,6 +198,30 @@ function yamlEscape(value) {
     return `"${s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
   }
   return s;
+}
+
+/**
+ * `<!-- MEDIA:chart id="…" --> \n > **[차트]** …` → `<TextbookChart id="…" />`.
+ *
+ * Must run *before* escapeMdx() (else the `<` gets turned into `&lt;` like
+ * every other raw HTML tag) but the substituted JSX must not itself be
+ * escaped by the same escapeMdx() pass. Bridge the two by swapping the
+ * marker for a bracket-free placeholder here, running escapeMdx() as usual
+ * (the placeholder has no `<`/`>`/`{`/`}` for escapePlain to touch), then
+ * swapping the placeholder for real JSX once escaping is done.
+ *
+ * Other placeholders (`MEDIA:diagram`, …) are untouched and stay escaped —
+ * only `MEDIA:chart` gets a live component.
+ */
+const MEDIA_CHART_RE = /<!--\s*MEDIA:chart\s+id="([^"]+)"\s*-->\s*\n>\s*\*\*\[[^\]]+\]\*\*\s*.*/g;
+const MEDIA_CHART_PLACEHOLDER_RE = /@@TEXTBOOK_CHART:([^@\n]+)@@/g;
+
+function stashChartMarkers(body) {
+  return body.replace(MEDIA_CHART_RE, (_, id) => `@@TEXTBOOK_CHART:${id}@@`);
+}
+
+function unstashChartMarkers(body) {
+  return body.replace(MEDIA_CHART_PLACEHOLDER_RE, (_, id) => `<TextbookChart id="${id}" />`);
 }
 
 function escapeMdx(body) {
@@ -214,6 +268,7 @@ function stripAuthoringMeta(text) {
 
 function parseMarkdown(raw) {
   let body = stripAuthoringMeta(raw.replace(/^\uFEFF/, ''));
+  body = stashChartMarkers(body);
   let title = '';
   let description = '';
 
@@ -238,13 +293,14 @@ function parseMarkdown(raw) {
         !p.startsWith('#') &&
         !p.startsWith('<!--') &&
         !p.startsWith('|') &&
+        !p.startsWith('@@TEXTBOOK_CHART:') &&
         p.replace(/[#>*\-\s]+/g, '').length > 20,
     );
   description = para
     ? para.replace(/\s+/g, ' ').replace(/\*\*/g, '').slice(0, 160)
     : title;
 
-  return { title, description, body: escapeMdx(body.trimStart()) };
+  return { title, description, body: unstashChartMarkers(escapeMdx(body.trimStart())) };
 }
 
 function writeDoc(destPath, title, description, body) {
@@ -289,6 +345,7 @@ function navPages(pages) {
 }
 
 function syncBook(srcDir, book) {
+  if (isHidden(book)) return; // no pages, no meta.json, no source-map entries — see HIDE/SHOW A BOOK above
   const destDir = path.join(DEST, book.folder);
   mkdirp(destDir);
   writeJson(path.join(destDir, 'meta.json'), {
@@ -431,11 +488,45 @@ function scrubNames(text) {
     .replace(/강사\s+강사/g, '강사');
 }
 
+/**
+ * 교재/INDEX.md's per-book chapter list (`## 📕 1권 …` / `## 📗 2권 …`) is
+ * plain prose, not `[[wiki]]` links, so rewriteWikiLinks() can't neutralize
+ * it. If the book is hidden, drop its whole section here instead — the
+ * original 교재/INDEX.md is untouched; only the synced copy is filtered.
+ */
+const INDEX_SECTION_MARKERS = { book1: '## 📕 1권', book2: '## 📗 2권' };
+function stripHiddenIndexSections(body) {
+  let out = body;
+  for (const [folder, marker] of Object.entries(INDEX_SECTION_MARKERS)) {
+    if (!HIDDEN_BOOKS.has(folder)) continue;
+    out = out.replace(new RegExp(`\\n${marker}[\\s\\S]*?(?=\\n## |$)`), '\n');
+  }
+  return out;
+}
+
+/**
+ * Prose in INDEX.md that presupposes every book is published. Stripping a
+ * book's section is not enough — the intro sentence still promises two books,
+ * and the 자료 list still carries a now-linkless "2권 목차" next to its
+ * separator. Both are rewritten here so a hidden book leaves no stump.
+ */
+function rewriteHiddenIndexProse(body) {
+  if (!isHidden(BOOK2)) return body;
+  return body
+    .replace(
+      /^> 기업 가치평가와 이차전지 산업 분석을 다루는 두 권의 교재\.$/m,
+      '> 기업 가치평가를 다루는 투자 교재.',
+    )
+    .replace(/ · \[2권 목차\]\(교재2-이차전지\/목차\.md\)/g, '');
+}
+
 function rewriteIndexLinks(body) {
   return scrubNames(
     rewriteWikiLinks(
-      body
+      rewriteHiddenIndexProse(stripHiddenIndexSections(body))
         .replace(/\]\(교재1-방법론\/목차\.md\)/g, '](/docs/book1)')
+        // No-op once BOOK2 is hidden — rewriteHiddenIndexProse() already
+        // dropped " · [2권 목차](...)" above, so this pattern won't match.
         .replace(/\]\(교재2-이차전지\/목차\.md\)/g, '](/docs/book2)')
         .replace(/\]\(_집필스타일\.md\)/g, '](/docs)')
         .replace(/\]\(placeholder-index\.md\)/g, '](/docs)')
@@ -466,7 +557,13 @@ function main() {
 
   writeJson(path.join(DEST, 'meta.json'), {
     title: '숫자로 읽는 주식투자',
-    pages: ['---교재---', 'book1', 'book2', '---자료---', 'reference'],
+    pages: [
+      '---교재---',
+      ...(isHidden(BOOK1) ? [] : ['book1']),
+      ...(isHidden(BOOK2) ? [] : ['book2']),
+      '---자료---',
+      'reference',
+    ],
   });
 
   {
@@ -475,7 +572,9 @@ function main() {
     writeDoc(
       path.join(DEST, 'index.mdx'),
       '숫자로 읽는 주식투자',
-      '기업 가치평가와 이차전지 산업 분석을 다루는 2권 55장 투자 교재',
+      isHidden(BOOK2)
+        ? '기업 가치평가를 다루는 투자 교재'
+        : '기업 가치평가와 이차전지 산업 분석을 다루는 2권 55장 투자 교재',
       rewriteIndexLinks(parsed.body),
     );
   }

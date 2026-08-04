@@ -1,0 +1,4 @@
+{
+  "_comment": "Single flag controlling which books are hidden from the public web site. The original 교재/ markdown is never touched — this only gates what `pnpm sync` publishes to content/docs and what the app links to. To re-publish a book: delete its line below (or set it to false), then rerun `pnpm sync` (and redeploy). Read by scripts/sync-content.mjs and lib/hidden-books.ts — keep both readers pointed at this one file.",
+  "book2": true
+}

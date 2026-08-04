@@ -7,6 +7,7 @@ import {
   type TrackingFact,
 } from '@investment/schema';
 import { WIDGETS, type WidgetId } from '@/lib/analysis';
+import { isHiddenDocsHref } from '@/lib/hidden-books';
 import { WidgetShell } from './widget-shell';
 import { TrackingFactList, filterTrackingsByTopics } from './tracking-fact-list';
 
@@ -378,7 +379,10 @@ function StudyLinksWidget() {
           { href: '/docs/book2/A2', label: '이차전지 개념과 구성' },
           { href: '/docs/book2/A3', label: '에너지밀도와 하이니켈' },
           { href: '/docs/book1/B3', label: '1권 산업 분석 프레임' },
-        ].map((item) => (
+        ]
+          // Hidden-book deep-links would 404 — see lib/hidden-books.ts
+          .filter((item) => !isHiddenDocsHref(item.href))
+          .map((item) => (
           <li key={item.href}>
             <Link
               href={item.href}

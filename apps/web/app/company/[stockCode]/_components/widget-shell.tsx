@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import type { ReactNode } from 'react';
 import { TRUST_LABELS, type AnalysisWidgetMeta, type TrustLevel } from '@/lib/analysis';
+import { isHiddenDocsHref } from '@/lib/hidden-books';
 
 const TRUST_CLASS: Record<TrustLevel, string> = {
   filing: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300',
@@ -27,6 +28,9 @@ export function WidgetShell({
   emptyHint?: string;
 }) {
   const displayClaim = claim ?? meta.claim;
+  // Textbook deep-links may target a hidden book (see lib/hidden-books.ts) — drop
+  // those rather than link to a page that doesn't exist.
+  const visibleTextbooks = meta.textbooks.filter((t) => !isHiddenDocsHref(t.href));
 
   return (
     <article className="flex flex-col rounded-xl border border-fd-border bg-fd-card p-4 sm:p-5">
@@ -60,10 +64,10 @@ export function WidgetShell({
         )}
       </div>
 
-      {meta.textbooks.length > 0 && (
+      {visibleTextbooks.length > 0 && (
         <footer className="mt-4 flex flex-wrap gap-x-3 gap-y-1 border-t border-fd-border pt-3 text-xs">
           <span className="text-fd-muted-foreground">방법론</span>
-          {meta.textbooks.map((t) => (
+          {visibleTextbooks.map((t) => (
             <Link
               key={t.href}
               href={t.href}
