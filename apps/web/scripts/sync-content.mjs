@@ -324,9 +324,32 @@ function rewriteBookLinks(text) {
     .replace(/\]\(INDEX\.md\)/g, '](/docs)');
 }
 
+/**
+ * Chapter prose that points a reader at a hidden book by number/title in
+ * plain text — not a `[[wiki]]` link, so rewriteWikiLinks() can't catch it.
+ * Each entry only fires while `when` is hidden; unhide it and the original
+ * sentence comes back automatically (nothing here needs to be reverted by
+ * hand). Add an entry whenever a chapter-body sentence like this turns up.
+ */
+const HIDDEN_BOOK_PROSE_PATCHES = [
+  {
+    when: BOOK2,
+    find: '전체 연대기와 종목별 계산은 [[H3-이차전지-8대종목-대장정|24장 이차전지 8대종목 대장정]]에서, 폭락의 해부는 2권 18장 주가의 3요소 폭락 해부에서 다룬다.',
+    replace: '전체 연대기와 종목별 계산은 [[H3-이차전지-8대종목-대장정|24장 이차전지 8대종목 대장정]]에서 다룬다.',
+  },
+];
+function applyHiddenBookProsePatches(text) {
+  let out = text;
+  for (const { when, find, replace } of HIDDEN_BOOK_PROSE_PATCHES) {
+    if (!isHidden(when)) continue;
+    out = out.split(find).join(replace);
+  }
+  return out;
+}
+
 function convertFile(srcFile, destFile, overrides = {}) {
   const raw = fs.readFileSync(srcFile, 'utf8');
-  const parsed = parseMarkdown(rewriteBookLinks(rewriteWikiLinks(raw)));
+  const parsed = parseMarkdown(rewriteBookLinks(rewriteWikiLinks(applyHiddenBookProsePatches(raw))));
   writeDoc(
     destFile,
     overrides.title ?? parsed.title,
@@ -505,29 +528,46 @@ function stripHiddenIndexSections(body) {
 }
 
 /**
+ * "자료" 섹션의 "N권 목차" 인라인 링크 줄 — 숨긴 책은 항목째(구분자 " · " 포함)
+ * 드롭하고, 남은 항목만 다시 " · "로 잇는다. 이렇게 하면 어떤 책이 숨겨지든
+ * (첫 항목이든 가운데든) 뜨는 구분자 없이 자연스럽게 줄어든다. 책이 하나
+ * 늘어나면 BOOK_INDEX_LINK_ENTRIES에 한 줄만 추가하면 동일하게 동작한다.
+ */
+const BOOK_INDEX_LINK_ENTRIES = [
+  { book: BOOK1, label: '1권 목차', href: '/docs/book1' },
+  { book: BOOK2, label: '2권 목차', href: '/docs/book2' },
+];
+const BOOK_INDEX_LINK_LINE_RE =
+  /\[1권 목차\]\(교재1-방법론\/목차\.md\) · \[2권 목차\]\(교재2-이차전지\/목차\.md\)/;
+
+function rewriteBookIndexLinksLine(body) {
+  if (!BOOK_INDEX_LINK_LINE_RE.test(body)) return body;
+  const replacement = BOOK_INDEX_LINK_ENTRIES.filter((e) => !isHidden(e.book))
+    .map((e) => `[${e.label}](${e.href})`)
+    .join(' · ');
+  if (replacement) return body.replace(BOOK_INDEX_LINK_LINE_RE, replacement);
+  // every book in the list is hidden — drop the whole bullet line, not just its link
+  return body.replace(new RegExp(`\\n- ${BOOK_INDEX_LINK_LINE_RE.source}\\n?`), '\n');
+}
+
+/**
  * Prose in INDEX.md that presupposes every book is published. Stripping a
- * book's section is not enough — the intro sentence still promises two books,
- * and the 자료 list still carries a now-linkless "2권 목차" next to its
- * separator. Both are rewritten here so a hidden book leaves no stump.
+ * book's section (stripHiddenIndexSections) is not enough — the intro
+ * sentence still promises "두 권". Rewritten here so a hidden book leaves
+ * no stump; safe to extend with more sentences if similar prose shows up.
  */
 function rewriteHiddenIndexProse(body) {
   if (!isHidden(BOOK2)) return body;
-  return body
-    .replace(
-      /^> 기업 가치평가와 이차전지 산업 분석을 다루는 두 권의 교재\.$/m,
-      '> 기업 가치평가를 다루는 투자 교재.',
-    )
-    .replace(/ · \[2권 목차\]\(교재2-이차전지\/목차\.md\)/g, '');
+  return body.replace(
+    /^> 기업 가치평가와 이차전지 산업 분석을 다루는 두 권의 교재\.$/m,
+    '> 기업 가치평가를 다루는 투자 교재.',
+  );
 }
 
 function rewriteIndexLinks(body) {
   return scrubNames(
     rewriteWikiLinks(
-      rewriteHiddenIndexProse(stripHiddenIndexSections(body))
-        .replace(/\]\(교재1-방법론\/목차\.md\)/g, '](/docs/book1)')
-        // No-op once BOOK2 is hidden — rewriteHiddenIndexProse() already
-        // dropped " · [2권 목차](...)" above, so this pattern won't match.
-        .replace(/\]\(교재2-이차전지\/목차\.md\)/g, '](/docs/book2)')
+      rewriteBookIndexLinksLine(rewriteHiddenIndexProse(stripHiddenIndexSections(body)))
         .replace(/\]\(_집필스타일\.md\)/g, '](/docs)')
         .replace(/\]\(placeholder-index\.md\)/g, '](/docs)')
         .replace(/\]\(보강계획\.md\)/g, '](/docs/reference)')
