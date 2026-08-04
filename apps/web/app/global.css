@@ -3,6 +3,92 @@
 @import 'fumadocs-ui/css/preset.css';
 @import 'katex/dist/katex.min.css';
 
+/*
+ * shadcn/chartcn base tokens.
+ *
+ * chartcn items (and shadcn's `card`/`chart` primitives) are written against
+ * the *unprefixed* shadcn palette (`bg-card`, `text-muted-foreground`, …),
+ * while this site's own theme lives entirely in Fumadocs' `--color-fd-*`
+ * palette (see fumadocs-ui/css/lib/base.css). Rather than keep two parallel
+ * palettes in sync by hand, bridge shadcn's names onto the fd tokens that
+ * already exist.
+ *
+ * Dark mode already follows Fumadocs' `.dark` class convention — `--color-fd-*`
+ * flips value under `.dark` (see base.css). A `var(--color-fd-x)` reference
+ * re-resolves per element against whatever is in scope, so a single `:root`
+ * definition below tracks both themes without a duplicate `.dark` block.
+ * `--chart-1`…`--chart-5` are literal colors (no fd equivalent), so those do
+ * get an explicit `.dark` override for contrast against the dark background.
+ */
+:root {
+  --background: var(--color-fd-background);
+  --foreground: var(--color-fd-foreground);
+  --card: var(--color-fd-card);
+  --card-foreground: var(--color-fd-card-foreground);
+  --popover: var(--color-fd-popover);
+  --popover-foreground: var(--color-fd-popover-foreground);
+  --muted: var(--color-fd-muted);
+  --muted-foreground: var(--color-fd-muted-foreground);
+  --border: var(--color-fd-border);
+  --input: var(--color-fd-border);
+  --ring: var(--color-fd-ring);
+  --primary: var(--color-fd-primary);
+  --primary-foreground: var(--color-fd-primary-foreground);
+  --secondary: var(--color-fd-secondary);
+  --secondary-foreground: var(--color-fd-secondary-foreground);
+  --accent: var(--color-fd-accent);
+  --accent-foreground: var(--color-fd-accent-foreground);
+  --radius: 0.75rem;
+
+  /* Categorical chart palette — same hues already hand-picked for
+   * app/company/[stockCode]/_components/financial-chart.tsx (indigo/emerald/
+   * amber), extended to 5 with rose + sky so adjacent series never collide. */
+  --chart-1: #6366f1; /* indigo */
+  --chart-2: #22c55e; /* emerald */
+  --chart-3: #f59e0b; /* amber */
+  --chart-4: #f43f5e; /* rose */
+  --chart-5: #0ea5e9; /* sky */
+}
+
+.dark {
+  /* Lighter tints of the same hues — the light-mode values read too dark
+   * against Fumadocs' near-black `--color-fd-background` in `.dark`. */
+  --chart-1: #818cf8;
+  --chart-2: #4ade80;
+  --chart-3: #fbbf24;
+  --chart-4: #fb7185;
+  --chart-5: #38bdf8;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
 html {
   scrollbar-gutter: stable;
 }
