@@ -15,7 +15,9 @@ ingest.py 는 회사 1개를 처리하는 워커로 그대로 둔다(단계 함�
   estimate_stage_calls() 가 이 실측치를 재현하는 연도창 공식으로 근사한다(연도가 지날수록
   이 값도 같이 늘어나야 하므로 상수로 박지 않는다).
 
-전제: DART_API_KEY(단일) 또는 DART_API_KEYS(쉼표 구분, 로테이션용)가 설정돼 있다.
+전제: DART_API_KEY(단일) 또는 DART_API_KEYS(쉼표 구분, 로테이션용)가 설정돼 있다 —
+SUPABASE_REST_URL/SUPABASE_SERVICE_KEY 와 마찬가지로 프로세스 환경 > 레포 루트
+.env.local 순으로 찾는다(resolve_keys() 참고).
 대상 DB 는 SUPABASE_REST_URL/SUPABASE_SERVICE_KEY 로 정해지고(환경변수 > 레포 루트
 .env.local > 로컬 기본값), 세 명령 모두 시작하자마자 해석된 대상 호스트를 찍는다 —
 로컬 스택을 쓸 거면 그 전에 supabase start 가 떠 있어야 한다.
@@ -71,6 +73,84 @@ def is_delisted_cls(corp_cls):
     return corp_cls is not None and corp_cls not in LIVE_CORP_CLASSES
 
 
+# ─────────────────────────────────────────────── 시장 게이트
+#
+# 상장상태 게이트가 "죽었냐"를 가른다면 이건 살아 있는 것들 중 "어느 시장이냐"를 고른다. 둘은
+# 직교하고 순서대로 겹쳐 적용된다 — 시장 게이트를 켜도 상장폐지 판정은 그대로 살아 있다.
+#
+# 이런 걸 왜 두느냐: 시장별로 데이터 수확량이 극단적으로 다르다. Phase 1 실측에서 생존 2,756개
+# 중 financial_facts 가 0행인 회사가 97개였는데, 그중 88개가 코넥스였다(코넥스 108개의 81.5%.
+# 코스피 833개 중 3개, 코스닥 1,815개 중 6개와 비교하면 자릿수가 다르다). 회사당 콜이 비싼
+# 단계(phase 2 ≈ 401콜)에서 이런 시장을 통째로 뺄 수 있어야 예산을 어디에 쓸지 고를 수 있다.
+#
+# 다만 기본값은 전 시장(Y,K,N)이다 — 게이트는 "쓸 수 있게 만들어 둔 손잡이"이지 기본 정책이
+# 아니다. 어느 시장을 뺄지는 측정으로 정하는 것이고(단계마다 답이 다를 수 있다 — fin 이 비었다고
+# items/events 도 비라는 법은 없다), 기본값을 좁혀두면 그 측정을 안 한 채 굳어버린다.
+MARKET_NAMES = {"Y": "코스피", "K": "코스닥", "N": "코넥스"}
+ALL_MARKETS = frozenset(LIVE_CORP_CLASSES)
+
+# 게이트 종류 — mark_skipped 사유 문자열의 접두사로 그대로 쓰인다. status 는 이 접두사만 보고
+# "어느 필터가 뺐는지"를 되읽는다(사유가 곧 기록이고, 기록이 곧 되돌릴 근거다).
+GATE_DELISTED = "상장상태"
+GATE_MARKET = "시장"
+GATE_PREFIX = "게이트(%s): "
+
+
+def parse_markets(spec):
+    """--markets 값(쉼표 구분 corp_cls)을 집합으로. 오타를 조용히 넘기면 "아무것도 안 도는"
+    실행이 되므로(예: 소문자 'y' → 전부 게이트) 알 수 없는 값은 즉시 에러로 끊는다."""
+    if spec is None:
+        return ALL_MARKETS
+    vals = {v.strip().upper() for v in spec.split(",") if v.strip()}
+    unknown = vals - ALL_MARKETS
+    if unknown:
+        raise SystemExit("--markets 값이 잘못됨: %s — 가능한 값은 %s (%s)" %
+                         (",".join(sorted(unknown)), ",".join(sorted(ALL_MARKETS)),
+                          " ".join("%s=%s" % (k, MARKET_NAMES[k]) for k in sorted(ALL_MARKETS))))
+    if not vals:
+        raise SystemExit("--markets 가 비었다 — 최소 한 시장은 지정해야 한다")
+    return frozenset(vals)
+
+
+def describe_markets(markets):
+    return ",".join("%s(%s)" % (m, MARKET_NAMES[m]) for m in sorted(markets))
+
+
+def is_market_excluded(corp_cls, markets):
+    """살아 있는데 이번 실행이 고른 시장이 아닌 경우. is_delisted_cls 와 같은 규율로 None(모름)은
+    절대 True 가 아니고, 애초에 Y/K/N 이 아닌 값은 여기 관할이 아니다(상장상태 게이트 몫)."""
+    return corp_cls in LIVE_CORP_CLASSES and corp_cls not in markets
+
+
+def gate_reason(stage, corp_cls, markets, include_delisted):
+    """이 (단계, corp_cls)를 어떤 게이트가 막는지 — 막지 않으면 None.
+
+    company 단계는 어떤 게이트도 적용받지 않는다: corp_cls 를 관측하는 게 바로 그 단계라서,
+    게이트를 걸면 자기가 판단 근거를 만드는 걸 자기가 막는 순환이 된다.
+
+    상장상태를 시장보다 먼저 본다 — 상장폐지 회사에 "코넥스라서 뺐다"고 적으면 사유가 거짓이 된다."""
+    if stage == "company":
+        return None
+    if not include_delisted and is_delisted_cls(corp_cls):
+        return (GATE_PREFIX % GATE_DELISTED) + (
+            "corp_cls=%s (Y/K/N 아님 — 상장폐지·비상장 추정, --include-delisted 로 재검토 가능)"
+            % corp_cls)
+    if is_market_excluded(corp_cls, markets):
+        return (GATE_PREFIX % GATE_MARKET) + (
+            "corp_cls=%s(%s) — 이번 실행 대상 시장 %s 에 없음(--markets 를 넓혀 재검토 가능)"
+            % (corp_cls, MARKET_NAMES.get(corp_cls, "?"), ",".join(sorted(markets))))
+    return None
+
+
+def gate_kind(reason):
+    """mark_skipped 로 저장된 사유 문자열에서 게이트 종류를 되읽는다 — status 가 skipped 를
+    필터별로 쪼개 보고하기 위한 역함수. 접두사 규약을 벗어난 옛 행은 None(=미분류)."""
+    for kind in (GATE_DELISTED, GATE_MARKET):
+        if (reason or "").startswith(GATE_PREFIX % kind):
+            return kind
+    return None
+
+
 # ─────────────────────────────────────────────── 작은 유틸
 
 def now_iso():
@@ -84,12 +164,16 @@ def key_id(key):
 
 
 def resolve_keys():
-    """DART_API_KEYS(쉼표 구분) 우선, 없으면 기존 단일 DART_API_KEY 로 폴백."""
-    raw = os.environ.get("DART_API_KEYS", "")
+    """DART_API_KEYS(쉼표 구분) 우선, 없으면 단일 DART_API_KEY 로 폴백 — 우선순위는 ingest.py 의
+    env_setting() 과 동일하게 프로세스 환경 > 레포 루트 .env.local 이고, 두 이름 모두에 대해
+    이 순서를 지킨다: 프로세스 환경 DART_API_KEYS > .env.local DART_API_KEYS > 프로세스 환경
+    DART_API_KEY > .env.local DART_API_KEY > dart_api.resolve_key() (CWD 기준 .env/.env.local,
+    전역 설정까지 보는 최후 수단 — 기존 동작 보존용)."""
+    raw = ingest.env_setting("DART_API_KEYS", "")
     keys = [k.strip() for k in raw.split(",") if k.strip()]
     if keys:
         return keys
-    single = api.resolve_key() or api.read_env_file(os.path.join(_REPO, ".env.local")).get("DART_API_KEY")
+    single = ingest.env_setting("DART_API_KEY", None) or api.resolve_key()
     return [single] if single else []
 
 
@@ -314,7 +398,7 @@ def _install_signal_handlers():
     # SIGINT(Ctrl-C)는 파이썬 기본 동작(KeyboardInterrupt)을 그대로 쓴다.
 
 
-_CURRENT_JOB = {"corp_code": None, "stage": None}
+_CURRENT_JOB = {"corp_code": None, "stage": None, "calls_before": None}
 
 
 # ─────────────────────────────────────────────── 체크포인트 갱신
@@ -325,24 +409,35 @@ def mark_running(corp_code, stage):
          prefer="return=minimal")
 
 
-def mark_done(corp_code, stage):
+def mark_done(corp_code, stage, calls_spent):
+    """calls_spent 는 "이번 시도" 소비량이다(누적 아님, "직전 시도" 의미론 — 근거는
+    20260803000003 마이그레이션 및 이 값을 계산하는 cmd_run 쪽 주석 참고). 재시도로 부풀려진
+    합계가 아니라 "이 단계가 한 번 성공하는 데 드는 비용"을 그대로 반영해야 회사별 분포
+    (min/median/max) 측정에 쓸 수 있다."""
     rest("PATCH", "ingest_progress?%s" % _progress_filter(corp_code, stage),
-         {"status": "done", "completed_at": now_iso(), "last_error": None, "updated_at": now_iso()},
+         {"status": "done", "completed_at": now_iso(), "last_error": None,
+          "calls_spent": calls_spent, "updated_at": now_iso()},
          prefer="return=minimal")
 
 
-def mark_pending(corp_code, stage):
+def mark_pending(corp_code, stage, calls_spent=None):
     """진행 중이던 작업을 대기로 되돌린다 — 쿼터 소진 재대기열, 중단 시 복구 둘 다 여기로.
-    attempts 는 건드리지 않는다(이 회사 데이터의 실패가 아니므로 소모 취급 안 함)."""
-    rest("PATCH", "ingest_progress?%s" % _progress_filter(corp_code, stage),
-         {"status": "pending", "started_at": None, "updated_at": now_iso()},
+    attempts 는 건드리지 않는다(이 회사 데이터의 실패가 아니므로 소모 취급 안 함).
+    calls_spent: 이번(중단된) 시도가 실제로 쓴 호출수를 아는 호출자만 넘긴다(cmd_run 안,
+    스냅샷/델타 계산 가능한 경로). None 이면 필드 자체를 PATCH 에서 뺀다 — 크래시 회수
+    (reclaim_stale_running) 처럼 이번 시도의 소비량을 모르는 경로가 기존 값을 0 으로
+    지워버리지 않게 하기 위함(직전 시도 의미론이라도 "모른다"를 "0 이다"로 덮어쓰면 안 된다)."""
+    payload = {"status": "pending", "started_at": None, "updated_at": now_iso()}
+    if calls_spent is not None:
+        payload["calls_spent"] = calls_spent
+    rest("PATCH", "ingest_progress?%s" % _progress_filter(corp_code, stage), payload,
          prefer="return=minimal")
 
 
-def mark_failed(corp_code, stage, err, old_attempts):
+def mark_failed(corp_code, stage, err, old_attempts, calls_spent):
     rest("PATCH", "ingest_progress?%s" % _progress_filter(corp_code, stage),
          {"status": "failed", "attempts": old_attempts + 1, "last_error": (err or "")[:2000],
-          "started_at": None, "updated_at": now_iso()},
+          "calls_spent": calls_spent, "started_at": None, "updated_at": now_iso()},
          prefer="return=minimal")
 
 
@@ -355,6 +450,35 @@ def mark_skipped(corp_code, stage, reason):
          {"status": "skipped", "last_error": (reason or "")[:2000], "completed_at": now_iso(),
           "started_at": None, "updated_at": now_iso()},
          prefer="return=minimal")
+
+
+def _safe_checkpoint(label, fn, *args, **kwargs):
+    """체크포인트/쿼터 기록(mark_*, pool.flush)이 ingest.rest() 의 재시도까지 다 쓰고도
+    실패하면, 그 예외를 cmd_run 루프 밖으로 흘려보내지 않는다.
+
+    실제로 이랬다 — mark_failed 안에서 DNS 조회가 실패해 PATCH 자체가 못 나갔고, 재시도가
+    없던 그 예외가 루프를 통째로 죽여서 몇 시간짜리 실행이 끝나버렸다(해당 작업은 DB 에
+    running 으로 멈춘 채). rest() 에 재시도를 넣은 지금도 마지막 시도까지 다 실패할 여지는
+    남는다(장시간 절전, DNS 설정 붕괴처럼 backoff 상한보다 오래가는 단절) — 그 경우 한 번
+    더 감싸서 시도해봐야 소용없다(이미 여러 번 실패한 뒤이므로).
+
+    그래서 여기서 예외를 삼키고 루프를 계속 돌게 한다. 대신:
+      1) 조용히 넘기지 않는다 — 어떤 기록이 왜 유실됐는지 stderr 에 크게 찍는다.
+      2) mark_running 이후의 실패라면 그 (회사,단계) 행은 DB 에 running 으로 남는데, 이건
+         reclaim_stale_running() 이 원래 위해 있는 상황이다 — RUNNING_STALE_MINUTES 뒤
+         다음 실행이 자동으로 pending 회수 → 재시도(각 단계는 스코프 교체라 재실행해도
+         안전, ingest.py 모듈 docstring의 멱등성 설계 참고). 데이터가 아니라 "이번 시도의
+         기록"만 유실되므로 체크포인트 자체는 (지연될지언정) 무결하다.
+    반환값 False 는 호출부가 굳이 분기할 필요는 없지만(현재는 안 쓴다), 테스트에서 성공
+    여부를 확인할 수 있게 남겨둔다."""
+    try:
+        fn(*args, **kwargs)
+        return True
+    except Exception as e:
+        print("  [기록 실패] %s — rest() 재시도 소진 후에도 실패, running 으로 남을 수 있음"
+              "(다음 실행의 reclaim_stale_running 이 %d분 후 회수): %s" %
+              (label, RUNNING_STALE_MINUTES, str(e)[:300]), file=sys.stderr)
+        return False
 
 
 def record_listing_status(corp_code, corp_cls):
@@ -425,24 +549,25 @@ def resolve_corp_codes_from_stock(stock_codes):
     return list(found.values())
 
 
-def discover_jobs(stages, company_filter, limit, include_skipped=False):
+def discover_jobs(stages, company_filter):
     """대기 중인 (corp_code, stage) 작업을 찾는다. 회사 내부에서는 ingest.STAGES 의 정본
     순서(company→filings→fin→…)를 지킨다 — company 가 companies 테이블에 먼저 있어야
     filings/financial_facts 의 FK(corp_code references companies)가 통과한다.
 
-    include_skipped: True 면 이전에 게이트로 skipped 처리된 행도 다시 대상에 넣는다 —
-    --include-delisted 로 게이트를 끄고 돌릴 때 "미래에 한 술어만 바꿔서 un-skip" 하는
-    지점이 바로 여기다(상태 목록에 'skipped' 를 넣느냐 마느냐)."""
+    이전에 게이트로 skipped 된 행도 항상 후보에 넣고 status 를 같이 실어 보낸다. 그 행을 실제로
+    다시 돌릴지는 호출부가 지금 설정으로 다시 게이트를 물려보고 정한다 — 여전히 막히면 조용히
+    빠지고, 안 막히면(--include-delisted 를 켰거나 --markets 를 넓혔거나) 그대로 돈다. 게이트
+    종류가 둘로 늘면서 "어떤 플래그가 어떤 skipped 를 되살리는가"를 여기서 열거하는 건 유지가
+    안 된다 — 되살림 조건은 게이트 술어 자신이어야 한다(gate_reason 하나만 보면 되도록)."""
     corp_filter = None
     if company_filter:
         corp_filter = resolve_corp_codes_from_stock(company_filter)
         if not corp_filter:
             return []
 
-    statuses = "pending,failed,skipped" if include_skipped else "pending,failed"
-    q = ("ingest_progress?stage=in.(%s)&status=in.(%s)&attempts=lt.%d"
-         "&select=corp_code,stage,attempts&order=corp_code,stage" %
-         (",".join(stages), statuses, MAX_JOB_ATTEMPTS))
+    q = ("ingest_progress?stage=in.(%s)&status=in.(pending,failed,skipped)&attempts=lt.%d"
+         "&select=corp_code,stage,status,attempts&order=corp_code,stage" %
+         (",".join(stages), MAX_JOB_ATTEMPTS))
     if corp_filter is not None:
         q += "&corp_code=in.(%s)" % ",".join(corp_filter)
     rows = rest_get_all(q)
@@ -453,15 +578,15 @@ def discover_jobs(stages, company_filter, limit, include_skipped=False):
         if c not in by_corp:
             by_corp[c] = {}
             order.append(c)
-        by_corp[c][r["stage"]] = r["attempts"]
+        by_corp[c][r["stage"]] = r
 
     jobs = []
     for c in order:
         for s in ingest.STAGES:
             if s in by_corp[c]:
-                jobs.append({"corp_code": c, "stage": s, "attempts": by_corp[c][s]})
-                if limit and len(jobs) >= limit:
-                    return jobs
+                r = by_corp[c][s]
+                jobs.append({"corp_code": c, "stage": s, "attempts": r["attempts"],
+                             "status": r["status"]})
     return jobs
 
 
@@ -494,13 +619,14 @@ def cmd_run(args):
     MAX_JOB_ATTEMPTS = args.max_attempts
     stages = PHASES[args.phase]
     company_filter = [c.strip() for c in args.companies.split(",")] if args.companies else None
+    markets = parse_markets(args.markets)
+    print("대상 시장: %s%s" % (describe_markets(markets),
+                              "  (상장상태 게이트 해제됨)" if args.include_delisted else ""))
 
     if not args.dry_run:
         reclaim_stale_running()
 
-    # include_delisted 면 이전에 게이트로 skipped 된 행도 다시 후보에 넣는다 — "한 술어만
-    # 바꿔서 un-skip" 이 여기서 일어난다.
-    jobs = discover_jobs(stages, company_filter, args.limit, include_skipped=args.include_delisted)
+    jobs = discover_jobs(stages, company_filter)
     if not jobs:
         print("대기 중인 작업 없음 (phase %d, 단계 %s) — seed 를 먼저 돌렸는지, 이미 다 끝났는지 확인"
               % (args.phase, ",".join(stages)))
@@ -510,22 +636,42 @@ def cmd_run(args):
     corp_codes = sorted({j["corp_code"] for j in jobs})
     corps = fetch_corp_info(corp_codes)
 
-    def _gated(j):
-        return (j["stage"] != "company" and not args.include_delisted and
-                is_delisted_cls(corps.get(j["corp_code"], {}).get("corp_cls")))
+    def _gate(j):
+        return gate_reason(j["stage"], corps.get(j["corp_code"], {}).get("corp_cls"),
+                           markets, args.include_delisted)
+
+    # 이미 skipped 인데 지금 설정으로도 여전히 막히는 행은 아예 목록에서 뺀다 — 같은 판단을 다시
+    # 적어봐야 PATCH 만 늘고(생존 외 1,222개 × 단계 수) 로그만 시끄럽다. 게이트를 넓혀서
+    # 되살아난 것과 애초에 대기 중이던 것만 남는다.
+    jobs = [j for j in jobs if not (j["status"] == "skipped" and _gate(j))]
+    if args.limit:
+        jobs = jobs[:args.limit]
+    revived_n = sum(1 for j in jobs if j["status"] == "skipped")
+    if revived_n:
+        print("게이트가 넓어져 다시 후보가 된 skipped 작업: %d건" % revived_n)
+    if not jobs:
+        print("대기 중인 작업 없음 — 남은 건 전부 현재 게이트(시장 %s%s)에 막힌 skipped 다"
+              % (",".join(sorted(markets)), "" if args.include_delisted else " + 상장상태"))
+        return
 
     if args.dry_run:
         by_stage, gated_by_stage = {}, {}
         for j in jobs:
-            bucket = gated_by_stage if _gated(j) else by_stage
-            bucket[j["stage"]] = bucket.get(j["stage"], 0) + 1
+            kind = gate_kind(_gate(j))
+            if kind:
+                gated_by_stage.setdefault(j["stage"], {}).setdefault(kind, 0)
+                gated_by_stage[j["stage"]][kind] += 1
+            else:
+                by_stage[j["stage"]] = by_stage.get(j["stage"], 0) + 1
         print("=== DRY RUN — phase %d (%s) === 실제 API 호출 0건" % (args.phase, ",".join(stages)))
         total, total_gated = 0, 0
         for s in stages:
             n = by_stage.get(s, 0)
-            gated = gated_by_stage.get(s, 0)
+            g = gated_by_stage.get(s, {})
+            gated = sum(g.values())
             total_gated += gated
-            note = ("  (게이트 제외 %d건, corp_cls Y/K/N 아님)" % gated) if gated else ""
+            note = ("  (게이트 제외 %d건: %s)" %
+                    (gated, ", ".join("%s %d건" % (k, v) for k, v in sorted(g.items())))) if gated else ""
             per = estimate_stage_calls(s, args.since)
             if per is None:
                 print("  %-10s 작업 %5d건 × 회사당 가변(공시 건수만큼, docs 단계) = 미정%s" % (s, n, note))
@@ -533,7 +679,7 @@ def cmd_run(args):
                 sub = n * per
                 total += sub
                 print("  %-10s 작업 %5d건 × 회사당 약 %4d콜 = %8d콜%s" % (s, n, per, sub, note))
-        companies_touched = len({j["corp_code"] for j in jobs})
+        companies_touched = len({j["corp_code"] for j in jobs if not _gate(j)})
         print("총 작업(회사×단계): %d건 · 게이트 제외: %d건(0콜) · 대상 회사: %d개" %
               (len(jobs) - total_gated, total_gated, companies_touched))
         print("예상 API 호출수(대략, docs·게이트 제외 회사 제외): %d" % total)
@@ -554,17 +700,21 @@ def cmd_run(args):
             corp_code, stage = j["corp_code"], j["stage"]
             corp = corps.get(corp_code)
             if not corp:
-                mark_failed(corp_code, stage, "ingest_corps 에 없는 corp_code", j["attempts"])
+                # 큐에 없는 corp_code — 잡을 시작조차 못 했으므로 소비한 콜은 0 이다.
+                _safe_checkpoint("mark_failed %s/%s" % (corp_code, stage),
+                                 mark_failed, corp_code, stage,
+                                 "ingest_corps 에 없는 corp_code", j["attempts"], 0)
                 fail_n += 1
                 continue
 
-            # 상장상태 게이트: API 콜을 전혀 쓰지 않으므로 쿼터 소진 여부와 무관하게 먼저 처리한다.
-            if _gated(j):
-                mark_skipped(corp_code, stage, "게이트: corp_cls=%s (Y/K/N 아님 — 상장폐지·비상장 "
-                             "추정, --include-delisted 로 재검토 가능)" % corp.get("corp_cls"))
+            # 게이트(상장상태·시장): API 콜을 전혀 쓰지 않으므로 쿼터 소진 여부와 무관하게 먼저 처리한다.
+            reason = _gate(j)
+            if reason:
+                mark_skipped(corp_code, stage, reason)
                 skip_n += 1
-                print("  [게이트skip] %s/%s(%s) — corp_cls=%s" %
-                      (corp.get("corp_name", corp_code), stage, corp_code, corp.get("corp_cls")))
+                print("  [게이트skip/%s] %s/%s(%s) — corp_cls=%s" %
+                      (gate_kind(reason), corp.get("corp_name", corp_code), stage, corp_code,
+                       corp.get("corp_cls")))
                 continue
 
             if pool.all_exhausted():
@@ -582,40 +732,57 @@ def cmd_run(args):
             # 정상 종료 경로(성공/QuotaExhausted/Exception) 각각에서만 명시적으로 지운다 —
             # 중단으로 여기를 못 지나가면 바깥 핸들러가 여전히 채워진 _CURRENT_JOB 을 보고
             # 되돌릴 수 있다.
-            _CURRENT_JOB["corp_code"], _CURRENT_JOB["stage"] = corp_code, stage
+            # calls_spent 스냅샷/델타: 이 잡은 한 번에 하나만 돈다(cmd_run 루프가 순차 실행),
+            # 그 사이 pool.used 총합의 증가분은 전부 이 잡이 낸 호출뿐이다 — 잡에 넘겨진
+            # key 하나만 합산해도 되지만(어차피 STAGE_FN 은 그 key 로만 호출한다), 풀 전체를
+            # 합산해도 결과는 같고 "이 key 만 써야 한다"는 가정에 덜 의존해 더 안전하다.
+            calls_before = sum(pool.used.values())
+            _CURRENT_JOB["corp_code"], _CURRENT_JOB["stage"], _CURRENT_JOB["calls_before"] = (
+                corp_code, stage, calls_before)
             mark_running(corp_code, stage)
             try:
                 result = STAGE_FN[stage](key, corp, args.since)
-                mark_done(corp_code, stage)
+                calls_spent = sum(pool.used.values()) - calls_before
+                _safe_checkpoint("mark_done %s/%s" % (corp_code, stage),
+                                  mark_done, corp_code, stage, calls_spent)
                 if stage == "company":
                     # 방금 관측한 corp_cls 를 큐에 적어둔다 — 같은 실행 안에서 뒤따르는
                     # filings/fin 작업(jobs 리스트 순서상 이후에 옴, discover_jobs 가
                     # company→filings→fin 순으로 정렬)이 이 in-memory 갱신을 그대로 보고
                     # 즉시 게이트를 적용한다(재조회 없이).
                     corp_cls = (result or {}).get("corp_cls")
-                    record_listing_status(corp_code, corp_cls)
+                    _safe_checkpoint("record_listing_status %s" % corp_code,
+                                      record_listing_status, corp_code, corp_cls)
                     corp["corp_cls"] = corp_cls
                 done_n += 1
             except QuotaExhausted as e:
+                calls_spent = sum(pool.used.values()) - calls_before
                 pool.mark_exhausted(e.key)
-                pool.flush(e.key)
-                mark_pending(corp_code, stage)
+                _safe_checkpoint("pool.flush(quota) %s" % key_id(e.key), pool.flush, e.key)
+                _safe_checkpoint("mark_pending %s/%s" % (corp_code, stage),
+                                  mark_pending, corp_code, stage, calls_spent)
                 quota_n += 1
                 print("  [키소진] %s/%s(%s) — 재대기열 반영, 다음 키로 회전" %
                       (corp.get("corp_name", corp_code), stage, corp_code))
-                _CURRENT_JOB["corp_code"], _CURRENT_JOB["stage"] = None, None
+                _CURRENT_JOB["corp_code"], _CURRENT_JOB["stage"], _CURRENT_JOB["calls_before"] = (
+                    None, None, None)
                 continue
             except Exception as e:
-                mark_failed(corp_code, stage, str(e), j["attempts"])
+                calls_spent = sum(pool.used.values()) - calls_before
+                _safe_checkpoint("mark_failed %s/%s" % (corp_code, stage),
+                                  mark_failed, corp_code, stage, str(e), j["attempts"], calls_spent)
                 fail_n += 1
                 print("  [실패] %s/%s(%s) — %s" %
                       (corp.get("corp_name", corp_code), stage, corp_code, str(e)[:200]))
-            _CURRENT_JOB["corp_code"], _CURRENT_JOB["stage"] = None, None
-            pool.flush(key)
+            _CURRENT_JOB["corp_code"], _CURRENT_JOB["stage"], _CURRENT_JOB["calls_before"] = (
+                None, None, None)
+            _safe_checkpoint("pool.flush %s" % key_id(key), pool.flush, key)
     except (KeyboardInterrupt, _Terminated):
         if _CURRENT_JOB["corp_code"]:
-            mark_pending(_CURRENT_JOB["corp_code"], _CURRENT_JOB["stage"])
-        pool.flush()
+            calls_spent = sum(pool.used.values()) - (_CURRENT_JOB["calls_before"] or 0)
+            _safe_checkpoint("mark_pending %s/%s" % (_CURRENT_JOB["corp_code"], _CURRENT_JOB["stage"]),
+                              mark_pending, _CURRENT_JOB["corp_code"], _CURRENT_JOB["stage"], calls_spent)
+        _safe_checkpoint("pool.flush(all)", pool.flush)
         print("\n중단 신호 수신 — 진행 중이던 작업은 pending 으로 복귀, 체크포인트 정상, 이어서 실행 가능")
         sys.exit(130)
 
@@ -647,20 +814,44 @@ def cmd_status(args):
         print("(비어 있음 — 먼저 `backfill.py seed` 실행)")
         return
 
-    # 상장상태 게이트가 뭘 근거로 판단하는지 — company 단계가 관측한 corp_cls 의 생사 split.
-    cls_rows = rest_get_all("ingest_corps?select=corp_cls&order=corp_code")
-    live_n = sum(1 for r in cls_rows if r.get("corp_cls") in LIVE_CORP_CLASSES)
-    dead_n = sum(1 for r in cls_rows if is_delisted_cls(r.get("corp_cls")))
+    markets = parse_markets(args.markets)
+
+    # 게이트가 뭘 근거로 판단하는지 — company 단계가 관측한 corp_cls 의 생사·시장 split.
+    cls_rows = rest_get_all("ingest_corps?select=corp_code,corp_cls&order=corp_code")
+    cls_by_corp = {r["corp_code"]: r.get("corp_cls") for r in cls_rows}
+    live_n = sum(1 for v in cls_by_corp.values() if v in LIVE_CORP_CLASSES)
+    dead_n = sum(1 for v in cls_by_corp.values() if is_delisted_cls(v))
     unknown_n = universe_n - live_n - dead_n
     print("=== 상장상태(ingest_corps.corp_cls, company 단계 관측치) ===")
     print("  live(Y/K/N)=%-6d dead(그 외, 예 E)=%-6d unknown(company 미실행)=%-6d" %
           (live_n, dead_n, unknown_n))
+    by_market = {}
+    for v in cls_by_corp.values():
+        if v in LIVE_CORP_CLASSES:
+            by_market[v] = by_market.get(v, 0) + 1
+    print("  live 시장별: %s" % "  ".join(
+        "%s(%s)=%d%s" % (m, MARKET_NAMES[m], by_market.get(m, 0), "" if m in markets else " [제외]")
+        for m in sorted(ALL_MARKETS)))
+    print("=== 이번 리포트가 가정한 시장 필터: %s (--markets 로 변경) ===" % describe_markets(markets))
 
-    prog_rows = rest_get_all("ingest_progress?select=stage,status&order=corp_code,stage")
-    counts = {}
+    prog_rows = rest_get_all("ingest_progress?select=corp_code,stage,status&order=corp_code,stage")
+    counts, out_of_market = {}, {}
     for r in prog_rows:
         counts.setdefault(r["stage"], {}).setdefault(r["status"], 0)
         counts[r["stage"]][r["status"]] += 1
+        # 아직 안 끝난 작업 중 "지금 --markets 로는 안 돌 것" — ETA 에서 빼야 정직하다.
+        if (r["status"] in ("pending", "running", "failed") and r["stage"] != "company"
+                and is_market_excluded(cls_by_corp.get(r["corp_code"]), markets)):
+            out_of_market[r["stage"]] = out_of_market.get(r["stage"], 0) + 1
+
+    # skipped 를 어느 게이트가 만들었는지 — 사유 문자열의 접두사로 되읽는다(gate_kind).
+    skipped_rows = rest_get_all("ingest_progress?status=eq.skipped&select=stage,last_error"
+                                 "&order=corp_code,stage")
+    skipped_by_kind = {}
+    for r in skipped_rows:
+        k = gate_kind(r.get("last_error")) or "미분류"
+        skipped_by_kind.setdefault(r["stage"], {}).setdefault(k, 0)
+        skipped_by_kind[r["stage"]][k] += 1
 
     remaining_calls = 0
     total_skipped = 0
@@ -672,17 +863,24 @@ def cmd_status(args):
             done, failed = c.get("done", 0), c.get("failed", 0)
             skipped = c.get("skipped", 0)
             total_skipped += skipped
-            print("  %-10s pending=%-6d running=%-6d done=%-6d failed=%-6d skipped=%-6d" %
-                  (s, pending, running, done, failed, skipped))
+            kinds = skipped_by_kind.get(s, {})
+            detail = ("  [%s]" % ", ".join("%s %d" % (k, v) for k, v in sorted(kinds.items()))) if kinds else ""
+            oom = out_of_market.get(s, 0)
+            oom_note = ("  (그중 %d건은 현재 --markets 대상 밖 — 아래 ETA 에서 제외)" % oom) if oom else ""
+            print("  %-10s pending=%-6d running=%-6d done=%-6d failed=%-6d skipped=%-6d%s%s" %
+                  (s, pending, running, done, failed, skipped, detail, oom_note))
             per = estimate_stage_calls(s, ingest.HISTORY_START)
             if per is not None:
                 # skipped 는 게이트가 이미 "안 돈다"고 확정한 것 — 잔여 콜 추정에서 제외한다
                 # (이게 이 게이트가 절약하는 콜 수를 status 가 정직하게 반영하는 지점).
-                remaining_calls += (pending + running + failed) * per
+                # 시장 필터로 빠질 것(out_of_market)도 같은 이유로 뺀다 — 아직 pending 이지만
+                # 이 필터로 도는 한 절대 콜을 안 쓴다.
+                remaining_calls += max(0, pending + running + failed - oom) * per
 
     if total_skipped:
-        print("\n  게이트로 skipped 된 (회사,단계) 총 %d건 — 상장상태 dead 로 판정돼 API 콜 소비 "
-              "없이 건너뜀(--include-delisted 로 재검토 가능)" % total_skipped)
+        print("\n  게이트로 skipped 된 (회사,단계) 총 %d건 — API 콜 소비 없이 건너뜀. "
+              "상장상태 게이트는 --include-delisted, 시장 게이트는 --markets 를 넓혀 재검토 가능"
+              % total_skipped)
 
     docs_c = counts.get("docs", {})
     docs_left = docs_c.get("pending", 0) + docs_c.get("running", 0) + docs_c.get("failed", 0)
@@ -741,9 +939,16 @@ def main():
                     help="상장상태 게이트를 끄고 corp_cls 가 Y/K/N 이 아닌(상장폐지·비상장 추정) "
                          "회사도 처리 — 이전에 skipped 된 (회사,단계)도 다시 후보에 넣는다. "
                          "기본은 게이트 켜짐(스킵)")
+    r.add_argument("--markets", default=None,
+                    help="처리할 시장(corp_cls) 쉼표 구분 — Y=코스피, K=코스닥, N=코넥스. "
+                         "기본은 전 시장(Y,K,N)이라 지정 안 하면 동작이 바뀌지 않는다. 예: "
+                         "--markets Y,K 는 코넥스를 skipped 로 남기고 건너뛴다(상장상태 게이트와 "
+                         "겹쳐서 적용되며, 나중에 --markets 를 넓혀 다시 돌리면 되살아난다)")
 
     st = sub.add_parser("status", help="진행 현황·오늘 키 사용량·ETA 요약")
     st.add_argument("--budget", type=int, default=DEFAULT_DAILY_BUDGET)
+    st.add_argument("--markets", default=None,
+                    help="이 시장 필터로 돌린다고 가정하고 잔여 콜·ETA 를 계산 (기본 Y,K,N)")
 
     args = p.parse_args()
     {"seed": cmd_seed, "run": cmd_run, "status": cmd_status}[args.cmd](args)

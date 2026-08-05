@@ -20,9 +20,12 @@ import argparse
 import datetime as dt
 import json
 import os
+import random
 import re
+import socket
 import ssl
 import sys
+import time
 import urllib.parse
 import urllib.request
 
@@ -93,21 +96,90 @@ except ImportError:  # certifi 가 없으면 표준 기본 컨텍스트 — 여�
     _SSL_CTX = ssl.create_default_context()
 
 
+# 이 런은 몇 시간짜리 배치이고, 지금까지 세 번 죽었다 — 그중 최소 두 번은 rest() 에 재시도가
+# 전혀 없어서다(디스크 풀 503, DNS 조회 실패 URLError). 아래는 "무엇을 재시도할지"의 근거다.
+#
+# 재시도 대상:
+#   - urllib.error.URLError 인데 HTTPError 는 아닌 것: 서버가 아예 응답하지 못한 경우다 —
+#     DNS 실패("nodename nor servname provided, or not known", 이번 사고 원인), 연결
+#     거부·리셋, 소켓 타임아웃이 전부 이 형태로 온다(urlopen 은 이들을 대개 URLError 로
+#     감싼다). 전형적인 트랜스포트 재시도 대상.
+#   - socket.timeout/TimeoutError·ConnectionResetError·ssl.SSLError: urlopen 이 항상
+#     URLError 로 감싸주는 건 아니다(응답을 읽는 도중 등에는 원본 예외가 그대로 샐 수
+#     있다) — 방어적으로 명시해 잡는다.
+#   - HTTPError 이면서 5xx 또는 429: 5xx 는 서버·인프라 쪽 일시 장애(과부하·재시작 등)일
+#     가능성이 높고, 429 는 "지금 말고 나중에" 라는 명시적 신호다.
+#     PostgREST 의 503/53100(statement_timeout·insufficient resources) 은 애매하다 —
+#     디스크가 꽉 찬 경우(실제로 한 번 이랬다)처럼 재시도해도 절대 안 풀리는 원인도 있고,
+#     순간적 커넥션·리소스 경합처럼 몇 초 뒤엔 풀리는 원인도 있다. 응답 바디를 파싱해
+#     53100 을 따로 가려내지 않는 이유: 가려내 봐야 결론이 같다. 진짜 디스크 풀이면
+#     재시도가 전부 실패하고 원래대로 예외가 올라가 mark_failed 로 가며(추가 비용은 아래
+#     상한이 보장하는 최대 지연뿐 — 몇 시간짜리 배치에 문제 안 됨), 진짜 일시적이면
+#     재시도가 그 시도 자체를 구해준다. 그래서 5xx 를 뭉뚱그려 재시도해도 손해가 없다.
+#
+# 재시도 안 함:
+#   - HTTPError 이면서 4xx(429 제외): 클라이언트 쪽 문제다 — 23505 유니크 위반, 42501
+#     권한 거부, 잘못된 payload 는 응답이 바뀔 리 없다. 재시도는 시간만 태우고 진짜
+#     원인을 더 늦게 드러낼 뿐이라 즉시 올린다.
+# 상한을 DART 쪽(backfill.py _run_with_retry)보다 크게 잡는 이유 — 막는 대상이 다르다.
+# DART 재시도는 "서버가 잠깐 삐끗함"을 넘기는 용도라 1분이면 충분하다. 여기서 막아야 하는 건
+# 그게 아니라 **이 노트북의 네트워크가 통째로 사라지는 것**이다(절전 진입, 와이파이 재접속,
+# DNS 재설정). 실측: Phase 1 에서 3번, Phase 2 에서 1번, 전부 같은 예외로 죽었다 —
+# URLError [Errno 8] nodename nor servname provided(= DNS 조회 실패). 5회·30초 상한은 총
+# 대기가 1분 남짓이라 그보다 긴 단절을 못 넘긴다.
+#
+# 10회 · 300초 상한이면 총 대기가 15분을 넘어(2,4,8,…,300,300 + 지터) 절전 복귀·재접속을
+# 견딘다. 며칠짜리 배치에서 15분 더 기다리는 비용은 사실상 0이고, 반대로 못 넘기면 실행이
+# 통째로 죽어 사람이 붙어야 한다 — 비대칭이 크다.
+#
+# 이걸 늘려도 "영원히 매달리는" 상태는 안 된다: 상한을 다 쓰면 예외가 그대로 올라가고
+# backfill 의 _safe_checkpoint → mark_failed 경로가 평소처럼 돈다.
+_REST_MAX_ATTEMPTS = 10
+_REST_BACKOFF_CAP = 300  # 초
+
+
+def _is_retryable_rest_error(exc):
+    if isinstance(exc, urllib.error.HTTPError):
+        return exc.code >= 500 or exc.code == 429
+    if isinstance(exc, urllib.error.URLError):
+        return True
+    if isinstance(exc, (socket.timeout, TimeoutError, ConnectionResetError, ssl.SSLError)):
+        return True
+    return False
+
+
+def _sleep_backoff(attempt):
+    base = min(2 ** attempt, _REST_BACKOFF_CAP)
+    time.sleep(base + random.uniform(0, base))  # 지수 백오프 + 지터
+
+
 def rest(method, path, body=None, prefer=None):
-    url = "%s/%s" % (REST, path)
     headers = {"apikey": SERVICE_KEY, "Authorization": "Bearer %s" % SERVICE_KEY,
                "Content-Type": "application/json"}
     if prefer:
         headers["Prefer"] = prefer
+    url = "%s/%s" % (REST, path)
     data = json.dumps(body, ensure_ascii=False).encode() if body is not None else None
-    req = urllib.request.Request(url, data=data, headers=headers, method=method)
-    try:
-        with urllib.request.urlopen(req, timeout=60, context=_SSL_CTX) as resp:
-            raw = resp.read()
-            return json.loads(raw) if raw else None
-    except urllib.error.HTTPError as e:
-        detail = e.read().decode("utf-8", "replace")[:500]
-        raise RuntimeError("PostgREST %s %s → %s: %s" % (method, path, e.code, detail))
+
+    for attempt in range(1, _REST_MAX_ATTEMPTS + 1):
+        req = urllib.request.Request(url, data=data, headers=headers, method=method)
+        try:
+            with urllib.request.urlopen(req, timeout=60, context=_SSL_CTX) as resp:
+                raw = resp.read()
+                return json.loads(raw) if raw else None
+        except urllib.error.HTTPError as e:
+            detail = e.read().decode("utf-8", "replace")[:500]
+            if _is_retryable_rest_error(e) and attempt < _REST_MAX_ATTEMPTS:
+                _sleep_backoff(attempt)
+                continue
+            raise RuntimeError("PostgREST %s %s → %s: %s" % (method, path, e.code, detail))
+        except Exception as e:
+            # URLError·socket.timeout 등 — 재시도 대상이 아니거나 상한을 다 썼으면 원본
+            # 예외를 그대로 올린다(감싸지 않는다 — 호출부가 지금과 똑같이 처리할 수 있게).
+            if _is_retryable_rest_error(e) and attempt < _REST_MAX_ATTEMPTS:
+                _sleep_backoff(attempt)
+                continue
+            raise
 
 
 def upsert(table, rows, on_conflict):
@@ -116,12 +188,41 @@ def upsert(table, rows, on_conflict):
              prefer="resolution=merge-duplicates,return=minimal")
 
 
-def replace_scope(table, filters, rows):
-    """스코프 삭제 후 삽입 — 멱등 적재의 기본형. filters 예: {'corp_code':'eq.X','item':'eq.배당'}"""
+def replace_scope(table, filters, rows, on_conflict=None):
+    """스코프 삭제 후 삽입 — 멱등 적재의 기본형. filters 예: {'corp_code':'eq.X','item':'eq.배당'}
+
+    on_conflict 를 주면 삽입을 upsert 로 돌린다. 삭제·삽입 두 요청 사이에는 트랜잭션이
+    없어서(PostgREST 요청 단위로 끊긴다) 같은 스코프를 동시에 처리하는 프로세스가 있으면
+    delete→delete→insert→insert 로 엇물려 행이 두 배가 될 수 있다. 대상 테이블에
+    자연키 유니크 인덱스가 있으면 merge-duplicates 가 그 창을 닫는다 —
+    뒤 삽입이 앞 삽입을 덮어써서, 몇 번을 엇물려도 결과 집합은 같다.
+    """
     q = urllib.parse.urlencode(filters)  # 한글 값(eq.배당 등) percent-encoding
     rest("DELETE", "%s?%s" % (table, q))
+    path = table if on_conflict is None else "%s?on_conflict=%s" % (table, on_conflict)
+    prefer = ("return=minimal" if on_conflict is None
+              else "resolution=merge-duplicates,return=minimal")
     for i in range(0, len(rows), 500):
-        rest("POST", table, rows[i:i + 500], prefer="return=minimal")
+        rest("POST", path, rows[i:i + 500], prefer=prefer)
+
+
+def dedupe_by(rows, key_cols, label):
+    """자연키가 겹치는 행을 첫 번째만 남기고 제거한다.
+
+    Postgres 의 ON CONFLICT 는 "한 INSERT 문 안에서 같은 키를 두 번" 을 처리하지 못하고
+    (cannot affect row a second time) 배치 전체를 실패시킨다. 그래서 upsert 로 보내기 전에
+    파이썬에서 먼저 접어야 한다. 지금까지 실측한 DART 응답에는 이 중복이 0건이므로
+    (raw 51만 행 검사) 정상 경로에서는 no-op 이다 — 소리 없이 지나가면 안 되니 찍는다."""
+    seen, out = set(), []
+    for r in rows:
+        k = tuple(r.get(c) for c in key_cols)
+        if k in seen:
+            continue
+        seen.add(k)
+        out.append(r)
+    if len(out) != len(rows):
+        print("  ! %s: 응답 내 자연키 중복 %d행 제거" % (label, len(rows) - len(out)))
+    return out
 
 
 def save_raw(corp_code, name, obj):
@@ -199,6 +300,89 @@ def load_filings(key, corp, since_year):
     print("  filings: %d (정정 %d)" % (len(db_rows), sum(r["is_correction"] for r in db_rows)))
 
 
+# financial_facts 의 자연키는 **DB 가 단독으로 정의한다** — financial_facts.natural_key
+# 생성 컬럼(20260803000002)의 식이 유일한 정의이고, ff_natural_key 유니크 인덱스가 그
+# 한 컬럼에 걸린다. 그래서 upsert 의 on_conflict 도 컬럼 하나만 가리킨다(아래 상수).
+#
+# 이전에는 인덱스가 "id 를 뺀 전 컬럼" 목록이었고 여기 FIN_KEY 튜플이 그 목록과 글자
+# 그대로 같아야 했다(PostgREST 의 on_conflict 는 컬럼 목록으로 인덱스를 추론한다).
+# 정의가 두 곳에 있으니 어긋나도 런타임 42P10 으로만 드러났고, 그건 그 자체가 결함이었다.
+# 이제 그 이중 소스가 없다 — 키에 컬럼을 더하거나 빼는 일은 마이그레이션에서만 한다.
+FIN_CONFLICT = "natural_key"
+
+# ★ FIN_KEY 는 더 이상 인덱스 계약이 아니다. 남은 용도는 하나뿐 — 아래 dedupe_by 가
+#   "한 INSERT 문 안에 같은 키가 두 번" 을 미리 접기 위해 쓰는 클라이언트 측 사본이다
+#   (Postgres 의 ON CONFLICT 는 그 경우를 21000 으로 배치째 실패시킨다 — 실측 확인).
+#   그래서 이 튜플은 DB 의 정의와 **정확히 같을 필요는 없고, 더 촘촘하기만 하면 안 된다**:
+#   DB 가 같다고 볼 두 행을 여기서 다르다고 보면 배치가 깨진다. 지금은 일치한다 —
+#   텍스트는 양쪽 다 문자열 동등성이고, 숫자는 파이썬의 1 == 1.0 과 Postgres numeric 의
+#   1 = 1.00(마이그레이션의 trim_scale 정규화)이 같은 판정이며, None 끼리도 양쪽 다 같다.
+#   컬럼을 추가할 때 여기 빠뜨려도 배치는 안전하게 통과한다(덜 접을 뿐 DB 가 잡는다).
+FIN_KEY = ("corp_code", "bsns_year", "reprt_code", "fs_div", "sj_div",
+           "account_id", "account_nm", "account_detail", "ord",
+           "amount", "amount_prev", "amount_prev2",
+           "amount_prev_q", "amount_cum", "amount_prev_cum",
+           "currency", "rcept_no")
+
+
+def fin_db_rows(corp_code, year, reprt, fs, rows):
+    """DART finstate_all 응답 행 → financial_facts 행. **매핑의 단일 소스.**
+
+    load_financials(온라인, API 응답)와 restore_fin_from_raw.py(오프라인, data/raw 에
+    저장된 같은 응답)가 둘 다 이 함수를 부른다. 매핑을 복사하면 두 경로가 조용히 갈라져
+    "재적재했더니 신규 적재와 다른 행이 들어가는" 사고가 나므로, 사본을 만들지 않는다.
+
+    fs(fs_div)만 응답 밖에서 온다 — DART 는 fs_div 를 요청 파라미터로만 받고 응답 행에는
+    싣지 않기 때문에(dart_api.finstate_all 주석), 오프라인 경로는 이 값을 DB 의 기존
+    스코프에서 읽어 넘긴다.
+    """
+    db_rows = [{
+            "corp_code": corp_code, "bsns_year": year, "reprt_code": reprt,
+            "fs_div": fs, "sj_div": r.get("sj_div", ""), "account_id": r.get("account_id"),
+            "account_nm": r.get("account_nm", ""),
+            # ★ 자본변동표(SCE)의 두 번째 축. 이걸 버리면 "자본금/이익잉여금/
+            #   기타포괄손익누계액/비지배지분…" 열이 전부 같은 행으로 뭉개져서,
+            #   멀쩡한 서로 다른 셀이 완전 중복 행으로 보인다(이번 사고의 원인).
+            "account_detail": r.get("account_detail"),
+            "amount": num(r.get("thstrm_amount")),
+            "amount_prev": num(r.get("frmtrm_amount")),
+            "amount_prev2": num(r.get("bfefrmtrm_amount")),
+            # ★ 분기·반기 보고서 전용 금액 셋(20260803000002). 위 셋만 읽으면
+            #   분기 플로우(IS·CIS·CF·SCE) 행의 비교값이 90% 가까이 NULL 이 된다 —
+            #   DART 가 안 준 게 아니라 다른 필드로 주는데 안 읽었던 것이다.
+            #   실측(raw 6,000파일 103만행) 유효값률: frmtrm_q_amount 는 분기 행의
+            #   68~69%(연간 0%), *_add_amount 는 IS·CIS 행의 98%대(연간 0%).
+            #   frmtrm_q_amount 를 amount_prev 에 합치지 않는 이유는 마이그레이션
+            #   주석 참고 — 한 컬럼에 전기/전기동분기 두 의미가 섞인다.
+            "amount_prev_q": num(r.get("frmtrm_q_amount")),      # 전기 동분기
+            "amount_cum": num(r.get("thstrm_add_amount")),       # 당기 누적(YTD)
+            "amount_prev_cum": num(r.get("frmtrm_add_amount")),  # 전기 누적(YTD)
+            "ord": num(r.get("ord")), "currency": r.get("currency"),
+            "rcept_no": r.get("rcept_no"),
+        } for r in rows]
+    return dedupe_by(db_rows, FIN_KEY, "financial_facts %s %s/%s" % (corp_code, year, reprt))
+
+
+def write_fin_scope(corp_code, year, reprt, fs, rows):
+    """한 (회사, 연도, 보고서) 스코프를 통째로 교체한다. 온라인·오프라인 공통 쓰기 경로.
+
+    replace_scope 의 delete→insert 가 여기서 본질적이다: 매핑이 바뀌면(account_detail
+    복원, 분기 금액 3컬럼) 같은 사실의 natural_key 가 달라지므로 순수 upsert 로는 옛 행이
+    나란히 남는다. 스코프를 먼저 비우는 것이 '누적'이 아니라 '교체'를 만든다.
+    """
+    db_rows = fin_db_rows(corp_code, year, reprt, fs, rows)
+    # 삭제 필터에 fs_div 를 넣지 않는 것은 의도적이다. finstate_all 은 CFS 를
+    # 먼저 시도하고 없으면 OFS 로 폴백하므로, 같은 (corp, year, reprt) 의
+    # fs_div 가 연도·재적재 시점에 따라 바뀐다. 필터에 fs_div 를 넣으면 이전
+    # 적재가 남긴 반대쪽 fs_div 행이 지워지지 않고 살아남아 연결·별도 재무제표가
+    # 한 스코프에 섞인다 — 지금보다 나쁜 오염이다. 스코프는 넓게 지우는 게 맞다.
+    replace_scope("financial_facts",
+                  {"corp_code": "eq.%s" % corp_code,
+                   "bsns_year": "eq.%s" % year, "reprt_code": "eq.%s" % reprt},
+                  db_rows, on_conflict=FIN_CONFLICT)
+    return len(db_rows)
+
+
 def load_financials(key, corp, since_year):
     this_year = dt.date.today().year
     total = 0
@@ -208,21 +392,7 @@ def load_financials(key, corp, since_year):
             if not rows:
                 continue
             save_raw(corp["corp_code"], "fin_%d_%s" % (y, reprt), rows)
-            db_rows = [{
-                "corp_code": corp["corp_code"], "bsns_year": y, "reprt_code": reprt,
-                "fs_div": fs, "sj_div": r.get("sj_div", ""), "account_id": r.get("account_id"),
-                "account_nm": r.get("account_nm", ""),
-                "amount": num(r.get("thstrm_amount")),
-                "amount_prev": num(r.get("frmtrm_amount")),
-                "amount_prev2": num(r.get("bfefrmtrm_amount")),
-                "ord": num(r.get("ord")), "currency": r.get("currency"),
-                "rcept_no": r.get("rcept_no"),
-            } for r in rows]
-            replace_scope("financial_facts",
-                          {"corp_code": "eq.%s" % corp["corp_code"],
-                           "bsns_year": "eq.%d" % y, "reprt_code": "eq.%s" % reprt},
-                          db_rows)
-            total += len(db_rows)
+            total += write_fin_scope(corp["corp_code"], y, reprt, fs, rows)
     print("  financial_facts: %d" % total)
 
 
