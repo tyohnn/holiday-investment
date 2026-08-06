@@ -12,15 +12,15 @@ export function CompanyHeader({ company }: { company: Company }) {
   ];
 
   return (
-    <div className="rounded-xl border border-fd-border bg-fd-card p-5 sm:p-6">
+    <div className="rounded-xl border border-border bg-card p-5 sm:p-6">
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
         <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">{company.name}</h1>
-        <span className="font-mono text-sm text-fd-muted-foreground">{company.stock_code}</span>
+        <span className="font-mono text-sm text-muted-foreground">{company.stock_code}</span>
       </div>
       <dl className="mt-4 grid grid-cols-2 gap-x-6 gap-y-2 text-sm sm:grid-cols-3 lg:grid-cols-6">
         {items.map((item) => (
           <div key={item.label}>
-            <dt className="text-fd-muted-foreground">{item.label}</dt>
+            <dt className="text-muted-foreground">{item.label}</dt>
             <dd className="font-medium">{item.value}</dd>
           </div>
         ))}

@@ -73,10 +73,10 @@ export function FilingSectionMarkdown({ content }: { content: string }) {
         }
         if (block.type === 'table') {
           return (
-            <div key={idx} className="overflow-x-auto rounded-lg border border-fd-border">
+            <div key={idx} className="overflow-x-auto rounded-lg border border-border">
               <table className="w-full min-w-[420px] text-xs">
                 {block.header.length > 0 && (
-                  <thead className="bg-fd-muted/50 text-fd-muted-foreground">
+                  <thead className="bg-muted/50 text-muted-foreground">
                     <tr>
                       {block.header.map((cell, ci) => (
                         <th key={ci} className="px-2 py-1.5 text-left font-medium">
@@ -86,7 +86,7 @@ export function FilingSectionMarkdown({ content }: { content: string }) {
                     </tr>
                   </thead>
                 )}
-                <tbody className="divide-y divide-fd-border">
+                <tbody className="divide-y divide-border">
                   {block.rows.map((row, ri) => (
                     <tr key={ri}>
                       {row.map((cell, ci) => (

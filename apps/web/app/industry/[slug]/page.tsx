@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { ksicDivision, ksicDivisionName } from '@investment/schema';
-import { isHiddenDocsHref } from '@/lib/hidden-books';
+import { isHiddenBookHref } from '@/lib/hidden-books';
 import {
   SIEVE_LABELS,
   VERDICT_ORDER,
@@ -69,8 +69,8 @@ export default async function IndustryDetailPage(props: PageProps<'/industry/[sl
 
   return (
     <div className="pb-16">
-      <nav className="text-xs text-fd-muted-foreground">
-        <Link href="/industry" className="hover:text-fd-foreground">
+      <nav className="text-xs text-muted-foreground">
+        <Link href="/industry" className="hover:text-foreground">
           산업 지도
         </Link>
         <span className="mx-1.5">/</span>
@@ -80,12 +80,12 @@ export default async function IndustryDetailPage(props: PageProps<'/industry/[sl
       <header className="mt-2">
         <div className="flex flex-wrap items-baseline gap-3">
           <h1 className="text-2xl font-bold tracking-tight">{industry.name}</h1>
-          <span className="rounded-md bg-fd-secondary px-2 py-0.5 text-xs font-medium text-fd-secondary-foreground">
+          <span className="rounded-md bg-secondary px-2 py-0.5 text-xs font-medium text-secondary-foreground">
             채 {industry.sieveStage}단계 · {SIEVE_LABELS[industry.sieveStage]}
           </span>
-          <span className="text-xs text-fd-muted-foreground">기준일 {industry.asOf}</span>
+          <span className="text-xs text-muted-foreground">기준일 {industry.asOf}</span>
         </div>
-        <p className="mt-1 text-sm text-fd-muted-foreground">{industry.tagline}</p>
+        <p className="mt-1 text-sm text-muted-foreground">{industry.tagline}</p>
         <p className="mt-3 max-w-3xl text-sm leading-relaxed">{industry.summary}</p>
       </header>
 
@@ -98,12 +98,12 @@ export default async function IndustryDetailPage(props: PageProps<'/industry/[sl
             {v} {counts[v]}
           </span>
         ))}
-        <span className="rounded-md bg-fd-muted px-2 py-0.5 text-xs text-fd-muted-foreground">
+        <span className="rounded-md bg-muted px-2 py-0.5 text-xs text-muted-foreground">
           판정 합계 {judged}건
         </span>
       </div>
       {unlisted.length > 0 && (
-        <p className="mt-2 text-[11px] text-fd-muted-foreground">
+        <p className="mt-2 text-[11px] text-muted-foreground">
           판정 {judged}건 = 상장 종목 {companies.length}개사 + 종목 페이지가 없는{' '}
           {unlisted.length}건({unlisted.map((m) => m.name).join(', ')}). 우선주는 DART 법인이
           아니라 종목 페이지를 갖지 못한다.
@@ -112,7 +112,7 @@ export default async function IndustryDetailPage(props: PageProps<'/industry/[sl
 
       <section className="mt-10">
         <h2 className="text-lg font-semibold tracking-tight">밸류체인 지도</h2>
-        <p className="mt-1 max-w-3xl text-sm leading-relaxed text-fd-muted-foreground">
+        <p className="mt-1 max-w-3xl text-sm leading-relaxed text-muted-foreground">
           매출·이익률은 카탈로그가 아니라 <code className="text-xs">fin_periods</code> 에서 읽은{' '}
           {DISPLAY_YEAR}년 연간 값이다(연결 우선, 연결이 없는 회사만 별도로 표시된다). 판정과
           체인 위치는 {industry.asOf} 실행의 손 확정값이다.
@@ -129,11 +129,11 @@ export default async function IndustryDetailPage(props: PageProps<'/industry/[sl
             {industry.phase.map((p) => (
               <article
                 key={p.question}
-                className="rounded-xl border border-fd-border bg-fd-card p-4"
+                className="rounded-xl border border-border bg-card p-4"
               >
                 <h3 className="text-sm font-semibold leading-snug">{p.question}</h3>
-                <p className="mt-2 text-sm font-medium text-fd-primary">{p.verdict}</p>
-                <p className="mt-2 text-xs leading-relaxed text-fd-muted-foreground">{p.detail}</p>
+                <p className="mt-2 text-sm font-medium text-primary">{p.verdict}</p>
+                <p className="mt-2 text-xs leading-relaxed text-muted-foreground">{p.detail}</p>
               </article>
             ))}
           </div>
@@ -141,9 +141,9 @@ export default async function IndustryDetailPage(props: PageProps<'/industry/[sl
       )}
 
       <section className="mt-12 grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <div className="rounded-xl border border-fd-border bg-fd-card p-5">
+        <div className="rounded-xl border border-border bg-card p-5">
           <h2 className="text-sm font-semibold">KSIC 로는 한 덩어리가 아니다</h2>
-          <p className="mt-2 text-xs leading-relaxed text-fd-muted-foreground">
+          <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
             소속 {companies.length}개사가 중분류 {divisions.size}개에 흩어져 있다. 산업의 경계를
             업종코드로 잡을 수 없다는 것이 이 표다.
           </p>
@@ -152,15 +152,15 @@ export default async function IndustryDetailPage(props: PageProps<'/industry/[sl
               .sort((a, b) => b[1] - a[1])
               .map(([division, n]) => (
                 <li key={division} className="flex items-baseline gap-2 text-xs">
-                  <span className="font-mono text-[10px] text-fd-muted-foreground">
+                  <span className="font-mono text-[10px] text-muted-foreground">
                     {division}
                   </span>
                   <span className="flex-1">{ksicDivisionName(division)}</span>
-                  <span className="tabular-nums text-fd-muted-foreground">{n}</span>
+                  <span className="tabular-nums text-muted-foreground">{n}</span>
                 </li>
               ))}
           </ul>
-          <p className="mt-3 border-t border-fd-border pt-3 text-[11px] text-fd-muted-foreground">
+          <p className="mt-3 border-t border-border pt-3 text-[11px] text-muted-foreground">
             채 0단계에서 후보를 긁을 때 쓴 접두:{' '}
             <span className="font-mono">{industry.ksicPrefixes.join(' · ')}</span> — 재현율을 위해
             넓게 던진 그물이라 무관한 회사가 대량으로 걸린다.
@@ -172,9 +172,9 @@ export default async function IndustryDetailPage(props: PageProps<'/industry/[sl
           )}
         </div>
 
-        <div className="rounded-xl border border-fd-border bg-fd-card p-5">
+        <div className="rounded-xl border border-border bg-card p-5">
           <h2 className="text-sm font-semibold">출처</h2>
-          <p className="mt-2 text-xs text-fd-muted-foreground">
+          <p className="mt-2 text-xs text-muted-foreground">
             판정의 근거 문서. 이 저장소의 <code>리서치/</code> 는 웹에 게시되지 않으므로 경로로만
             적는다.
           </p>
@@ -183,25 +183,25 @@ export default async function IndustryDetailPage(props: PageProps<'/industry/[sl
               <li key={s.path} className="text-xs">
                 <span className="font-medium">{s.label}</span>
                 <br />
-                <code className="text-[10px] text-fd-muted-foreground">{s.path}</code>
+                <code className="text-[10px] text-muted-foreground">{s.path}</code>
               </li>
             ))}
           </ul>
           <h3 className="mt-5 text-sm font-semibold">방법론</h3>
           <ul className="mt-2 space-y-1">
             {industry.textbooks.map((t) => {
-              const linkable = t.href && !isHiddenDocsHref(t.href);
+              const linkable = t.href && !isHiddenBookHref(t.href);
               return (
                 <li key={t.label} className="text-xs">
                   {linkable ? (
                     <Link
                       href={t.href!}
-                      className="text-fd-primary underline-offset-2 hover:underline"
+                      className="text-primary underline-offset-2 hover:underline"
                     >
                       {t.label}
                     </Link>
                   ) : (
-                    <span className="text-fd-muted-foreground">
+                    <span className="text-muted-foreground">
                       {t.label}
                       {t.note ? ` (${t.note})` : ''}
                     </span>
@@ -213,7 +213,7 @@ export default async function IndustryDetailPage(props: PageProps<'/industry/[sl
         </div>
       </section>
 
-      <p className="mt-10 text-[11px] leading-relaxed text-fd-muted-foreground">
+      <p className="mt-10 text-[11px] leading-relaxed text-muted-foreground">
         교재 방법론에 따른 학습·분석 자료이며 종목 추천이나 투자 권유가 아니다.
       </p>
     </div>

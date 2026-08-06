@@ -11,8 +11,8 @@ export function KeyMetrics({ latest }: { latest: AnnualSummary }) {
   return (
     <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
       {cards.map((c) => (
-        <div key={c.label} className="rounded-xl border border-fd-border bg-fd-card p-4">
-          <div className="text-xs text-fd-muted-foreground">
+        <div key={c.label} className="rounded-xl border border-border bg-card p-4">
+          <div className="text-xs text-muted-foreground">
             {c.label}
             {c.sub && <span className="ml-1 opacity-70">({c.sub})</span>}
           </div>

@@ -16,7 +16,7 @@ export function AnalysisSidebar({ stockCode }: { stockCode: string }) {
         if (boards.length === 0) return null;
         return (
           <div key={section}>
-            <h2 className="mb-2 px-2 text-xs font-semibold uppercase tracking-wide text-fd-muted-foreground">
+            <h2 className="mb-2 px-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               {SECTION_LABELS[section]}
             </h2>
             <ul className="space-y-0.5">
@@ -29,8 +29,8 @@ export function AnalysisSidebar({ stockCode }: { stockCode: string }) {
                       href={href}
                       className={`block rounded-lg px-2 py-1.5 leading-snug transition-colors ${
                         active
-                          ? 'bg-fd-accent font-medium text-fd-accent-foreground'
-                          : 'text-fd-muted-foreground hover:bg-fd-accent/50 hover:text-fd-foreground'
+                          ? 'bg-accent font-medium text-accent-foreground'
+                          : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
                       }`}
                     >
                       {board.title}

@@ -6,7 +6,7 @@ export const VERDICT_CLASS: Record<Verdict, string> = {
   통과철회: 'bg-amber-500/15 text-amber-800 dark:text-amber-300',
   판정보류: 'bg-sky-500/15 text-sky-700 dark:text-sky-300',
   실패: 'bg-rose-500/15 text-rose-700 dark:text-rose-300',
-  범위밖: 'bg-fd-muted text-fd-muted-foreground',
+  범위밖: 'bg-muted text-muted-foreground',
 };
 
 export function VerdictBadge({ verdict }: { verdict: Verdict }) {

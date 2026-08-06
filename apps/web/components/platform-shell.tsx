@@ -15,20 +15,20 @@ export function PlatformShell({
   maxWidth?: string;
 }) {
   return (
-    <div className="flex min-h-screen flex-col bg-fd-background text-fd-foreground">
-      <header className="sticky top-0 z-10 border-b border-fd-border bg-fd-background/95 backdrop-blur supports-backdrop-filter:bg-fd-background/60">
+    <div className="flex min-h-screen flex-col bg-background text-foreground">
+      <header className="sticky top-0 z-10 border-b border-border bg-background/95 backdrop-blur supports-backdrop-filter:bg-background/60">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3 sm:px-6">
           <Link href="/company" className="text-sm font-semibold tracking-tight">
             {appName} · 리서치
           </Link>
-          <nav className="flex items-center gap-4 text-sm text-fd-muted-foreground">
-            <Link href="/industry" className="hover:text-fd-foreground">
+          <nav className="flex items-center gap-4 text-sm text-muted-foreground">
+            <Link href="/industry" className="hover:text-foreground">
               산업 지도
             </Link>
-            <Link href="/company" className="hover:text-fd-foreground">
+            <Link href="/company" className="hover:text-foreground">
               종목 목록
             </Link>
-            <Link href="/docs" className="hover:text-fd-foreground">
+            <Link href="/book" className="hover:text-foreground">
               교재
             </Link>
           </nav>

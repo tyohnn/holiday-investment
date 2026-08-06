@@ -23,11 +23,11 @@ type Row = Pick<AnnualSummary, 'bsns_year' | 'revenue' | 'operating_income' | 'o
 function CustomTooltip({ active, payload, label }: TooltipContentProps) {
   if (!active || !payload?.length) return null;
   return (
-    <div className="rounded-lg border border-fd-border bg-fd-popover p-3 text-xs shadow-md">
+    <div className="rounded-lg border border-border bg-popover p-3 text-xs shadow-md">
       <div className="mb-1.5 font-semibold">{label}년</div>
       {payload.map((entry) => (
         <div key={entry.dataKey as string} className="flex items-center justify-between gap-4">
-          <span className="flex items-center gap-1.5 text-fd-muted-foreground">
+          <span className="flex items-center gap-1.5 text-muted-foreground">
             <span
               className="inline-block h-2 w-2 rounded-full"
               style={{ backgroundColor: entry.color }}
@@ -49,7 +49,7 @@ export function FinancialChart({ data }: { data: Row[] }) {
   return (
     <ResponsiveContainer width="100%" height={320}>
       <ComposedChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 8 }}>
-        <CartesianGrid strokeDasharray="3 3" className="stroke-fd-border" />
+        <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
         <XAxis dataKey="bsns_year" tickFormatter={(y) => `${y}`} tick={{ fontSize: 12 }} />
         <YAxis
           yAxisId="amount"

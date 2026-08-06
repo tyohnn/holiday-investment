@@ -9,8 +9,8 @@ export const WIDGETS: Record<WidgetId, AnalysisWidgetMeta> = {
     claim: '3년 후 매출 = 시장규모 × 점유율로 분해한 현재 가정',
     trust: 'estimate',
     textbooks: [
-      { label: '16장 매출 추정의 기술', href: '/docs/book1/C3' },
-      { label: '12장 산업 분석 프레임', href: '/docs/book1/B3' },
+      { label: '16장 매출 추정의 기술', href: '/book/book1/C3' },
+      { label: '12장 산업 분석 프레임', href: '/book/book1/B3' },
     ],
   },
   'capa-to-revenue': {
@@ -19,8 +19,8 @@ export const WIDGETS: Record<WidgetId, AnalysisWidgetMeta> = {
     claim: '확정 캐파 × 업종 환산 상수(±가동률)로 매출을 재현한다',
     trust: 'filing',
     textbooks: [
-      { label: '16장 매출 추정의 기술', href: '/docs/book1/C3' },
-      { label: '19장 1차 자료 읽기', href: '/docs/book1/D1' },
+      { label: '16장 매출 추정의 기술', href: '/book/book1/C3' },
+      { label: '19장 1차 자료 읽기', href: '/book/book1/D1' },
     ],
     trackingTopics: ['캐파-투자집행'],
   },
@@ -29,7 +29,7 @@ export const WIDGETS: Record<WidgetId, AnalysisWidgetMeta> = {
     title: '수주·계약 시그널',
     claim: '바인딩 계약이 매출화되는 시점을 사실 시계열로 본다',
     trust: 'filing',
-    textbooks: [{ label: '19장 1차 자료 읽기', href: '/docs/book1/D1' }],
+    textbooks: [{ label: '19장 1차 자료 읽기', href: '/book/book1/D1' }],
     trackingTopics: ['수주-계약'],
   },
   'capex-execution': {
@@ -37,7 +37,7 @@ export const WIDGETS: Record<WidgetId, AnalysisWidgetMeta> = {
     title: '투자·공장 이행',
     claim: '발표 vs 착공·CAPEX로 가이던스 사풍(신뢰)을 판정한다',
     trust: 'filing',
-    textbooks: [{ label: '16장 매출 추정의 기술', href: '/docs/book1/C3' }],
+    textbooks: [{ label: '16장 매출 추정의 기술', href: '/book/book1/C3' }],
     trackingTopics: ['캐파-투자집행'],
   },
   'news-yt-facts': {
@@ -46,8 +46,8 @@ export const WIDGETS: Record<WidgetId, AnalysisWidgetMeta> = {
     claim: '신규공장·계약 체결만 사실 타임라인으로 모은다(해석 제외)',
     trust: 'news',
     textbooks: [
-      { label: '19장 1차 자료 읽기', href: '/docs/book1/D1' },
-      { label: '20장 언론·리포트·수급', href: '/docs/book1/D2' },
+      { label: '19장 1차 자료 읽기', href: '/book/book1/D1' },
+      { label: '20장 언론·리포트·수급', href: '/book/book1/D2' },
     ],
   },
   'cf-investing-notes': {
@@ -55,14 +55,14 @@ export const WIDGETS: Record<WidgetId, AnalysisWidgetMeta> = {
     title: 'CF 투자 · 주석',
     claim: '투자활동 현금흐름과 관련 주석에서 실제 집행을 확인한다',
     trust: 'filing',
-    textbooks: [{ label: '19장 1차 자료 읽기', href: '/docs/book1/D1' }],
+    textbooks: [{ label: '19장 1차 자료 읽기', href: '/book/book1/D1' }],
   },
   'key-four-metrics': {
     id: 'key-four-metrics',
     title: '핵심 4지표 추이',
     claim: '매출성장·영업이익률·ROE·부채비율이 밸류에이션 입력값이다',
     trust: 'filing',
-    textbooks: [{ label: '19장 1차 자료 읽기', href: '/docs/book1/D1' }],
+    textbooks: [{ label: '19장 1차 자료 읽기', href: '/book/book1/D1' }],
   },
   'margin-three-layers': {
     id: 'margin-three-layers',
@@ -70,8 +70,8 @@ export const WIDGETS: Record<WidgetId, AnalysisWidgetMeta> = {
     claim: '가동률 / 원자재 / 가격결정권 중 어디가 마진을 누르는지 나눈다',
     trust: 'estimate',
     textbooks: [
-      { label: '16장 매출 추정의 기술', href: '/docs/book1/C3' },
-      { label: '12장 산업 분석 프레임', href: '/docs/book1/B3' },
+      { label: '16장 매출 추정의 기술', href: '/book/book1/C3' },
+      { label: '12장 산업 분석 프레임', href: '/book/book1/B3' },
     ],
     trackingTopics: ['이익률-구조'],
   },
@@ -82,8 +82,8 @@ export const WIDGETS: Record<WidgetId, AnalysisWidgetMeta> = {
     claim: '매출원가·판관·인건·CAPEX의 매출 대비 비중 추이가 자원 배분 선택이다',
     trust: 'filing',
     textbooks: [
-      { label: '19장 1차 자료 읽기', href: '/docs/book1/D1' },
-      { label: '16장 매출 추정의 기술', href: '/docs/book1/C3' },
+      { label: '19장 1차 자료 읽기', href: '/book/book1/D1' },
+      { label: '16장 매출 추정의 기술', href: '/book/book1/C3' },
     ],
     trackingTopics: ['이익률-구조', '캐파-투자집행'],
   },
@@ -93,7 +93,7 @@ export const WIDGETS: Record<WidgetId, AnalysisWidgetMeta> = {
     question: '인력을 늘리는가/줄이는가, 숙련을 쌓는가, 인건 부담은?',
     claim: '인원·근속·인건비/매출 변화가 조직에 대한 경영 선택이다',
     trust: 'filing',
-    textbooks: [{ label: '13장 정성분석 피셔', href: '/docs/book1/B4' }],
+    textbooks: [{ label: '13장 정성분석 피셔', href: '/book/book1/B4' }],
     trackingTopics: ['경영진-핵심인재'],
   },
   'segment-mix': {
@@ -101,7 +101,7 @@ export const WIDGETS: Record<WidgetId, AnalysisWidgetMeta> = {
     title: '부문·믹스',
     claim: '제품·지역 믹스가 마진 구조를 어떻게 쓰는지 본다',
     trust: 'filing',
-    textbooks: [{ label: '12장 산업 분석 프레임', href: '/docs/book1/B3' }],
+    textbooks: [{ label: '12장 산업 분석 프레임', href: '/book/book1/B3' }],
     trackingTopics: ['이익률-구조'],
   },
   'major-shareholder': {
@@ -109,7 +109,7 @@ export const WIDGETS: Record<WidgetId, AnalysisWidgetMeta> = {
     title: '대주주·지분 변동',
     claim: '오너·대량보유 변화가 이해관계 구조를 바꾼다',
     trust: 'filing',
-    textbooks: [{ label: '19장 1차 자료 읽기', href: '/docs/book1/D1' }],
+    textbooks: [{ label: '19장 1차 자료 읽기', href: '/book/book1/D1' }],
     trackingTopics: ['지분-지배구조'],
   },
   'dilution-funding': {
@@ -117,7 +117,7 @@ export const WIDGETS: Record<WidgetId, AnalysisWidgetMeta> = {
     title: '자금조달·희석',
     claim: '유증·CB/BW·오버행이 주주 가치를 희석하는 경로다',
     trust: 'filing',
-    textbooks: [{ label: '1장 자금조달과 지분희석', href: '/docs/book1/I1' }],
+    textbooks: [{ label: '1장 자금조달과 지분희석', href: '/book/book1/I1' }],
     trackingTopics: ['자금조달-지분희석'],
   },
   'treasury-return': {
@@ -125,7 +125,7 @@ export const WIDGETS: Record<WidgetId, AnalysisWidgetMeta> = {
     title: '자사주·주주환원',
     claim: '취득·소각·배당이 주주환원의 실행이다',
     trust: 'filing',
-    textbooks: [{ label: '19장 1차 자료 읽기', href: '/docs/book1/D1' }],
+    textbooks: [{ label: '19장 1차 자료 읽기', href: '/book/book1/D1' }],
     trackingTopics: ['지분-지배구조'],
   },
   'ma-org': {
@@ -133,14 +133,14 @@ export const WIDGETS: Record<WidgetId, AnalysisWidgetMeta> = {
     title: '인수합병·조직',
     claim: 'M&A·조직 개편 사실 시계열이 전략 전환의 흔적이다',
     trust: 'filing',
-    textbooks: [{ label: '13장 정성분석 피셔', href: '/docs/book1/B4' }],
+    textbooks: [{ label: '13장 정성분석 피셔', href: '/book/book1/B4' }],
   },
   'management-talent': {
     id: 'management-talent',
     title: '경영진·핵심인재',
     claim: 'CEO·핵심 인력 이동이 실행력과 문화 신호다',
     trust: 'filing',
-    textbooks: [{ label: '13장 정성분석 피셔', href: '/docs/book1/B4' }],
+    textbooks: [{ label: '13장 정성분석 피셔', href: '/book/book1/B4' }],
     trackingTopics: ['경영진-핵심인재'],
   },
   'people-profile': {
@@ -148,7 +148,7 @@ export const WIDGETS: Record<WidgetId, AnalysisWidgetMeta> = {
     title: '사람 프로필',
     claim: '배경·발언으로 의사결정자의 관점을 파악한다(2차 자료)',
     trust: 'secondary',
-    textbooks: [{ label: '13장 정성분석 피셔', href: '/docs/book1/B4' }],
+    textbooks: [{ label: '13장 정성분석 피셔', href: '/book/book1/B4' }],
   },
   'value-chain-map': {
     id: 'value-chain-map',
@@ -156,8 +156,8 @@ export const WIDGETS: Record<WidgetId, AnalysisWidgetMeta> = {
     claim: '이 종목이 체인 어디에 있는지부터 잡는다',
     trust: 'estimate',
     textbooks: [
-      { label: '12장 산업 분석 프레임', href: '/docs/book1/B3' },
-      { label: '2권 밸류체인 지도', href: '/docs/book2/D1' },
+      { label: '12장 산업 분석 프레임', href: '/book/book1/B3' },
+      { label: '2권 밸류체인 지도', href: '/book/book2/D1' },
     ],
   },
   'scorecard': {
@@ -165,21 +165,21 @@ export const WIDGETS: Record<WidgetId, AnalysisWidgetMeta> = {
     title: '경쟁력 축·채점표',
     claim: '산업 고유 축으로 기업 서열을 매긴다',
     trust: 'estimate',
-    textbooks: [{ label: '12장 산업 분석 프레임', href: '/docs/book1/B3' }],
+    textbooks: [{ label: '12장 산업 분석 프레임', href: '/book/book1/B3' }],
   },
   'phase-three-qs': {
     id: 'phase-three-qs',
     title: '국면 3문',
     claim: '시장규모·점유율·이익률 국면을 세 문장으로 점검한다',
     trust: 'estimate',
-    textbooks: [{ label: '12장 산업 분석 프레임', href: '/docs/book1/B3' }],
+    textbooks: [{ label: '12장 산업 분석 프레임', href: '/book/book1/B3' }],
   },
   'bullwhip-cycle': {
     id: 'bullwhip-cycle',
     title: '채찍효과·사이클',
     claim: '침체·회복에서 돈이 도는 순서를 본다',
     trust: 'estimate',
-    textbooks: [{ label: '2권 밸류체인 지도', href: '/docs/book2/D1' }],
+    textbooks: [{ label: '2권 밸류체인 지도', href: '/book/book2/D1' }],
   },
   'study-links': {
     id: 'study-links',
@@ -187,8 +187,8 @@ export const WIDGETS: Record<WidgetId, AnalysisWidgetMeta> = {
     claim: '산업·기술 개념은 교재에서, 적용은 분석 화면에서',
     trust: 'ir',
     textbooks: [
-      { label: '2권 시작', href: '/docs/book2' },
-      { label: '1권 산업 프레임', href: '/docs/book1/B3' },
+      { label: '2권 시작', href: '/book/book2' },
+      { label: '1권 산업 프레임', href: '/book/book1/B3' },
     ],
   },
   'agent-chat': {

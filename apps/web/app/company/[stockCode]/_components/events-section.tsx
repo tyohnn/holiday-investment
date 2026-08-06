@@ -23,7 +23,7 @@ export function EventsSection({ events }: { events: DartEvent[] }) {
           <div key={eventType}>
             <h3 className="text-sm font-semibold">
               {eventType}
-              <span className="ml-2 text-xs font-normal text-fd-muted-foreground">{list.length}건</span>
+              <span className="ml-2 text-xs font-normal text-muted-foreground">{list.length}건</span>
             </h3>
             <div className="mt-2 grid grid-cols-1 gap-3 lg:grid-cols-2">
               {list.map((e) => {
@@ -32,8 +32,8 @@ export function EventsSection({ events }: { events: DartEvent[] }) {
                   return value !== null && value !== undefined && value !== '' && value !== '-';
                 });
                 return (
-                  <div key={e.id} className="rounded-xl border border-fd-border bg-fd-card p-4">
-                    <div className="flex items-center justify-between text-xs text-fd-muted-foreground">
+                  <div key={e.id} className="rounded-xl border border-border bg-card p-4">
+                    <div className="flex items-center justify-between text-xs text-muted-foreground">
                       <span>{formatKoDate(e.rcept_dt)}</span>
                       {e.rcept_no && (
                         <a href={dartUrl(e.rcept_no)} target="_blank" rel="noreferrer" className="hover:underline">
@@ -42,14 +42,14 @@ export function EventsSection({ events }: { events: DartEvent[] }) {
                       )}
                     </div>
                     {entries.length === 0 ? (
-                      <p className="mt-2 text-xs text-fd-muted-foreground">세부 항목 없음</p>
+                      <p className="mt-2 text-xs text-muted-foreground">세부 항목 없음</p>
                     ) : (
                       <dl className="mt-2 grid grid-cols-1 gap-x-4 gap-y-1.5 text-sm sm:grid-cols-2">
                         {entries.map(([key, value]) => {
                           const spec = fieldSpec('event', eventType, key);
                           return (
                             <div key={key} className="min-w-0">
-                              <dt className="truncate text-xs text-fd-muted-foreground" title={key}>
+                              <dt className="truncate text-xs text-muted-foreground" title={key}>
                                 {spec.label}
                               </dt>
                               <dd className="truncate font-medium" title={String(value)}>
