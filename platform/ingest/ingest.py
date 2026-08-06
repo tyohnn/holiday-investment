@@ -18,6 +18,7 @@
 """
 import argparse
 import datetime as dt
+import hashlib
 import json
 import os
 import random
@@ -26,6 +27,7 @@ import socket
 import ssl
 import sys
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -57,6 +59,11 @@ SERVICE_KEY = env_setting("SUPABASE_SERVICE_KEY",
 RAW_DIR = os.path.join(_HERE, "..", "data", "raw")
 FIN_START_DEFAULT = 2015          # fnlttSinglAcntAll·정기보고서 API 데이터 제공 시점
 HISTORY_START = 2000              # 전자공시 전면화
+
+# Phase 3(공시 원문) Storage 규약 — fin_storage.py/storage_trial.py 의 버킷(platform-raw)을
+# 그대로 재사용하고, 원문은 fin/ 과 나란한 docs/ 프리픽스 아래에 둔다: docs/<corp_code>/<rcept_no>.zip
+STORAGE_BUCKET = "platform-raw"
+DOCS_PREFIX = "docs"
 
 CORRECTION_RE = re.compile(r"\[기재정정")
 
@@ -223,6 +230,74 @@ def dedupe_by(rows, key_cols, label):
     if len(out) != len(rows):
         print("  ! %s: 응답 내 자연키 중복 %d행 제거" % (label, len(rows) - len(out)))
     return out
+
+
+# ─────────────────────────────────────────────── Storage 헬퍼 (Phase 3 공시 원문)
+#
+# fin_storage.py 가 이미 이 형태(http_retry 로 전송 재시도를 물린 뒤 Storage REST 를 직접
+# 때리는 방식)를 구현해뒀지만, fin_storage.py 는 이 모듈(ingest.py)을 import 하므로
+# 여기서 거꾸로 fin_storage 를 import 하면 순환 import 가 된다. 그래서 같은 형태를
+# 이 모듈 안에서 다시 얹는다(재발명이 아니라 복제 — 판단 기준은 fin_storage.http_retry 와
+# 동일: HTTPError 는 상태코드로 5xx/429 를 재시도, 그 외 예외는 _is_retryable_rest_error 로).
+
+def _storage_base():
+    return REST.replace("/rest/v1", "/storage/v1")
+
+
+def svc_headers(extra=None):
+    h = {"apikey": SERVICE_KEY, "Authorization": "Bearer %s" % SERVICE_KEY}
+    h.update(extra or {})
+    return h
+
+
+def _http(method, url, body=None, headers=None, raw=False):
+    """상태코드·본문을 예외로 삼키지 않고 그대로 돌려준다(재시도 판단은 호출부가 한다)."""
+    req = urllib.request.Request(url, data=body, headers=headers or {}, method=method)
+    t0 = time.time()
+    try:
+        with urllib.request.urlopen(req, timeout=120, context=_SSL_CTX) as resp:
+            data = resp.read()
+            return resp.status, (data if raw else data.decode("utf-8", "replace")), time.time() - t0
+    except urllib.error.HTTPError as e:
+        data = e.read()
+        return e.code, (data if raw else data.decode("utf-8", "replace")), time.time() - t0
+
+
+def storage_http_retry(method, url, body=None, headers=None, raw=False):
+    """Storage 호출 전송 재시도 — rest() 의 상수(10회·300초)·_is_retryable_rest_error() 를
+    그대로 물린다(fin_storage.http_retry() 와 같은 형태)."""
+    for attempt in range(1, _REST_MAX_ATTEMPTS + 1):
+        try:
+            status, data, elapsed = _http(method, url, body, headers, raw=raw)
+        except Exception as e:
+            if _is_retryable_rest_error(e) and attempt < _REST_MAX_ATTEMPTS:
+                _sleep_backoff(attempt)
+                continue
+            raise
+        if (status >= 500 or status == 429) and attempt < _REST_MAX_ATTEMPTS:
+            _sleep_backoff(attempt)
+            continue
+        return status, data, elapsed
+    raise RuntimeError("unreachable")  # 루프는 항상 return 또는 raise 로 빠진다
+
+
+def storage_upload(path, data, content_type):
+    """버킷 STORAGE_BUCKET 에 x-upsert 로 업로드. (status, text) 반환(예외를 던지지 않는다 —
+    호출부가 status 로 성공 여부를 판단, 실패해도 다른 rcept_no 처리를 막지 않기 위해서)."""
+    base = _storage_base()
+    status, text, _ = storage_http_retry(
+        "POST", "%s/object/%s/%s" % (base, STORAGE_BUCKET, path), data,
+        svc_headers({"Content-Type": content_type, "x-upsert": "true"}))
+    return status, text
+
+
+def storage_download(path):
+    """Storage 객체를 원본 바이트로 받는다. (status, bytes|에러텍스트) 반환."""
+    base = _storage_base()
+    status, data, _ = storage_http_retry(
+        "GET", "%s/object/%s/%s" % (base, STORAGE_BUCKET, path),
+        headers=svc_headers(), raw=True)
+    return status, data
 
 
 def save_raw(corp_code, name, obj):
@@ -466,8 +541,14 @@ def load_registrations(key, corp, since_year):
 
 
 def load_docs(key, corp, redo=False):
-    """공시 원문 전량 — zip 보존 + 목차 섹션을 DB 행으로. rcept_no 단위 증분(재실행 시 skip)."""
-    import dart_doc
+    """공시 원문 전량 — DART 원본 zip 을 그대로 Storage(docs/<corp_code>/<rcept_no>.zip)에
+    올리고 filing_docs 에 매니페스트만 남긴다. rcept_no 단위 증분(재실행 시 skip).
+
+    섹션 추출(filing_sections)은 여기서 하지 않는다 — 전 종목 본문을 Postgres 에 넣는 건
+    물리적으로 불가능하고(회사당 162MB × 2,756개사), 관심종목이 정해진 뒤 docs_storage.py 가
+    이 Storage 원문에서 뽑는다. 이 함수가 DART document.xml 을 부르는 유일한 지점이므로,
+    나중에 관심종목이 늘어나도 DART 를 다시 호출하지 않는다(docs_storage.py 는 DART 호출 0건).
+    """
     # 이 회사의 전체 공시 목록 (DB에서 페이지네이션으로)
     rcepts, offset = [], 0
     while True:
@@ -479,10 +560,18 @@ def load_docs(key, corp, redo=False):
         offset += 1000
     done = set()
     if not redo:
-        # in-list 필터는 URL 길이 한계에 걸리므로 filing_docs 전량을 받아 로컬에서 거른다
+        # 예전엔 filing_docs 전량(전 종목이면 200만+ 행)을 페이지네이션으로 받아 로컬에서
+        # 걸렀다 — 회사 하나 처리할 때마다 왕복 2,000회 이상이라 전 종목 규모에서는
+        # 비현실적이었다. filing_docs 는 corp_code 컬럼이 없지만(rcept_no 로만 filings 를
+        # 참조) PostgREST 임베딩으로 그 회사 것만 조인해서 받을 수 있다 — 실측 확인
+        # (filing_docs?select=rcept_no,filings!inner(corp_code)&filings.corp_code=eq.<code>
+        # 가 호스티드에서 200/[] 로 정상 응답, filings→companies 같은 형태의 임베딩 필터가
+        # 실제로 3행을 돌려주는 것도 별도로 확인했다).
         offset = 0
         while True:
-            page = rest("GET", "filing_docs?select=rcept_no&limit=1000&offset=%d" % offset)
+            page = rest("GET",
+                "filing_docs?select=rcept_no,filings!inner(corp_code)"
+                "&filings.corp_code=eq.%s&limit=1000&offset=%d" % (corp["corp_code"], offset))
             done.update(r["rcept_no"] for r in page)
             if len(page) < 1000:
                 break
@@ -490,37 +579,30 @@ def load_docs(key, corp, redo=False):
     todo = [r for r in rcepts if r not in done]
     print("  docs: 대상 %d건 (기존 %d 건너뜀)" % (len(todo), len(rcepts) - len(todo)))
 
-    doc_dir = os.path.join(RAW_DIR, corp["corp_code"], "docs")
-    os.makedirs(doc_dir, exist_ok=True)
-    ok = err = n_sec = 0
+    ok = err = 0
     for i, rcept in enumerate(todo, 1):
         try:
             files = api.call_zip(key, "document.xml", rcept_no=rcept)
             main_name = sorted(files)[0]
-            raw = files[main_name]
-            with open(os.path.join(doc_dir, rcept + "." + main_name.split(".")[-1]), "wb") as f:
-                f.write(raw)
-            sections = dart_doc.split_sections(api.decode_kr(raw))
-            sec_rows = [{
-                "rcept_no": rcept, "sec_no": n, "title": title[:300],
-                "content": body[:5_000_000],
-                "is_note": dart_doc.is_note_section(title),
-                "is_biz": dart_doc.is_biz_section(title),
-            } for n, (title, body) in enumerate(sections, 1)]
-            replace_scope("filing_sections", {"rcept_no": "eq.%s" % rcept}, sec_rows)
+            zip_bytes = files.raw  # 원본 zip 전체 바이트(dart_api.ZipFiles.raw) — 대표 파일 하나만
+            sha256 = hashlib.sha256(zip_bytes).hexdigest()  # 남기던 이전 구현과 달리 손실이 없다
+            path = "%s/%s/%s.zip" % (DOCS_PREFIX, corp["corp_code"], rcept)
+            status, text = storage_upload(path, zip_bytes, "application/zip")
+            if status not in (200, 201):
+                raise RuntimeError("Storage 업로드 실패 %s: %s" % (status, str(text)[:200]))
             upsert("filing_docs", [{
                 "rcept_no": rcept, "file_name": main_name, "n_files": len(files),
-                "n_sections": len(sec_rows), "bytes": len(raw), "status": "ok",
+                "bytes": len(files[main_name]), "status": "ok",
+                "storage_path": path, "zip_bytes": len(zip_bytes), "zip_sha256": sha256,
             }], on_conflict="rcept_no")
             ok += 1
-            n_sec += len(sec_rows)
         except Exception as e:  # 원문 없는 공시 등 — 기록하고 계속
             err += 1
             upsert("filing_docs", [{"rcept_no": rcept, "status": "error:%s" % str(e)[:200]}],
                    on_conflict="rcept_no")
         if i % 100 == 0:
-            print("    …%d/%d (섹션 %d)" % (i, len(todo), n_sec))
-    print("  filing_docs: 성공 %d · 실패 %d · 섹션 %d" % (ok, err, n_sec))
+            print("    …%d/%d" % (i, len(todo)))
+    print("  filing_docs: 성공 %d · 실패 %d" % (ok, err))
 
 
 def load_ownership(key, corp):

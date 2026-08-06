@@ -117,7 +117,7 @@ function CfInvestingWidget({ data }: { data: BoardData }) {
   const claim = empty
     ? meta.claim
     : `${latest.bsns_year}년 투자CF ${formatWon(latest.amount)}원`;
-  const evidence = empty ? undefined : `financial_metrics · cf_investing · ${rows.length}개년`;
+  const evidence = empty ? undefined : `fin_periods · cf_investing · ${rows.length}개년`;
 
   return (
     <WidgetShell meta={meta} claim={claim} evidence={evidence} empty={empty}>

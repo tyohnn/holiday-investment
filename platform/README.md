@@ -75,6 +75,28 @@ gzip -9 -c /tmp/sections-only.sql > supabase/seed-filing-sections.sql.gz
 버린다. 운영 중인 로컬 DB에서 직접 `db reset`으로 검증하다 시드가 깨지면 데이터가
 날아간다(실제로 한 번 날렸고, DART 재수집 + 트래킹 md 재이행으로 복구했다).
 
+## fin_periods 갱신 (수동 — 잊으면 파생 지표가 낡는다)
+
+`fin_periods`(스크리너용 파생 지표 계층, 마이그레이션 `20260806000001`)는 **자동으로
+따라오지 않는다.** `financial_facts`를 적재·백필한 뒤 운영자가 직접 돌려야 한다.
+계산 규칙은 `internal.fin_periods_refresh()` 하나에만 있다(`internal`은 PostgREST 노출
+스키마가 아니라 `/rpc` 표면이 생기지 않는다 — 그래서 ingest가 스스로 부를 수 없다).
+
+```bash
+cd platform
+# 증분 — 이번에 적재한 종목만 (권장)
+supabase db query --linked "select * from internal.fin_periods_refresh(array['00126380'])"
+
+# 전량 — Management API 는 약 120초 상한이 있으므로 1,000개사씩 4번 나눠 돈다
+#         (전량 실측: 3,978개사 → 134,279행, 약 200초)
+for off in 0 1000 2000 3000; do
+  supabase db query --linked "select * from internal.fin_periods_refresh((select array_agg(corp_code)
+    from (select corp_code from companies order by corp_code offset $off limit 1000) t))"
+done
+```
+
+직결 psql이 있으면 상한이 없으므로 `select * from internal.fin_periods_refresh();` 한 줄이면 된다.
+
 ## 설계 결정 (v0 가설)
 
 - **DB 쓰기는 PostgREST** — 드라이버 의존성 0(stdlib), UI가 쓸 API 표면을 ingest가 먼저 검증.

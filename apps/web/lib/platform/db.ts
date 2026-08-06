@@ -2,7 +2,7 @@
  * 플랫폼 DB 접근 레이어 — Supabase(PostgREST) 읽기 전용.
  *
  * A1·A2에서 확정된 계약만 노출한다:
- *   - 정형 재무는 annual_summary 뷰 (계정명 변형·택소노미 세대를 뷰가 흡수)
+ *   - 정형 재무는 fin_periods 테이블 (계정명 변형·택소노미 세대는 그 적재 함수가 흡수)
  *   - 사실 시계열은 trackings 원장 (md 는 생성물이므로 UI 는 DB 를 본다)
  *   - 정정 체인은 filing_correction_chains 뷰 (파생 관계는 저장하지 않는다)
  * payload(jsonb) 해석은 @investment/schema 의 라벨 사전이 담당한다.
@@ -72,14 +72,66 @@ export async function getCompany(stockCode: string): Promise<Company | null> {
   return data ? Company.parse(data) : null;
 }
 
+/**
+ * fin_periods 에서 AnnualSummary 계약이 요구하는 열 — 스키마와 1:1 이고 그 이상은 없다.
+ * `select("*")` 를 쓰지 않는 이유: fin_periods 는 wide 테이블이라 cogs·ebitda·net_debt 등
+ * 20여 개가 더 붙어 있고, 그게 전부 파서를 통과해 버리면 "뷰가 노출하던 표면"이라는 계약이
+ * 조용히 넓어진다. 계약을 넓히는 건 이 작업의 범위가 아니다(성능 교체이지 기능 변경이 아니다).
+ */
+const ANNUAL_COLS = [
+  "corp_code",
+  "bsns_year",
+  "revenue",
+  "operating_income",
+  "net_income",
+  "assets",
+  "liabilities",
+  "equity",
+  "cf_operating",
+  "opm_pct",
+  "roe_pct",
+  "debt_ratio_pct",
+] as const;
+
+/**
+ * fin_periods 의 PK 는 (corp_code, period_key, fs_div) 라 한 연도에 연결(CFS)·별도(OFS)가
+ * 둘 다 있을 수 있다. 대체되는 annual_summary 뷰는 fs_div 를 축으로 갖지 않고 개념별
+ * `max(amount)` 로 뭉갰으므로, 여기서도 연도당 한 행으로 접어야 출력이 같아진다.
+ *
+ * 규칙: **연결이 있으면 연결을 쓴다.** 실측상 이 분기는 지금 한 번도 타지 않는다 —
+ * 호스티드 fin_periods 의 period_type='A' 22,603행 전수에서 (corp_code, bsns_year) 가
+ * CFS·OFS 를 동시에 갖는 경우는 0건이다. 다만 그건 finstate_all 적재가 그렇게 생겼다는
+ * 사실일 뿐 스키마가 보장하는 성질이 아니므로, 단건을 가정하지 않고 규칙을 명시해 둔다.
+ * (뷰의 max 규칙을 흉내내지 않는 이유: max 는 개념별로 따로 걸려 연결·별도가 한 행에서
+ * 섞일 수 있고, 비율까지 그 섞인 값에서 다시 계산해야 한다. 재무제표 한 벌을 통째로
+ * 고르는 쪽이 회계적으로 옳다.)
+ */
+function collapseByYear<T extends { bsns_year: number; fs_div: string }>(rows: T[]): T[] {
+  const byYear = new Map<number, T>();
+  for (const row of rows) {
+    const prev = byYear.get(row.bsns_year);
+    if (!prev || (prev.fs_div !== "CFS" && row.fs_div === "CFS")) byYear.set(row.bsns_year, row);
+  }
+  return [...byYear.values()].sort((a, b) => a.bsns_year - b.bsns_year);
+}
+
 export async function getAnnualSummary(corpCode: string): Promise<AnnualSummary[]> {
   const { data, error } = await supabaseService
-    .from("annual_summary")
-    .select("*")
+    .from("fin_periods")
+    .select([...ANNUAL_COLS, "fs_div"].join(","))
     .eq("corp_code", corpCode)
+    .eq("period_type", "A")
     .order("bsns_year");
   if (error) throw error;
-  return parseAll(AnnualSummary, data ?? [], "annual_summary");
+  const rows = (data ?? []) as unknown as (Record<string, unknown> & {
+    bsns_year: number;
+    fs_div: string;
+  })[];
+  // fs_div 는 접는 데만 쓰고 계약 밖으로 내보내지 않는다.
+  const picked = collapseByYear(rows).map((row) =>
+    Object.fromEntries(ANNUAL_COLS.map((col) => [col, row[col]])),
+  );
+  return parseAll(AnnualSummary, picked, "fin_periods(A)");
 }
 
 export async function getFilings(corpCode: string, limit = 40): Promise<Filing[]> {
@@ -174,31 +226,72 @@ export async function getNoteSections(corpCode: string, limit = 20): Promise<Not
   });
 }
 
-/** 개념별 연간 시계열 — annual_summary 에 없는 개념(cf_investing 등)용. */
+/**
+ * getConceptSeries 가 받을 수 있는 개념 — fin_periods 의 지표 컬럼 이름 그대로다.
+ *
+ * financial_metrics 에서는 개념이 **행**이었으므로 인자가 `string` 이어도 무해했다(없는
+ * 이름은 0행). fin_periods 에서는 개념이 **컬럼**이라 이름이 곧 select 문자열에 들어가고,
+ * 틀린 이름은 런타임 PostgREST 에러가 된다. 그래서 자유 문자열을 리터럴 합집합으로 좁힌다 —
+ * 오타는 컴파일에서 잡히고, 목록에 있는 이름은 전부 실제로 동작한다("사실상 한 값만 되는
+ * 인자"를 남기지 않는다는 뜻).
+ */
+export type FinPeriodConcept =
+  | "revenue"
+  | "cogs"
+  | "gross_profit"
+  | "sga"
+  | "operating_income"
+  | "net_income"
+  | "depreciation"
+  | "amortisation"
+  | "ebitda"
+  | "cf_operating"
+  | "cf_investing"
+  | "cf_financing"
+  | "assets"
+  | "liabilities"
+  | "equity"
+  | "cash"
+  | "st_borrowings"
+  | "current_lt_borrowings"
+  | "lt_borrowings"
+  | "bonds"
+  | "current_bonds"
+  | "borrowings_total"
+  | "net_debt"
+  | "gpm_pct"
+  | "opm_pct"
+  | "npm_pct"
+  | "roe_pct"
+  | "debt_ratio_pct";
+
+/** 개념별 연간 시계열 — AnnualSummary 계약에 없는 개념(cf_investing 등)용. */
 export async function getConceptSeries(
   corpCode: string,
-  concept: string,
+  concept: FinPeriodConcept,
 ): Promise<{ bsns_year: number; amount: number | null }[]> {
   const { data, error } = await supabaseService
-    .from("financial_metrics")
-    .select("bsns_year, amount")
+    .from("fin_periods")
+    .select(`bsns_year, fs_div, ${concept}`)
     .eq("corp_code", corpCode)
-    .eq("concept", concept)
-    .eq("reprt_code", "11011")
+    .eq("period_type", "A")
+    // 값이 없는 연도는 아예 내보내지 않는다. 대체되는 financial_metrics 뷰가
+    // `where amount is not null` 이라 그 개념이 잡히지 않은 연도는 행 자체가 없었다.
+    // fin_periods 는 연도 행이 먼저 있고 컬럼이 비므로, 여기서 걸러야 결과가 같다.
+    // (실측: 신테카바이오 2019 는 A 행은 있으나 cf_investing 이 NULL 이다.)
+    .not(concept, "is", null)
     .order("bsns_year");
   if (error) throw error;
-  const byYear = new Map<number, number | null>();
-  for (const row of data ?? []) {
-    const year = Number(row.bsns_year);
-    const amount = row.amount === null || row.amount === undefined ? null : Number(row.amount);
-    // 연결/별도 중복 시 절대값이 큰 쪽을 채택
-    const prev = byYear.get(year);
-    if (prev === undefined || prev === null) byYear.set(year, amount);
-    else if (amount !== null && Math.abs(amount) > Math.abs(prev)) byYear.set(year, amount);
-  }
-  return [...byYear.entries()]
-    .sort((a, b) => a[0] - b[0])
-    .map(([bsns_year, amount]) => ({ bsns_year, amount }));
+  const rows = (data ?? []) as unknown as (Record<string, unknown> & {
+    bsns_year: number;
+    fs_div: string;
+  })[];
+  // 연결/별도 중복 처리는 getAnnualSummary 와 같은 규칙(연결 우선)을 쓴다 — 한 화면에서
+  // 두 함수의 결과가 나란히 놓이므로 서로 다른 재무제표를 고르면 안 된다.
+  return collapseByYear(rows).map((row) => ({
+    bsns_year: row.bsns_year,
+    amount: row[concept] === null || row[concept] === undefined ? null : Number(row[concept]),
+  }));
 }
 
 /** 종목 페이지가 필요한 것을 한 번에 (RSC 에서 병렬 fetch) */
