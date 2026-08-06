@@ -48,6 +48,7 @@ raw 파일만으로는 알 수 없다. DB 의 기존 스코프가 그 값을 이
 """
 import argparse
 import datetime as dt
+import gzip
 import json
 import os
 import re
@@ -64,7 +65,7 @@ STATE_DIR = os.path.abspath(os.path.join(_HERE, "..", "data"))
 INVENTORY = os.path.join(STATE_DIR, "restore-fin-inventory.json")
 PROGRESS = os.path.join(STATE_DIR, "restore-fin-progress.jsonl")
 
-FIN_RE = re.compile(r"^fin_(\d{4})_(\d{5})\.json$")
+FIN_RE = re.compile(r"^fin_(\d{4})_(\d{5})\.json(\.gz)?$")
 
 
 # ─────────────────────────────────────────────── 인벤토리 (DB 읽기 전용)
@@ -108,17 +109,40 @@ def load_inventory():
 # ─────────────────────────────────────────────── 디스크 스캔
 
 def disk_scopes():
-    """{(corp, year, reprt): 경로} — data/raw 의 fin_<year>_<reprt>.json 전량."""
+    """{(corp, year, reprt): 경로} — data/raw 의 fin_<year>_<reprt>.json[.gz] 전량.
+
+    같은 스코프에 평문(.json)과 압축(.json.gz)이 동시에 있으면 **평문을 우선**한다.
+    ingest.py:save_raw() 는 앞으로도 평문으로 쓰므로, 압축 배치 이후 재수집된 최신 raw
+    는 평문으로만 존재할 수 있다 — 압축본이 항상 "과거에 압축된 스냅샷"이라는 보장이
+    없는 이상 평문을 최신으로 간주하는 쪽이 안전하다(둘 다 있는 경우는 실제로는 드물다:
+    대량 압축 스크립트가 압축 성공 후 평문을 지우므로, 이후 재수집이 있어야만 재발생).
+    """
     out = {}
+    gz_out = {}
     for corp in sorted(os.listdir(RAW_DIR)):
         d = os.path.join(RAW_DIR, corp)
         if not os.path.isdir(d):
             continue
         for fn in os.listdir(d):
             m = FIN_RE.match(fn)
-            if m:
-                out[(corp, int(m.group(1)), m.group(2))] = os.path.join(d, fn)
+            if not m:
+                continue
+            key = (corp, int(m.group(1)), m.group(2))
+            path = os.path.join(d, fn)
+            if m.group(3):  # .gz
+                gz_out[key] = path
+            else:
+                out[key] = path
+    for key, path in gz_out.items():
+        out.setdefault(key, path)  # 평문이 없을 때만 압축본을 채택
     return out
+
+
+def open_fin_json(path):
+    """fin_*.json 과 fin_*.json.gz 를 동일하게 다루는 열기 헬퍼."""
+    if path.endswith(".gz"):
+        return gzip.open(path, "rt", encoding="utf-8")
+    return open(path, encoding="utf-8")
 
 
 def parse_key(k):
@@ -227,7 +251,8 @@ def cmd_run(args):
                 idx["i"] += 1
             corp, year, reprt = k
             try:
-                rows = json.load(open(disk[k], encoding="utf-8"))
+                with open_fin_json(disk[k]) as f:
+                    rows = json.load(f)
                 fsdiv = max(db[k][1].items(), key=lambda kv: kv[1])[0]  # 스코프 내 최빈 fs_div
                 n = I.write_fin_scope(corp, year, reprt, fsdiv, rows)
                 prog.mark(k, n, db[k][0])
