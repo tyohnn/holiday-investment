@@ -20,6 +20,12 @@ export default function HomePage() {
           교재 시작하기
         </Link>
         <Link
+          href="/industry"
+          className="inline-flex items-center justify-center rounded-md border px-4 py-2.5 text-sm font-medium"
+        >
+          산업 지도
+        </Link>
+        <Link
           href="/company"
           className="inline-flex items-center justify-center rounded-md border px-4 py-2.5 text-sm font-medium"
         >

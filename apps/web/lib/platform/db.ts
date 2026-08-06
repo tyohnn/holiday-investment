@@ -31,6 +31,7 @@ import {
   Filing,
   FilingSection,
   TrackingFact,
+  ksicDivision,
 } from "@investment/schema";
 import { z } from "zod";
 
@@ -308,4 +309,113 @@ export async function getCompanyPageData(stockCode: string) {
     getConceptSeries(company.corp_code, "cf_investing"),
   ]);
   return { company, annual, filings, corrections, events, trackings, sections, cfInvesting };
+}
+
+/* ── 산업 지도 ─────────────────────────────────────────────────────────────── */
+
+export interface DivisionCount {
+  /** KSIC 중분류 2자리 */
+  division: string;
+  kospi: number;
+  kosdaq: number;
+  total: number;
+}
+
+/**
+ * 상장사를 KSIC 중분류로 집계한다 — 산업 지도의 배경 격자.
+ *
+ * PostGREST 에는 group by 가 없고 이 프로젝트는 호스티드 DB에 뷰를 새로 얹지 않으므로
+ * (마이그레이션은 platform/ 의 소관이다) 행을 받아 여기서 접는다. 고르는 열은 3개뿐이라
+ * 2,648행이어도 가볍다. **기본 limit 1000 을 넘기므로 반드시 페이지네이션한다** — 조용히
+ * 잘린 표본은 이 저장소에서 가장 흔한 오류원이다.
+ */
+export async function getListedDivisionCounts(): Promise<{
+  divisions: DivisionCount[];
+  totalListed: number;
+}> {
+  const PAGE = 1000;
+  const rows: { sector_code: string | null; market: string | null }[] = [];
+  for (let offset = 0; ; offset += PAGE) {
+    const { data, error } = await supabaseService
+      .from("companies")
+      .select("sector_code, market")
+      .in("market", ["KOSPI", "KOSDAQ"])
+      .order("stock_code")
+      .range(offset, offset + PAGE - 1);
+    if (error) throw error;
+    const page = data ?? [];
+    rows.push(...page);
+    if (page.length < PAGE) break;
+  }
+
+  const byDivision = new Map<string, DivisionCount>();
+  for (const row of rows) {
+    const division = ksicDivision(row.sector_code);
+    if (!division) continue;
+    let entry = byDivision.get(division);
+    if (!entry) {
+      entry = { division, kospi: 0, kosdaq: 0, total: 0 };
+      byDivision.set(division, entry);
+    }
+    if (row.market === "KOSPI") entry.kospi += 1;
+    else if (row.market === "KOSDAQ") entry.kosdaq += 1;
+    entry.total += 1;
+  }
+
+  return {
+    divisions: [...byDivision.values()].sort((a, b) => b.total - a.total),
+    totalListed: rows.length,
+  };
+}
+
+/** 종목코드 여러 개를 한 번에 — 산업 상세가 소속사를 전부 확인할 때 쓴다. */
+export async function getCompaniesByStockCodes(stockCodes: string[]): Promise<Company[]> {
+  if (stockCodes.length === 0) return [];
+  const { data, error } = await supabaseService
+    .from("companies")
+    .select("*")
+    .in("stock_code", stockCodes);
+  if (error) throw error;
+  return parseAll(Company, data ?? [], "companies(byStockCodes)");
+}
+
+export interface MemberFinancials {
+  bsns_year: number;
+  fs_div: string;
+  revenue: number | null;
+  opm_pct: number | null;
+  roe_pct: number | null;
+  debt_ratio_pct: number | null;
+}
+
+/**
+ * 산업 소속사들의 연간 재무를 한 번에. 카탈로그에 숫자를 적어 두지 않는 대신 여기서 읽는다.
+ *
+ * 연결·별도가 한 해에 둘 다 있으면 `collapseByYear` 와 같은 규칙(연결 우선)으로 접는다 —
+ * 같은 화면에서 회사마다 다른 재무제표를 고르면 표가 비교 불가능해진다. 연결이 아예 없는
+ * 회사(에코프로머티 등)는 별도만 남으므로 그 기준을 화면에 표기한다.
+ */
+export async function getAnnualByCorpCodes(
+  corpCodes: string[],
+  years: number[],
+): Promise<Map<string, MemberFinancials[]>> {
+  const out = new Map<string, MemberFinancials[]>();
+  if (corpCodes.length === 0 || years.length === 0) return out;
+
+  const { data, error } = await supabaseService
+    .from("fin_periods")
+    .select("corp_code, bsns_year, fs_div, revenue, opm_pct, roe_pct, debt_ratio_pct")
+    .in("corp_code", corpCodes)
+    .in("bsns_year", years)
+    .eq("period_type", "A");
+  if (error) throw error;
+
+  const grouped = new Map<string, (MemberFinancials & { corp_code: string })[]>();
+  for (const row of (data ?? []) as (MemberFinancials & { corp_code: string })[]) {
+    const list = grouped.get(row.corp_code) ?? [];
+    list.push(row);
+    grouped.set(row.corp_code, list);
+  }
+  for (const [corpCode, list] of grouped) out.set(corpCode, collapseByYear(list));
+  return out;
 }
