@@ -13,6 +13,7 @@
 import { z } from "zod";
 
 export * from "./labels";
+export * from "./ksic";
 
 /** DART 금액·주식수는 "1,234,567" 같은 문자열로 온다. 숫자로 강제 변환하되 실패는 null. */
 export const dartNumber = z
