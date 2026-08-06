@@ -1,8 +1,8 @@
 # deps
 /node_modules
 
-# generated content
-.source
+# generated content (scripts/sync-content.mjs)
+/content/book
 
 # test & build
 /coverage

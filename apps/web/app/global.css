@@ -1,48 +1,81 @@
 @import 'tailwindcss';
-@import 'fumadocs-ui/css/neutral.css';
-@import 'fumadocs-ui/css/preset.css';
+@import 'tw-animate-css';
+@import 'shadcn/tailwind.css';
+@import './typeset.css';
 @import 'katex/dist/katex.min.css';
 
-/*
- * shadcn/chartcn base tokens.
- *
- * chartcn items (and shadcn's `card`/`chart` primitives) are written against
- * the *unprefixed* shadcn palette (`bg-card`, `text-muted-foreground`, …),
- * while this site's own theme lives entirely in Fumadocs' `--color-fd-*`
- * palette (see fumadocs-ui/css/lib/base.css). Rather than keep two parallel
- * palettes in sync by hand, bridge shadcn's names onto the fd tokens that
- * already exist.
- *
- * Dark mode already follows Fumadocs' `.dark` class convention — `--color-fd-*`
- * flips value under `.dark` (see base.css). A `var(--color-fd-x)` reference
- * re-resolves per element against whatever is in scope, so a single `:root`
- * definition below tracks both themes without a duplicate `.dark` block.
- * `--chart-1`…`--chart-5` are literal colors (no fd equivalent), so those do
- * get an explicit `.dark` override for contrast against the dark background.
- */
-:root {
-  --background: var(--color-fd-background);
-  --foreground: var(--color-fd-foreground);
-  --card: var(--color-fd-card);
-  --card-foreground: var(--color-fd-card-foreground);
-  --popover: var(--color-fd-popover);
-  --popover-foreground: var(--color-fd-popover-foreground);
-  --muted: var(--color-fd-muted);
-  --muted-foreground: var(--color-fd-muted-foreground);
-  --border: var(--color-fd-border);
-  --input: var(--color-fd-border);
-  --ring: var(--color-fd-ring);
-  --primary: var(--color-fd-primary);
-  --primary-foreground: var(--color-fd-primary-foreground);
-  --secondary: var(--color-fd-secondary);
-  --secondary-foreground: var(--color-fd-secondary-foreground);
-  --accent: var(--color-fd-accent);
-  --accent-foreground: var(--color-fd-accent-foreground);
-  --radius: 0.75rem;
+@custom-variant dark (&:is(.dark *));
 
-  /* Categorical chart palette — same hues already hand-picked for
-   * app/company/[stockCode]/_components/financial-chart.tsx (indigo/emerald/
-   * amber), extended to 5 with rose + sky so adjacent series never collide. */
+/*
+ * shadcn/typeset preset for the 교재 reading surface (`/book`).
+ *
+ * Latin glyphs come from Noto Sans, Hangul falls through to Noto Sans KR —
+ * one family can't serve both, and Noto Sans KR's latin is noticeably worse
+ * for the numbers this textbook is full of.
+ */
+.typeset-notes {
+  --typeset-font-body: var(--font-noto-sans), var(--font-noto-sans-kr), sans-serif;
+  --typeset-font-heading: var(--font-noto-sans), var(--font-noto-sans-kr), sans-serif;
+  --typeset-font-mono: var(--font-geist-mono), ui-monospace, monospace;
+  --typeset-size: 15px;
+  --typeset-leading: 1.75;
+  --typeset-flow: 1.25em;
+
+  /*
+   * Korean line breaking. Hangul has no spaces requirement for breaking, so the
+   * default `break-word` splits mid-어절 ("투자 / 와 투기는") and the ragged edge
+   * reads as a typo. `keep-all` breaks on 어절 boundaries instead; typeset's own
+   * `overflow-wrap: break-word` still catches anything genuinely too long.
+   */
+  word-break: keep-all;
+}
+
+/* Theme — shadcn `radix-mira` / `mist` preset (pnpm dlx shadcn apply). */
+:root {
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.148 0.004 228.8);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.148 0.004 228.8);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.148 0.004 228.8);
+  --muted: oklch(0.963 0.002 197.1);
+  --muted-foreground: oklch(0.56 0.021 213.5);
+  --border: oklch(0.925 0.005 214.3);
+  --input: oklch(0.925 0.005 214.3);
+  --ring: oklch(0.723 0.014 214.4);
+  --primary: oklch(0.52 0.105 223.128);
+  --primary-foreground: oklch(0.984 0.019 200.873);
+  --secondary: oklch(0.967 0.001 286.375);
+  --secondary-foreground: oklch(0.21 0.006 285.885);
+  --accent: oklch(0.963 0.002 197.1);
+  --accent-foreground: oklch(0.218 0.008 223.9);
+  --destructive: oklch(0.577 0.245 27.325);
+  --sidebar: oklch(0.987 0.002 197.1);
+  --sidebar-foreground: oklch(0.148 0.004 228.8);
+  --sidebar-primary: oklch(0.609 0.126 221.723);
+  --sidebar-primary-foreground: oklch(0.984 0.019 200.873);
+  --sidebar-accent: oklch(0.963 0.002 197.1);
+  --sidebar-accent-foreground: oklch(0.218 0.008 223.9);
+  --sidebar-border: oklch(0.925 0.005 214.3);
+  --sidebar-ring: oklch(0.723 0.014 214.4);
+  --radius: 0.625rem;
+
+  /*
+   * Font stacks. Named apart from Tailwind's own `--font-sans`/`--font-mono`
+   * theme keys so the `@theme inline` block below can point at them without a
+   * self-referential `--font-sans: var(--font-sans)`.
+   */
+  --font-app-sans: var(--font-noto-sans), var(--font-noto-sans-kr), ui-sans-serif,
+    system-ui, sans-serif;
+  --font-app-mono: var(--font-geist-mono), ui-monospace, monospace;
+
+  /*
+   * Categorical chart palette. Deliberately NOT the preset's chart ramp:
+   * that ramp is monochrome (five tints of one slate hue), which is right for
+   * a sequential scale and unreadable for the multi-series financial charts
+   * this app is mostly made of. Hues are the ones already hand-picked in
+   * app/company/[stockCode]/_components/financial-chart.tsx, extended to five.
+   */
   --chart-1: #6366f1; /* indigo */
   --chart-2: #22c55e; /* emerald */
   --chart-3: #f59e0b; /* amber */
@@ -51,8 +84,35 @@
 }
 
 .dark {
+  --background: oklch(0.148 0.004 228.8);
+  --foreground: oklch(0.987 0.002 197.1);
+  --card: oklch(0.218 0.008 223.9);
+  --card-foreground: oklch(0.987 0.002 197.1);
+  --popover: oklch(0.218 0.008 223.9);
+  --popover-foreground: oklch(0.987 0.002 197.1);
+  --muted: oklch(0.275 0.011 216.9);
+  --muted-foreground: oklch(0.723 0.014 214.4);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.56 0.021 213.5);
+  --primary: oklch(0.45 0.085 224.283);
+  --primary-foreground: oklch(0.984 0.019 200.873);
+  --secondary: oklch(0.274 0.006 286.033);
+  --secondary-foreground: oklch(0.985 0 0);
+  --accent: oklch(0.275 0.011 216.9);
+  --accent-foreground: oklch(0.987 0.002 197.1);
+  --destructive: oklch(0.704 0.191 22.216);
+  --sidebar: oklch(0.218 0.008 223.9);
+  --sidebar-foreground: oklch(0.987 0.002 197.1);
+  --sidebar-primary: oklch(0.715 0.143 215.221);
+  --sidebar-primary-foreground: oklch(0.302 0.056 229.695);
+  --sidebar-accent: oklch(0.275 0.011 216.9);
+  --sidebar-accent-foreground: oklch(0.987 0.002 197.1);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.56 0.021 213.5);
+
   /* Lighter tints of the same hues — the light-mode values read too dark
-   * against Fumadocs' near-black `--color-fd-background` in `.dark`. */
+   * against the near-black dark background. */
   --chart-1: #818cf8;
   --chart-2: #4ade80;
   --chart-3: #fbbf24;
@@ -78,120 +138,119 @@
   --color-secondary-foreground: var(--secondary-foreground);
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
   --color-chart-1: var(--chart-1);
   --color-chart-2: var(--chart-2);
   --color-chart-3: var(--chart-3);
   --color-chart-4: var(--chart-4);
   --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+  --font-sans: var(--font-app-sans);
+  --font-heading: var(--font-app-sans);
+  --font-mono: var(--font-app-mono);
 }
 
-html {
-  scrollbar-gutter: stable;
-}
-
-html > body[data-scroll-locked] {
-  margin-right: 0px !important;
-  --removed-body-scroll-bar-size: 0px !important;
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  html {
+    @apply font-sans;
+    scrollbar-gutter: stable;
+  }
 }
 
 /*
- * Fumadocs sidebar uses Radix ScrollArea (type="scroll"). The viewport starts
- * with inline overflow-y:hidden until the scrollbar effect enables scrolling.
- * In some embeds/previews that state sticks and long page trees cannot scroll.
- * Force the sidebar viewport to stay scrollable; native bars stay hidden via
- * Radix's scrollbar-width:none stylesheet.
+ * GFM footnotes (교재 구루·원전 인용).
+ *
+ * typeset styles the footnote section and `sup a`, but keeps the UA's
+ * `sup { line-height: 0 }`, which collapses the anchor's hit box — the number
+ * looks present but isn't clickable. Give the mark a real box, and enough
+ * scroll-margin that jumping to it clears the sticky reader header.
  */
-#nd-sidebar [data-radix-scroll-area-viewport],
-#nd-sidebar-mobile [data-radix-scroll-area-viewport] {
-  overflow-y: auto !important;
-}
-
-/* GFM footnotes (교재 구루·원전 인용)
- * Tailwind/Fumadocs preflight sets `sup { line-height: 0; top: -0.5em }`,
- * which collapses the <a> hit box so the number looks present but isn't clickable.
- */
-.prose :where(sup):has([data-footnote-ref]),
-article :where(sup):has([data-footnote-ref]) {
-  position: static;
-  top: auto;
-  line-height: 1;
-  font-size: 0.75em;
-  vertical-align: super;
-}
-
-.prose :where(a[data-footnote-ref]),
-article :where(a[data-footnote-ref]) {
+.typeset a[data-footnote-ref] {
   display: inline-block;
   min-width: 1.1em;
-  min-height: 1.1em;
   padding: 0 0.2em;
   margin-inline-start: 0.15em;
   line-height: 1.2;
-  font-size: 1em;
   font-weight: 700;
-  color: var(--color-fd-primary, #2563eb);
+  color: var(--primary);
   text-decoration: none;
-  cursor: pointer;
-  vertical-align: inherit;
-  /*
-   * Footnote marks sit at the end of a paragraph. scroll-margin must clear
-   * sticky header + in-page TOC popover AND leave room for lines above the mark.
-   * (Heading scroll-m-28 alone is not enough — the mark isn't the block start.)
-   */
-  scroll-margin-top: max(
-    10rem,
-    calc(
-      var(--fd-docs-row-2, 0px) + var(--fd-toc-popover-height, 0px) + 5rem
-    )
-  );
 }
 
-/* Downward jump to a footnote item (본문 ¹ → 출처) */
-.prose :where(section[data-footnotes] li),
-article :where(section[data-footnotes] li),
-section[data-footnotes] :where(li[id^='user-content-fn-']) {
-  scroll-margin-top: max(
-    10rem,
-    calc(
-      var(--fd-docs-row-2, 0px) + var(--fd-toc-popover-height, 0px) + 5rem
-    )
-  );
-}
-
-.prose :where(a[data-footnote-ref]):hover,
-article :where(a[data-footnote-ref]):hover {
+.typeset a[data-footnote-ref]:hover {
   text-decoration: underline;
 }
 
-.prose section[data-footnotes],
-article section[data-footnotes],
-section.footnotes {
-  margin-top: 2.5rem;
-  padding-top: 1.25rem;
-  border-top: 1px solid var(--color-fd-border, #e5e5e5);
-  font-size: 0.875em;
-  color: var(--color-fd-muted-foreground, #737373);
+.typeset [id^='user-content-fn-'],
+.typeset a[data-footnote-ref] {
+  scroll-margin-top: 6rem;
 }
 
-.prose section[data-footnotes] h2,
-article section[data-footnotes] h2,
-section.footnotes h2,
-section[data-footnotes] #footnote-label {
-  /* Fumadocs/rehype marks the label sr-only; show it for textbook readers. */
-  position: static;
-  width: auto;
-  height: auto;
-  padding: 0;
+/* remark-rehype marks the footnote label sr-only; textbook readers want it. */
+.typeset .typeset-footnote-label {
   margin: 0 0 0.75rem;
-  overflow: visible;
-  clip: auto;
-  white-space: normal;
-  border: 0;
   font-size: 0.95rem;
   font-weight: 600;
-  color: var(--color-fd-foreground, inherit);
+  color: var(--foreground);
+}
+
+/* Headings are anchor targets from the chapter TOC — clear the sticky header. */
+.typeset :is(h1, h2, h3, h4)[id] {
+  scroll-margin-top: 6rem;
+}
+
+/*
+ * Book text measure, with an escape hatch.
+ *
+ * Prose is held to shadcn/typeset's recommended ~37em so a line stays readable,
+ * but the 교재's charts and wide tables need more room than a book column. A
+ * full-bleed grid gives both: children default to the `measure` column, and
+ * anything marked `.book-bleed` spans the page's full width instead.
+ *
+ * `.book-contents` (the typeset container) is `display: contents` so the
+ * compiled Markdown runs become grid items of the page itself — that's what
+ * lets a chart break the measure while the chapter opener above it stays
+ * aligned with the body text.
+ */
+.book-flow {
+  display: grid;
+  grid-template-columns:
+    [full-start] minmax(0, 1fr)
+    [measure-start] min(37em, 100%) [measure-end]
+    minmax(0, 1fr) [full-end];
+  align-content: start;
+}
+
+.book-contents {
+  display: contents;
+}
+
+.book-flow > *,
+.book-flow > .book-contents > * {
+  grid-column: measure;
+  min-width: 0;
+}
+
+.book-flow > .book-bleed,
+.book-flow > .book-contents > .book-bleed {
+  grid-column: full;
 }

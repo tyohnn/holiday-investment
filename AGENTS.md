@@ -5,18 +5,26 @@
 ### What this repo is
 This is primarily (1) a Bash **YouTube → transcription pipeline** and
 (2) an authored **Korean Markdown knowledge base** (`교재/`, `강의/`).
-There is also a pnpm monorepo front-end under `apps/web` (Fumadocs/Next.js) that
-serves `교재/` — run from repo root with `pnpm install` / `pnpm dev`. Shared
+There is also a pnpm monorepo front-end under `apps/web` (Next.js 16 + shadcn/ui) that
+serves `교재/` as a book — run from repo root with `pnpm install` / `pnpm dev`. Shared
 packages can go in `packages/*`. The knowledge-base Markdown remains the core
 deliverable; the site is a viewer over it.
 
 ### Web app + platform (apps/web + Supabase) — the runnable application
 `pnpm install` (root) then `pnpm dev` serves the site at http://localhost:3000 (Next.js 16
 + Turbopack). `predev` runs `scripts/sync-content.mjs` which regenerates the gitignored
-`apps/web/content/docs/` from `교재/` (≈112 files). Node 22 + pnpm 10.x are used; the
-update script runs `pnpm install`.
+`apps/web/content/book/` from `교재/` — plain CommonMark plus a `manifest.json` holding the
+권·부·장 structure. Node 22 + pnpm 10.x are used; the update script runs `pnpm install`.
 
-- **`/docs/**` works standalone** — pure Fumadocs viewer over `교재/`, no backend needed.
+- **`/book/**` works standalone** — the app's own reader over `교재/`, no backend needed.
+  Fumadocs was removed (2026-08); the shelf is `/book`, a 권 is `/book/book1`, a 장 is
+  `/book/book1/C3`, 자료 is `/book/reference/<slug>`. Old `/docs/**` URLs 301 to `/book/**`.
+  Body copy is styled by **shadcn/typeset** (`apps/web/app/typeset.css` + the
+  `.typeset-notes` preset in `app/global.css`) — never hand-style rendered Markdown; wrap
+  it in `.typeset .typeset-notes` and let the stylesheet do it. Markdown is compiled by
+  `apps/web/lib/book/render.ts` (remark/rehype), not MDX, so **JSX in 교재 Markdown does
+  not work**; the one live component is the `@@TEXTBOOK_CHART:<id>@@` placeholder that
+  `scripts/sync-content.mjs` writes for `<!-- MEDIA:chart -->` markers.
 - **`/company/**` needs the local Supabase stack** (`apps/web/lib/platform/db.ts` reads
   PostgREST at `http://127.0.0.1:54321` with the built-in local **service_role** key, so
   **no env vars are required** — just have the stack running). Every read goes through the
@@ -27,7 +35,7 @@ update script runs `pnpm install`.
   `/company` 500s.
   `/company/<stockCode>` 307-redirects to `/company/<stockCode>/revenue`. Seeded stock codes:
   `259960` (크래프톤), `247540` (에코프로비엠).
-- `pnpm types:check` (root) = the lint/build proxy (`fumadocs-mdx && next typegen && tsc --noEmit`).
+- `pnpm types:check` (root) = the lint/build proxy (`next typegen && tsc --noEmit`).
 
 **Running the Supabase stack (for `/company`)** — see `platform/README.md` for the full
 data workflow; the non-obvious cloud gotchas are:

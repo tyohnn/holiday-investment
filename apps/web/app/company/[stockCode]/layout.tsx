@@ -15,18 +15,18 @@ export default async function StockAnalysisLayout({
   return (
     <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
       <aside className="w-full shrink-0 lg:sticky lg:top-20 lg:w-56">
-        <div className="mb-4 rounded-xl border border-fd-border bg-fd-card p-3 lg:mb-6">
+        <div className="mb-4 rounded-xl border border-border bg-card p-3 lg:mb-6">
           <Link
             href={`/company/${stockCode}/revenue`}
-            className="block text-base font-semibold tracking-tight hover:text-fd-primary"
+            className="block text-base font-semibold tracking-tight hover:text-primary"
           >
             {company.name}
           </Link>
-          <p className="mt-0.5 font-mono text-xs text-fd-muted-foreground">
+          <p className="mt-0.5 font-mono text-xs text-muted-foreground">
             {company.stock_code}
             {company.market ? ` · ${company.market}` : ''}
           </p>
-          <p className="mt-1 text-xs text-fd-muted-foreground">
+          <p className="mt-1 text-xs text-muted-foreground">
             {sectorName(company.sector_code) ?? '업종 미상'}
             {company.ceo ? ` · ${company.ceo}` : ''}
           </p>

@@ -43,16 +43,16 @@ export default async function FinancialsSourcePage(
       {annual.length > 0 ? (
         <section>
           <h2 className="text-lg font-semibold">재무 추이</h2>
-          <p className="mt-1 text-xs text-fd-muted-foreground">
+          <p className="mt-1 text-xs text-muted-foreground">
             연도별 매출·영업이익(막대, 좌축) · 영업이익률(선, 우축) — {annual[0].bsns_year}~
             {annual[annual.length - 1].bsns_year}
           </p>
-          <div className="mt-3 rounded-xl border border-fd-border bg-fd-card p-4">
+          <div className="mt-3 rounded-xl border border-border bg-card p-4">
             <FinancialChart data={annual} />
           </div>
         </section>
       ) : (
-        <p className="rounded-xl border border-dashed border-fd-border p-6 text-center text-sm text-fd-muted-foreground">
+        <p className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
           재무 데이터 없음
         </p>
       )}

@@ -45,7 +45,7 @@ export type WidgetId =
 
 export interface TextbookLink {
   label: string;
-  /** Fumadocs 경로, 예: /docs/book1/C3 */
+  /** 교재 경로, 예: /book/book1/C3 */
   href: string;
 }
 

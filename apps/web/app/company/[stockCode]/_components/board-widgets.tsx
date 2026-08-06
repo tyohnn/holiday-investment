@@ -7,7 +7,7 @@ import {
   type TrackingFact,
 } from '@investment/schema';
 import { WIDGETS, type WidgetId } from '@/lib/analysis';
-import { isHiddenDocsHref } from '@/lib/hidden-books';
+import { isHiddenBookHref } from '@/lib/hidden-books';
 import { WidgetShell } from './widget-shell';
 import { TrackingFactList, filterTrackingsByTopics } from './tracking-fact-list';
 
@@ -92,14 +92,14 @@ function MarketShareFrameWidget({ data }: { data: BoardData }) {
       {latest && (
         <dl className="grid grid-cols-2 gap-2 text-sm">
           <div>
-            <dt className="text-xs text-fd-muted-foreground">최근 매출</dt>
+            <dt className="text-xs text-muted-foreground">최근 매출</dt>
             <dd className="font-medium tabular-nums">{formatWon(latest.revenue)}원</dd>
           </div>
           <div>
-            <dt className="text-xs text-fd-muted-foreground">매출 CAGR</dt>
+            <dt className="text-xs text-muted-foreground">매출 CAGR</dt>
             <dd className="font-medium tabular-nums">{formatPercent(cagr)}</dd>
           </div>
-          <div className="col-span-2 rounded-lg bg-fd-muted/40 px-3 py-2 text-xs text-fd-muted-foreground">
+          <div className="col-span-2 rounded-lg bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
             시장규모·점유율 가정 입력 UI는 후속. 현재는 실적 골격만 표시.
           </div>
         </dl>
@@ -128,11 +128,11 @@ function CfInvestingWidget({ data }: { data: BoardData }) {
             rev && rev !== 0 && r.amount != null ? (Math.abs(r.amount) / rev) * 100 : null;
           return (
             <li key={r.bsns_year} className="flex items-baseline justify-between gap-2">
-              <span className="text-fd-muted-foreground">{r.bsns_year}</span>
+              <span className="text-muted-foreground">{r.bsns_year}</span>
               <span className="tabular-nums">
                 {formatWon(r.amount)}원
                 {pct != null && (
-                  <span className="ml-2 text-xs text-fd-muted-foreground">
+                  <span className="ml-2 text-xs text-muted-foreground">
                     매출 대비 {formatPercent(pct)}
                   </span>
                 )}
@@ -168,14 +168,14 @@ function KeyFourMetricsWidget({ data }: { data: BoardData }) {
             { label: '부채비율', value: formatPercent(latest.debt_ratio_pct) },
           ].map((item) => (
             <div key={item.label}>
-              <dt className="text-xs text-fd-muted-foreground">{item.label}</dt>
+              <dt className="text-xs text-muted-foreground">{item.label}</dt>
               <dd className="font-semibold tabular-nums">{item.value}</dd>
             </div>
           ))}
         </dl>
       )}
       {data.annual.length > 1 && (
-        <ul className="mt-3 space-y-1 border-t border-fd-border pt-3 text-xs text-fd-muted-foreground">
+        <ul className="mt-3 space-y-1 border-t border-border pt-3 text-xs text-muted-foreground">
           {data.annual.slice(-5).map((r) => (
             <li key={r.bsns_year} className="flex justify-between gap-2">
               <span>{r.bsns_year}</span>
@@ -220,7 +220,7 @@ function MarginThreeLayersWidget({ data }: { data: BoardData }) {
         <ul className="mb-3 space-y-1 text-sm">
           {withOpm.slice(-5).map((r) => (
             <li key={r.bsns_year} className="flex justify-between">
-              <span className="text-fd-muted-foreground">{r.bsns_year}</span>
+              <span className="text-muted-foreground">{r.bsns_year}</span>
               <span className="tabular-nums">{formatPercent(r.opm_pct)}</span>
             </li>
           ))}
@@ -259,7 +259,7 @@ function ResourceAllocationWidget({ data }: { data: BoardData }) {
     >
       {hasCapex && (
         <div className="mb-3">
-          <p className="mb-1.5 text-xs font-medium text-fd-muted-foreground">
+          <p className="mb-1.5 text-xs font-medium text-muted-foreground">
             CAPEX 대리(투자활동CF) / 매출
           </p>
           <ul className="space-y-1 text-sm">
@@ -271,11 +271,11 @@ function ResourceAllocationWidget({ data }: { data: BoardData }) {
                   : null;
               return (
                 <li key={r.bsns_year} className="flex justify-between gap-2">
-                  <span className="text-fd-muted-foreground">{r.bsns_year}</span>
+                  <span className="text-muted-foreground">{r.bsns_year}</span>
                   <span className="tabular-nums">
                     {formatWon(r.amount)}원
                     {p != null && (
-                      <span className="ml-2 text-xs text-fd-muted-foreground">
+                      <span className="ml-2 text-xs text-muted-foreground">
                         {formatPercent(p)}
                       </span>
                     )}
@@ -287,7 +287,7 @@ function ResourceAllocationWidget({ data }: { data: BoardData }) {
         </div>
       )}
       {facts.length > 0 && <TrackingFactList facts={facts} limit={4} />}
-      <p className="mt-2 text-[11px] text-fd-muted-foreground">
+      <p className="mt-2 text-[11px] text-muted-foreground">
         판관·인건·R&D 계정은 후속 ingest. 지금은 투자 집행으로 자원 배분 방향을 본다.
       </p>
     </WidgetShell>
@@ -309,7 +309,7 @@ function OrgPeopleDecisionWidget({ data }: { data: BoardData }) {
       emptyHint="인원·근속·인건비/매출 및 조직 변경 사실 수집 필요"
     >
       <TrackingFactList facts={facts} />
-      <p className="mt-2 text-[11px] text-fd-muted-foreground">
+      <p className="mt-2 text-[11px] text-muted-foreground">
         사업보고서 인력 주석·인건비 계정 연동은 후속.
       </p>
     </WidgetShell>
@@ -358,7 +358,7 @@ function EventsBoundWidget({
         <ul className="mt-2 space-y-1.5 text-sm">
           {events.slice(0, 5).map((e) => (
             <li key={e.id} className="flex justify-between gap-2 text-xs">
-              <span className="text-fd-muted-foreground">{e.rcept_dt ?? '—'}</span>
+              <span className="text-muted-foreground">{e.rcept_dt ?? '—'}</span>
               <span className="text-right">{e.event_type}</span>
             </li>
           ))}
@@ -374,19 +374,19 @@ function StudyLinksWidget() {
     <WidgetShell meta={meta} claim={meta.claim} evidence="교재 딥링크">
       <ul className="space-y-2 text-sm">
         {[
-          { href: '/docs/book2', label: '2권 이차전지 산업을 해부하는 법' },
-          { href: '/docs/book2/D1', label: '밸류체인 지도와 채찍효과' },
-          { href: '/docs/book2/A2', label: '이차전지 개념과 구성' },
-          { href: '/docs/book2/A3', label: '에너지밀도와 하이니켈' },
-          { href: '/docs/book1/B3', label: '1권 산업 분석 프레임' },
+          { href: '/book/book2', label: '2권 이차전지 산업을 해부하는 법' },
+          { href: '/book/book2/D1', label: '밸류체인 지도와 채찍효과' },
+          { href: '/book/book2/A2', label: '이차전지 개념과 구성' },
+          { href: '/book/book2/A3', label: '에너지밀도와 하이니켈' },
+          { href: '/book/book1/B3', label: '1권 산업 분석 프레임' },
         ]
           // Hidden-book deep-links would 404 — see lib/hidden-books.ts
-          .filter((item) => !isHiddenDocsHref(item.href))
+          .filter((item) => !isHiddenBookHref(item.href))
           .map((item) => (
           <li key={item.href}>
             <Link
               href={item.href}
-              className="text-fd-primary underline-offset-2 hover:underline"
+              className="text-primary underline-offset-2 hover:underline"
             >
               {item.label}
             </Link>
@@ -405,8 +405,8 @@ function AgentChatWidget({ stockCode }: { stockCode: string }) {
       claim={`종목 ${stockCode} 분석 화면 맥락으로 질문할 수 있게 됩니다`}
       evidence="UI 골격 · LLM 백엔드 후속"
     >
-      <div className="rounded-lg border border-dashed border-fd-border bg-fd-muted/30 p-4">
-        <p className="text-sm text-fd-muted-foreground">
+      <div className="rounded-lg border border-dashed border-border bg-muted/30 p-4">
+        <p className="text-sm text-muted-foreground">
           AI는 보조입니다. 위젯 근거 설명·트래킹 사실 고르기 제안만 하며, 분석 화면
           레이아웃은 바꾸지 않습니다.
         </p>
@@ -414,12 +414,12 @@ function AgentChatWidget({ stockCode }: { stockCode: string }) {
           <input
             disabled
             placeholder="예: 수주 위젯 근거를 설명해줘"
-            className="flex-1 rounded-md border border-fd-border bg-fd-background px-3 py-2 text-sm opacity-60"
+            className="flex-1 rounded-md border border-border bg-background px-3 py-2 text-sm opacity-60"
           />
           <button
             type="button"
             disabled
-            className="rounded-md bg-fd-primary px-3 py-2 text-sm font-medium text-fd-primary-foreground opacity-50"
+            className="rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground opacity-50"
           >
             보내기
           </button>

@@ -23,15 +23,15 @@ export function SectionsList({
   return (
     <section>
       <h2 className="text-lg font-semibold">사업보고서 주석·사업의 내용</h2>
-      <p className="mt-1 text-xs text-fd-muted-foreground">
+      <p className="mt-1 text-xs text-muted-foreground">
         ★주석 · ☆사업의 내용 — 수치 인용 전 원문 대조 원칙 (표 서식 일부 손실 가능)
       </p>
       <div className="mt-3 space-y-3">
         {[...byFiling.entries()].map(([rceptNo, items]) => (
-          <div key={rceptNo} className="rounded-xl border border-fd-border bg-fd-card p-4">
+          <div key={rceptNo} className="rounded-xl border border-border bg-card p-4">
             <div className="text-sm font-medium">
               {items[0].report_nm}{' '}
-              <span className="font-normal text-fd-muted-foreground">
+              <span className="font-normal text-muted-foreground">
                 ({formatKoDate(items[0].filing_rcept_dt)})
               </span>
             </div>
@@ -40,7 +40,7 @@ export function SectionsList({
                 <li key={s.id}>
                   <Link
                     href={`/company/${stockCode}/filing/${rceptNo}/${s.sec_no}`}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-fd-border px-2.5 py-1 text-sm hover:bg-fd-accent/40"
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1 text-sm hover:bg-accent/40"
                   >
                     {s.is_note && <span className="text-amber-500">★</span>}
                     {s.is_biz && <span className="text-sky-500">☆</span>}

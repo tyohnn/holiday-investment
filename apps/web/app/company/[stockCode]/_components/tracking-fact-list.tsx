@@ -22,11 +22,11 @@ export function TrackingFactList({
   if (shown.length === 0) return null;
 
   return (
-    <ol className="space-y-2.5 border-l border-fd-border pl-3">
+    <ol className="space-y-2.5 border-l border-border pl-3">
       {shown.map((f) => (
         <li key={f.id} className="relative text-sm">
-          <span className="absolute -left-[15px] top-1.5 h-1.5 w-1.5 rounded-full bg-fd-primary" />
-          <div className="text-[11px] text-fd-muted-foreground">
+          <span className="absolute -left-[15px] top-1.5 h-1.5 w-1.5 rounded-full bg-primary" />
+          <div className="text-[11px] text-muted-foreground">
             {formatFactDate(f.fact_date, f.date_precision)}
             <span className="mx-1 opacity-40">·</span>
             {f.topic}

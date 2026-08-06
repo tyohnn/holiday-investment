@@ -46,7 +46,7 @@ export function ValueChain({
                     {axis === 'material' && i < axisStages.length - 1 && (
                       <div
                         aria-hidden
-                        className="flex w-4 shrink-0 items-center justify-center text-fd-muted-foreground"
+                        className="flex w-4 shrink-0 items-center justify-center text-muted-foreground"
                       >
                         →
                       </div>
@@ -72,42 +72,42 @@ function StageCard({
   year: number;
 }) {
   return (
-    <article className="flex w-72 shrink-0 flex-col rounded-xl border border-fd-border bg-fd-card p-4">
+    <article className="flex w-72 shrink-0 flex-col rounded-xl border border-border bg-card p-4">
       <header>
         <div className="flex items-start justify-between gap-2">
           <h4 className="text-sm font-semibold leading-snug">{stage.name}</h4>
           {stage.capexShare !== undefined && (
-            <span className="shrink-0 rounded-md bg-fd-secondary px-1.5 py-0.5 text-[10px] font-medium text-fd-secondary-foreground">
+            <span className="shrink-0 rounded-md bg-secondary px-1.5 py-0.5 text-[10px] font-medium text-secondary-foreground">
               투자비중 {stage.capexShare}%
             </span>
           )}
         </div>
-        <p className="mt-1 text-xs leading-snug text-fd-muted-foreground">{stage.role}</p>
+        <p className="mt-1 text-xs leading-snug text-muted-foreground">{stage.role}</p>
       </header>
 
       {(stage.downturnRank || stage.recoveryRank || stage.pricing) && (
-        <dl className="mt-3 grid grid-cols-3 gap-1 rounded-lg bg-fd-muted/50 p-2 text-[10px]">
+        <dl className="mt-3 grid grid-cols-3 gap-1 rounded-lg bg-muted/50 p-2 text-[10px]">
           <div>
-            <dt className="text-fd-muted-foreground">침체 악화</dt>
+            <dt className="text-muted-foreground">침체 악화</dt>
             <dd className="font-medium tabular-nums">
               {stage.downturnRank ? `${stage.downturnRank}위` : '—'}
             </dd>
           </div>
           <div>
-            <dt className="text-fd-muted-foreground">회복 순서</dt>
+            <dt className="text-muted-foreground">회복 순서</dt>
             <dd className="font-medium tabular-nums">
               {stage.recoveryRank ? `${stage.recoveryRank}번째` : '—'}
             </dd>
           </div>
           <div>
-            <dt className="text-fd-muted-foreground">판매가</dt>
+            <dt className="text-muted-foreground">판매가</dt>
             <dd className="font-medium">{stage.pricing ? PRICING_LABEL[stage.pricing] : '—'}</dd>
           </div>
         </dl>
       )}
 
       {stage.note && (
-        <p className="mt-2 text-[11px] leading-relaxed text-fd-muted-foreground">{stage.note}</p>
+        <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">{stage.note}</p>
       )}
 
       <ul className="mt-3 flex-1 space-y-2">
@@ -132,13 +132,13 @@ function MemberRow({
   const row = fact?.rows.find((r) => r.bsns_year === year);
 
   return (
-    <li className="rounded-lg border border-fd-border/70 px-2.5 py-2">
+    <li className="rounded-lg border border-border/70 px-2.5 py-2">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           {member.stockCode ? (
             <Link
               href={`/company/${member.stockCode}`}
-              className="text-xs font-medium text-fd-primary underline-offset-2 hover:underline"
+              className="text-xs font-medium text-primary underline-offset-2 hover:underline"
             >
               {member.name}
             </Link>
@@ -146,14 +146,14 @@ function MemberRow({
             <span className="text-xs font-medium">{member.name}</span>
           )}
           {member.role && (
-            <span className="ml-1.5 text-[10px] text-fd-muted-foreground">{member.role}</span>
+            <span className="ml-1.5 text-[10px] text-muted-foreground">{member.role}</span>
           )}
         </div>
         {member.verdict && <VerdictBadge verdict={member.verdict} />}
       </div>
 
       {row && (
-        <p className="mt-1 flex flex-wrap gap-x-2 text-[10px] tabular-nums text-fd-muted-foreground">
+        <p className="mt-1 flex flex-wrap gap-x-2 text-[10px] tabular-nums text-muted-foreground">
           <span>
             {year} 매출 {formatEok(row.revenue)}
           </span>
@@ -162,7 +162,7 @@ function MemberRow({
         </p>
       )}
       {member.stockCode && !row && (
-        <p className="mt-1 text-[10px] text-fd-muted-foreground">{year} 재무 미보유</p>
+        <p className="mt-1 text-[10px] text-muted-foreground">{year} 재무 미보유</p>
       )}
 
       {member.conglomerate && (
@@ -171,7 +171,7 @@ function MemberRow({
         </p>
       )}
       {member.verdictNote && (
-        <p className="mt-1 text-[10px] leading-snug text-fd-muted-foreground">
+        <p className="mt-1 text-[10px] leading-snug text-muted-foreground">
           {member.verdictNote}
         </p>
       )}

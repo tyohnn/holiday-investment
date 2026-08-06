@@ -7,10 +7,10 @@ export function FilingTimeline({ filings }: { filings: Filing[] }) {
   return (
     <section>
       <h2 className="text-lg font-semibold">공시 타임라인</h2>
-      <p className="mt-1 text-xs text-fd-muted-foreground">최근 {filings.length}건</p>
-      <div className="mt-3 overflow-x-auto rounded-xl border border-fd-border">
+      <p className="mt-1 text-xs text-muted-foreground">최근 {filings.length}건</p>
+      <div className="mt-3 overflow-x-auto rounded-xl border border-border">
         <table className="w-full min-w-[560px] text-sm">
-          <thead className="bg-fd-muted/50 text-xs text-fd-muted-foreground">
+          <thead className="bg-muted/50 text-xs text-muted-foreground">
             <tr>
               <th className="px-3 py-2 text-left font-medium">접수일</th>
               <th className="px-3 py-2 text-left font-medium">보고서명</th>
@@ -18,10 +18,10 @@ export function FilingTimeline({ filings }: { filings: Filing[] }) {
               <th className="px-3 py-2 text-left font-medium">비고</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-fd-border">
+          <tbody className="divide-y divide-border">
             {filings.map((f) => (
-              <tr key={f.rcept_no} className="hover:bg-fd-accent/30">
-                <td className="whitespace-nowrap px-3 py-2 align-top tabular-nums text-fd-muted-foreground">
+              <tr key={f.rcept_no} className="hover:bg-accent/30">
+                <td className="whitespace-nowrap px-3 py-2 align-top tabular-nums text-muted-foreground">
                   {formatKoDate(f.rcept_dt)}
                 </td>
                 <td className="px-3 py-2 align-top">
@@ -29,7 +29,7 @@ export function FilingTimeline({ filings }: { filings: Filing[] }) {
                     href={dartUrl(f.rcept_no)}
                     target="_blank"
                     rel="noreferrer"
-                    className="hover:text-fd-primary hover:underline"
+                    className="hover:text-primary hover:underline"
                   >
                     {f.report_nm}
                   </a>
@@ -39,10 +39,10 @@ export function FilingTimeline({ filings }: { filings: Filing[] }) {
                     </span>
                   )}
                 </td>
-                <td className="whitespace-nowrap px-3 py-2 align-top text-fd-muted-foreground">
+                <td className="whitespace-nowrap px-3 py-2 align-top text-muted-foreground">
                   {f.flr_nm ?? '—'}
                 </td>
-                <td className="px-3 py-2 align-top text-fd-muted-foreground">{f.rm ?? ''}</td>
+                <td className="px-3 py-2 align-top text-muted-foreground">{f.rm ?? ''}</td>
               </tr>
             ))}
           </tbody>

@@ -34,8 +34,8 @@ export const INDUSTRIES: Industry[] = [
       { label: 'QC 로그 — 걸러낸 결함과 도구 수정', path: '리서치/산업/이차전지/2026-08-06-QC로그.md' },
     ],
     textbooks: [
-      { label: '1권 12장 산업 분석 프레임', href: '/docs/book1/B3' },
-      { label: '1권 11장 경제적 해자와 가격결정권', href: '/docs/book1/B2' },
+      { label: '1권 12장 산업 분석 프레임', href: '/book/book1/B3' },
+      { label: '1권 11장 경제적 해자와 가격결정권', href: '/book/book1/B2' },
       { label: '2권 13장 밸류체인 지도와 채찍효과', note: '2권 비공개' },
     ],
     phase: [

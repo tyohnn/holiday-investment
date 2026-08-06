@@ -1,6 +1,12 @@
 #!/usr/bin/env node
 /**
- * Sync repo-root 교재 Markdown → content/docs as Fumadocs pages (+ meta.json).
+ * Sync repo-root 교재 Markdown → content/book as plain Markdown + manifest.json.
+ *
+ * The reader (`app/book/**`) compiles this Markdown itself with remark/rehype
+ * and prints it inside a shadcn/typeset container, so the output here is
+ * ordinary CommonMark — no frontmatter, no MDX escaping. Everything the routes
+ * need to build navigation (books → 부 → 장, titles, descriptions) lives in
+ * `manifest.json`; the `.md` files are pure chapter bodies.
  *
  * Uses ASCII URL slugs only — Next.js static export can corrupt nested
  * Hangul path segments (truncated folders / client 404s).
@@ -16,12 +22,14 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
 const REPO = path.resolve(ROOT, '../..');
 const SRC = path.join(REPO, '교재');
-const DEST = path.join(ROOT, 'content', 'docs');
+const DEST = path.join(ROOT, 'content', 'book');
+/** URL prefix of the reading surface. Wiki links and cross-refs resolve here. */
+const BOOK_ROUTE = '/book';
 
 /**
  * ── HIDE/SHOW A BOOK ──────────────────────────────────────────────────
  * Single flag: `lib/hidden-books.json`. A book listed there with `true`
- * gets no content/docs pages, no meta.json entry, and no source-map.json
+ * gets no content/book pages, no manifest entry, and no source-map.json
  * entry; every `[[wiki|label]]` link into it is rendered as plain label
  * text (no href) instead of a live link, so nothing 404s. The original
  * 교재/ markdown is never touched — this only changes what gets synced.
@@ -43,6 +51,7 @@ function isHidden(book) {
 /** [destSlug, srcBasenameWithoutExt] — 부 순서 = A→I 알파벳. 학습장은 허브 직후. */
 const BOOK1 = {
   folder: 'book1',
+  label: '1권',
   title: '1권: 기업의 가치를 계산하는 법',
   pages: [
     { slug: 'index', src: '목차' },
@@ -92,6 +101,7 @@ const BOOK1 = {
 
 const BOOK2 = {
   folder: 'book2',
+  label: '2권',
   title: '2권: 이차전지 산업을 해부하는 법',
   pages: [
     { slug: 'index', src: '목차' },
@@ -129,14 +139,13 @@ const BOOK2 = {
   ],
 };
 
-/** pagePath in content/docs → original 교재 relative path (for GitHub link) */
+/** pagePath in content/book → original 교재 relative path (for GitHub link) */
 const SOURCE_MAP = new Map([
-  ['index.mdx', 'INDEX.md'],
-  ['reference/index.mdx', 'INDEX.md'],
-  ['reference/stocks.mdx', '종목/INDEX.md'],
-  ['reference/glossary.mdx', '용어교정.md'],
-  ...(isHidden(BOOK1) ? [] : [['book1/index.mdx', '교재1-방법론/목차.md']]),
-  ...(isHidden(BOOK2) ? [] : [['book2/index.mdx', '교재2-이차전지/목차.md']]),
+  ['index.md', 'INDEX.md'],
+  ['reference/stocks.md', '종목/INDEX.md'],
+  ['reference/glossary.md', '용어교정.md'],
+  ...(isHidden(BOOK1) ? [] : [['book1/index.md', '교재1-방법론/목차.md']]),
+  ...(isHidden(BOOK2) ? [] : [['book2/index.md', '교재2-이차전지/목차.md']]),
 ]);
 
 /**
@@ -151,7 +160,7 @@ function registerWikiTargets(book) {
   const hidden = isHidden(book);
   for (const item of book.pages) {
     if (typeof item === 'string') continue;
-    const href = hidden ? null : `/docs/${book.folder}/${item.slug}`;
+    const href = hidden ? null : `${BOOK_ROUTE}/${book.folder}/${item.slug}`;
     WIKI_HREF.set(item.src, href);
     WIKI_HREF.set(item.slug, href);
     // basename without prefix codes sometimes linked as short slug
@@ -161,8 +170,8 @@ function registerWikiTargets(book) {
 }
 registerWikiTargets(BOOK1);
 registerWikiTargets(BOOK2);
-WIKI_HREF.set('부록-투자자의-태도와-공부법', '/docs/book1/appendix');
-WIKI_HREF.set('appendix', '/docs/book1/appendix');
+WIKI_HREF.set('부록-투자자의-태도와-공부법', `${BOOK_ROUTE}/book1/appendix`);
+WIKI_HREF.set('appendix', `${BOOK_ROUTE}/book1/appendix`);
 
 function rewriteWikiLinks(text) {
   return text.replace(/\[\[([^\]|#]+)(?:#[^\]|]+)?(?:\|([^\]]+))?\]\]/g, (full, target, label) => {
@@ -190,41 +199,28 @@ function writeJson(file, data) {
   fs.writeFileSync(file, `${JSON.stringify(data, null, 2)}\n`, 'utf8');
 }
 
-function yamlEscape(value) {
-  if (value == null) return '""';
-  const s = String(value).replace(/\s+/g, ' ').trim();
-  if (s === '') return '""';
-  if (/[:#{}[\],&*!|>'"%@`]|^\s|\s$/.test(s) || s.includes('\n')) {
-    return `"${s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
-  }
-  return s;
-}
-
 /**
- * `<!-- MEDIA:chart id="…" --> \n > **[차트]** …` → `<TextbookChart id="…" />`.
+ * `<!-- MEDIA:chart id="…" --> \n > **[차트]** …` → a lone `@@TEXTBOOK_CHART:id@@`
+ * paragraph, which `lib/book/render.ts` swaps for a live <TextbookChart /> after
+ * compiling the Markdown around it.
  *
- * Must run *before* escapeMdx() (else the `<` gets turned into `&lt;` like
- * every other raw HTML tag) but the substituted JSX must not itself be
- * escaped by the same escapeMdx() pass. Bridge the two by swapping the
- * marker for a bracket-free placeholder here, running escapeMdx() as usual
- * (the placeholder has no `<`/`>`/`{`/`}` for escapePlain to touch), then
- * swapping the placeholder for real JSX once escaping is done.
- *
- * Other placeholders (`MEDIA:diagram`, …) are untouched and stay escaped —
- * only `MEDIA:chart` gets a live component.
+ * Marker substitution runs before escapeAngles() so the `<!--` isn't turned
+ * into entities like every other raw tag; the placeholder itself has no angle
+ * brackets, so the escaping pass leaves it alone.
  */
 const MEDIA_CHART_RE = /<!--\s*MEDIA:chart\s+id="([^"]+)"\s*-->\s*\n>\s*\*\*\[[^\]]+\]\*\*\s*.*/g;
-const MEDIA_CHART_PLACEHOLDER_RE = /@@TEXTBOOK_CHART:([^@\n]+)@@/g;
 
 function stashChartMarkers(body) {
   return body.replace(MEDIA_CHART_RE, (_, id) => `@@TEXTBOOK_CHART:${id}@@`);
 }
 
-function unstashChartMarkers(body) {
-  return body.replace(MEDIA_CHART_PLACEHOLDER_RE, (_, id) => `<TextbookChart id="${id}" />`);
-}
-
-function escapeMdx(body) {
+/**
+ * Angle-bracketed prose placeholders (`<NN-제목>`, `<장코드>`, …) read as raw
+ * HTML to a Markdown parser, and remark-rehype drops raw HTML — so they'd
+ * vanish silently. Escape them to entities outside of code/math spans so they
+ * survive as literal text.
+ */
+function escapeAngles(body) {
   const parts = [];
   const re = /(```[\s\S]*?```|`[^`\n]+`|\$\$[\s\S]*?\$\$|\$[^$\n]+\$)/g;
   let last = 0;
@@ -239,12 +235,11 @@ function escapeMdx(body) {
 }
 
 function escapePlain(text) {
-  // HTML comments (MEDIA/QUIZ placeholders) are invalid in MDX — `<!` is parsed as JSX.
-  // Keep the markers as entities so placeholders remain visible and searchable.
-  let out = text.replace(/<!--([\s\S]*?)-->/g, (_, inner) => `&lt;!--${inner}--&gt;`);
-  out = out.replace(/<([A-Za-z가-힣/_][^>\n]*)>/g, '&lt;$1&gt;');
-  out = out.replace(/(?<!\\)\{/g, '\\{').replace(/(?<!\\)\}/g, '\\}');
-  return out;
+  // Authoring markers that never became live components (MEDIA:diagram, QUIZ).
+  // The human-readable blockquote caption under them stays; only the invisible
+  // marker line goes, so a reader isn't shown raw `<!-- … -->`.
+  let out = text.replace(/<!--[\s\S]*?-->\n?/g, '');
+  return out.replace(/<([A-Za-z가-힣/_][^>\n]*)>/g, '&lt;$1&gt;');
 }
 
 /** Drop authoring/pipeline provenance that should not appear on the public site. */
@@ -300,28 +295,37 @@ function parseMarkdown(raw) {
     ? para.replace(/\s+/g, ' ').replace(/\*\*/g, '').slice(0, 160)
     : title;
 
-  return { title, description, body: unstashChartMarkers(escapeMdx(body.trimStart())) };
+  return { title, description, body: escapeAngles(body.trimStart()) };
 }
 
-function writeDoc(destPath, title, description, body) {
-  mkdirp(path.dirname(destPath));
-  const frontmatter = `---
-title: ${yamlEscape(scrubNames(title))}
-description: ${yamlEscape(scrubNames(description))}
----
+/**
+ * `1장. 매출 추정의 기술 — 첫 칸을 어떻게 채우는가` →
+ * `{ number: 1, heading: '매출 추정의 기술', subtitle: '첫 칸을 어떻게 채우는가' }`.
+ *
+ * The reader prints these as three separate lines on the chapter opener (장
+ * number as an eyebrow, heading large, subtitle beneath) instead of one long
+ * run-on H1 — that's most of what makes it read like a book page.
+ */
+function splitChapterTitle(title) {
+  const numbered = title.match(/^(\d+)장\.\s*(.+)$/);
+  const rest = numbered ? numbered[2] : title;
+  const [heading, ...tail] = rest.split(/\s+[—–]\s+/);
+  return {
+    number: numbered ? Number(numbered[1]) : null,
+    heading: heading.trim(),
+    subtitle: tail.join(' — ').trim() || null,
+  };
+}
 
-`;
-  fs.writeFileSync(
-    destPath,
-    frontmatter + scrubNames(body).replace(/\s+$/, '') + '\n',
-    'utf8',
-  );
+function writeDoc(destPath, body) {
+  mkdirp(path.dirname(destPath));
+  fs.writeFileSync(destPath, `${scrubNames(body).replace(/\s+$/, '')}\n`, 'utf8');
 }
 
 function rewriteBookLinks(text) {
   return text
-    .replace(/\]\(\.\.\/INDEX\.md\)/g, '](/docs)')
-    .replace(/\]\(INDEX\.md\)/g, '](/docs)');
+    .replace(/\]\(\.\.\/INDEX\.md\)/g, `](${BOOK_ROUTE})`)
+    .replace(/\]\(INDEX\.md\)/g, `](${BOOK_ROUTE})`);
 }
 
 /**
@@ -347,45 +351,75 @@ function applyHiddenBookProsePatches(text) {
   return out;
 }
 
+/** Convert one 교재 file and return the metadata the manifest needs. */
 function convertFile(srcFile, destFile, overrides = {}) {
   const raw = fs.readFileSync(srcFile, 'utf8');
   const parsed = parseMarkdown(rewriteBookLinks(rewriteWikiLinks(applyHiddenBookProsePatches(raw))));
-  writeDoc(
-    destFile,
-    overrides.title ?? parsed.title,
-    overrides.description ?? parsed.description,
-    parsed.body,
-  );
+  writeDoc(destFile, parsed.body);
+  return {
+    title: scrubNames(overrides.title ?? parsed.title),
+    description: scrubNames(overrides.description ?? parsed.description),
+  };
 }
 
-function navPages(pages) {
-  // Fumadocs: listing `index` in `pages` removes folder.index, so the sidebar
-  // renders a non-navigable button instead of a link to /docs/<folder>.
-  // Keep index.mdx on disk; omit it from pages so the folder owns it as index.
-  return pages
-    .map((item) => (typeof item === 'string' ? item : item.slug))
-    .filter((slug) => slug !== 'index');
+/**
+ * `---제1부 (A). 투자 철학과 원칙---` → `제1부 (A). 투자 철학과 원칙`.
+ * Chapters that appear before any separator land in an untitled opening part.
+ */
+function partTitle(separator) {
+  return separator.replace(/^-+/, '').replace(/-+$/, '').trim();
 }
 
+/** content/book/<folder>/*.md + the book's slice of manifest.json. */
 function syncBook(srcDir, book) {
-  if (isHidden(book)) return; // no pages, no meta.json, no source-map entries — see HIDE/SHOW A BOOK above
+  if (isHidden(book)) return null; // no pages, no manifest entry, no source-map entries — see HIDE/SHOW A BOOK above
   const destDir = path.join(DEST, book.folder);
   mkdirp(destDir);
-  writeJson(path.join(destDir, 'meta.json'), {
-    title: book.title,
-    pages: navPages(book.pages),
-  });
+
+  const parts = [];
+  let intro = null;
+  let currentPart = null;
 
   for (const item of book.pages) {
-    if (typeof item === 'string') continue;
+    if (typeof item === 'string') {
+      currentPart = { title: partTitle(item), chapters: [] };
+      parts.push(currentPart);
+      continue;
+    }
+
     const srcFile = path.join(srcDir, `${item.src}.md`);
     if (!fs.existsSync(srcFile)) {
       throw new Error(`Missing source: ${srcFile}`);
     }
-    const destFile = path.join(destDir, `${item.slug}.mdx`);
-    convertFile(srcFile, destFile);
-    SOURCE_MAP.set(`${book.folder}/${item.slug}.mdx`, path.join(path.basename(srcDir), `${item.src}.md`));
+    const meta = convertFile(srcFile, path.join(destDir, `${item.slug}.md`));
+    SOURCE_MAP.set(
+      `${book.folder}/${item.slug}.md`,
+      path.join(path.basename(srcDir), `${item.src}.md`),
+    );
+
+    if (item.slug === 'index') {
+      intro = { slug: 'index', ...meta };
+      continue;
+    }
+
+    if (!currentPart) {
+      currentPart = { title: '', chapters: [] };
+      parts.push(currentPart);
+    }
+    currentPart.chapters.push({
+      slug: item.slug,
+      ...meta,
+      ...splitChapterTitle(meta.title),
+    });
   }
+
+  return {
+    folder: book.folder,
+    title: scrubNames(book.title),
+    label: book.label,
+    intro,
+    parts: parts.filter((part) => part.chapters.length > 0),
+  };
 }
 
 /** Strip personal/channel names and aliases from published docs (safety net). */
@@ -534,8 +568,8 @@ function stripHiddenIndexSections(body) {
  * 늘어나면 BOOK_INDEX_LINK_ENTRIES에 한 줄만 추가하면 동일하게 동작한다.
  */
 const BOOK_INDEX_LINK_ENTRIES = [
-  { book: BOOK1, label: '1권 목차', href: '/docs/book1' },
-  { book: BOOK2, label: '2권 목차', href: '/docs/book2' },
+  { book: BOOK1, label: '1권 목차', href: `${BOOK_ROUTE}/book1` },
+  { book: BOOK2, label: '2권 목차', href: `${BOOK_ROUTE}/book2` },
 ];
 const BOOK_INDEX_LINK_LINE_RE =
   /\[1권 목차\]\(교재1-방법론\/목차\.md\) · \[2권 목차\]\(교재2-이차전지\/목차\.md\)/;
@@ -568,12 +602,12 @@ function rewriteIndexLinks(body) {
   return scrubNames(
     rewriteWikiLinks(
       rewriteBookIndexLinksLine(rewriteHiddenIndexProse(stripHiddenIndexSections(body)))
-        .replace(/\]\(_집필스타일\.md\)/g, '](/docs)')
-        .replace(/\]\(placeholder-index\.md\)/g, '](/docs)')
-        .replace(/\]\(보강계획\.md\)/g, '](/docs/reference)')
-        .replace(/\]\(용어교정\.md\)/g, '](/docs/reference/glossary)')
-        .replace(/\]\(종목\/INDEX\.md\)/g, '](/docs/reference/stocks)')
-        .replace(/\]\(PLAN\.md\)/g, '](/docs/reference)'),
+        .replace(/\]\(_집필스타일\.md\)/g, `](${BOOK_ROUTE})`)
+        .replace(/\]\(placeholder-index\.md\)/g, `](${BOOK_ROUTE})`)
+        .replace(/\]\(보강계획\.md\)/g, `](${BOOK_ROUTE}/reference/stocks)`)
+        .replace(/\]\(용어교정\.md\)/g, `](${BOOK_ROUTE}/reference/glossary)`)
+        .replace(/\]\(종목\/INDEX\.md\)/g, `](${BOOK_ROUTE}/reference/stocks)`)
+        .replace(/\]\(PLAN\.md\)/g, `](${BOOK_ROUTE})`),
     ),
   );
 }
@@ -595,62 +629,48 @@ function main() {
   rmrf(DEST);
   mkdirp(DEST);
 
-  writeJson(path.join(DEST, 'meta.json'), {
-    title: '숫자로 읽는 주식투자',
-    pages: [
-      '---교재---',
-      ...(isHidden(BOOK1) ? [] : ['book1']),
-      ...(isHidden(BOOK2) ? [] : ['book2']),
-      '---자료---',
-      'reference',
-    ],
-  });
+  const raw = fs.readFileSync(path.join(SRC, 'INDEX.md'), 'utf8');
+  writeDoc(path.join(DEST, 'index.md'), rewriteIndexLinks(parseMarkdown(raw).body));
 
-  {
-    const raw = fs.readFileSync(path.join(SRC, 'INDEX.md'), 'utf8');
-    const parsed = parseMarkdown(raw);
-    writeDoc(
-      path.join(DEST, 'index.mdx'),
-      '숫자로 읽는 주식투자',
-      isHidden(BOOK2)
-        ? '기업 가치평가를 다루는 투자 교재'
-        : '기업 가치평가와 이차전지 산업 분석을 다루는 2권 55장 투자 교재',
-      rewriteIndexLinks(parsed.body),
-    );
-  }
-
-  syncBook(path.join(SRC, '교재1-방법론'), BOOK1);
-  syncBook(path.join(SRC, '교재2-이차전지'), BOOK2);
+  const books = [
+    syncBook(path.join(SRC, '교재1-방법론'), BOOK1),
+    syncBook(path.join(SRC, '교재2-이차전지'), BOOK2),
+  ].filter(Boolean);
 
   const refDir = path.join(DEST, 'reference');
   mkdirp(refDir);
-  writeJson(path.join(refDir, 'meta.json'), {
-    title: '자료',
-    pages: ['stocks', 'glossary'],
-  });
-
-  writeDoc(
-    path.join(refDir, 'index.mdx'),
-    '자료',
-    '종목 DB와 용어교정표',
-    `교재를 보완하는 참고 자료입니다.
-
-<Cards>
-  <Card title="종목 DB" href="/docs/reference/stocks" />
-  <Card title="용어교정표" href="/docs/reference/glossary" />
-</Cards>
-`,
+  const stocks = convertFile(
+    path.join(SRC, '종목', 'INDEX.md'),
+    path.join(refDir, 'stocks.md'),
+    { title: '종목 DB' },
   );
+  const glossary = convertFile(path.join(SRC, '용어교정.md'), path.join(refDir, 'glossary.md'));
 
-  convertFile(path.join(SRC, '종목', 'INDEX.md'), path.join(refDir, 'stocks.mdx'), {
-    title: '종목 DB',
+  writeJson(path.join(DEST, 'manifest.json'), {
+    title: '숫자로 읽는 주식투자',
+    description: isHidden(BOOK2)
+      ? '기업 가치평가를 다루는 투자 교재'
+      : '기업 가치평가와 이차전지 산업 분석을 다루는 2권 55장 투자 교재',
+    books,
+    reference: {
+      title: '자료',
+      description: '교재를 보완하는 참고 자료',
+      pages: [
+        { slug: 'stocks', ...stocks },
+        { slug: 'glossary', ...glossary },
+      ],
+    },
   });
-  convertFile(path.join(SRC, '용어교정.md'), path.join(refDir, 'glossary.mdx'));
 
   writeSourceMap();
 
-  const count = walkCount(DEST);
-  console.log(`Synced ${count} files → ${path.relative(ROOT, DEST)}`);
+  const chapters = books.reduce(
+    (n, book) => n + book.parts.reduce((m, part) => m + part.chapters.length, 0),
+    0,
+  );
+  console.log(
+    `Synced ${walkCount(DEST)} files (${books.length} books, ${chapters} chapters) → ${path.relative(ROOT, DEST)}`,
+  );
 }
 
 function walkCount(dir) {

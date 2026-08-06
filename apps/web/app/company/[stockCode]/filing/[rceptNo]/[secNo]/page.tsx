@@ -29,13 +29,13 @@ export default async function FilingSectionPage(
     <div className="space-y-4 pb-16">
       <Link
         href={`/company/${stockCode}/financials`}
-        className="text-sm text-fd-muted-foreground hover:text-fd-foreground"
+        className="text-sm text-muted-foreground hover:text-foreground"
       >
         ← {stockCode} 재무 전체보기로
       </Link>
 
-      <div className="rounded-xl border border-fd-border bg-fd-card p-5">
-        <div className="flex flex-wrap items-center gap-2 text-xs text-fd-muted-foreground">
+      <div className="rounded-xl border border-border bg-card p-5">
+        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
           {section.is_note && (
             <span className="rounded-full bg-amber-500/15 px-2 py-0.5 font-semibold text-amber-600 dark:text-amber-400">
               ★ 주석
@@ -54,7 +54,7 @@ export default async function FilingSectionPage(
           href={dartUrl(rceptNo)}
           target="_blank"
           rel="noreferrer"
-          className="mt-1 inline-block text-xs text-fd-muted-foreground hover:text-fd-primary hover:underline"
+          className="mt-1 inline-block text-xs text-muted-foreground hover:text-primary hover:underline"
         >
           DART 원문 열기 →
         </a>
@@ -64,7 +64,7 @@ export default async function FilingSectionPage(
         </p>
       </div>
 
-      <div className="rounded-xl border border-fd-border bg-fd-card p-5">
+      <div className="rounded-xl border border-border bg-card p-5">
         <FilingSectionMarkdown content={section.content} />
       </div>
     </div>
