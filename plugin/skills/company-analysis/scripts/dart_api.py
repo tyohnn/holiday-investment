@@ -83,18 +83,43 @@ def call_json(key, path, raw=False, **params):
     raise DartError(status, d.get("message", ""))
 
 
-def call_zip(key, path, **params):
-    """zip 응답(원본 문서·corpCode)을 {파일명: bytes} 로 반환한다."""
+def call_zip_raw(key, path, **params):
+    """zip 응답의 원본 바이트를 압축 해제 없이 그대로 반환한다.
+
+    call_zip() 이 이 위에 얹힌다 — 압축을 풀면서 원본 바이트를 버리면(이전 구현) Storage 에
+    원문을 그대로 올려야 하는 호출부(ingest.py load_docs, P-A Phase 3)가 손해를 본다. 이
+    함수는 그런 호출부를 위한 진입점이고, 기존 call_zip() 호출부는 아래에서 그대로 유지된다.
+    """
     _throttle()
     params["crtfc_key"] = key
     url = "%s/%s?%s" % (BASE, path, urllib.parse.urlencode(params))
-    raw = http_get(url, timeout=60)
+    return http_get(url, timeout=60)
+
+
+class ZipFiles(dict):
+    """call_zip() 의 반환값 — {파일명: bytes} dict 이면서, 원본 zip 전체 바이트를 .raw 에
+    함께 싣는다. dict 서브클래스라 기존 호출부(sorted(files)·files[name]·len(files))는
+    수정 없이 그대로 동작한다 — .raw 는 새 호출부(ingest.py load_docs)만 읽는다."""
+    raw = b""
+
+
+def call_zip(key, path, **params):
+    """zip 응답(원본 문서·corpCode)을 {파일명: bytes} 로 반환한다(+ .raw 에 원본 zip 바이트).
+
+    call_zip_raw() 로 원본 바이트를 받은 뒤 압축을 푼다 — 이렇게 하면 backfill.py 가
+    monkeypatch 하는 대상(api.call_zip)이 그대로이므로, 재시도·쿼터 감지(backfill.py 의
+    _patched_call_zip)가 이 함수를 쓰는 모든 호출부(load_corpcodes·document_raw·ingest.py
+    load_docs 등)에 계속 적용된다.
+    """
+    raw = call_zip_raw(key, path, **params)
     try:
         with zipfile.ZipFile(io.BytesIO(raw)) as z:
-            return {n: z.read(n) for n in z.namelist()}
+            files = ZipFiles((n, z.read(n)) for n in z.namelist())
     except zipfile.BadZipFile:
         # zip 이 아니면 오류 응답 — 메시지를 그대로 올린다
         raise DartError("ZIP", raw[:300].decode("utf-8", "replace"))
+    files.raw = raw
+    return files
 
 
 # ---------------------------------------------------------------- corp codes
