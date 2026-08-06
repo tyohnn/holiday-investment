@@ -4,7 +4,6 @@ import { notFound } from 'next/navigation';
 import { ksicDivision, ksicDivisionName } from '@investment/schema';
 import { isHiddenDocsHref } from '@/lib/hidden-books';
 import {
-  INDUSTRIES,
   SIEVE_LABELS,
   VERDICT_ORDER,
   getIndustry,
@@ -16,12 +15,12 @@ import { getAnnualByCorpCodes, getCompaniesByStockCodes } from '@/lib/platform/d
 import { ValueChain, type MemberFacts } from '../_components/value-chain';
 import { VERDICT_CLASS } from '../_components/verdict';
 
-export const revalidate = 3600;
-
-/** 카탈로그가 정본이므로 경로도 카탈로그에서 나온다. */
-export function generateStaticParams() {
-  return INDUSTRIES.map((i) => ({ slug: i.slug }));
-}
+// 다른 DB 화면들과 같이 요청 시점 렌더다. 업종 구성은 상장·폐지로만 바뀌니 캐시해도
+// 될 것 같지만, **빌드 환경에는 DB 자격증명이 없다** — 프리렌더를 시도하면 db.ts 의
+// 폴백인 로컬 127.0.0.1:54321 로 붙으러 가서 빌드가 통째로 깨진다(PR #38 최초 실패).
+// generateStaticParams 도 같은 이유로 두지 않는다. 캐시가 필요해지면 빌드 타임이 아니라
+// 데이터 계층(unstable_cache)에서 건다.
+export const revalidate = 0;
 
 export async function generateMetadata(
   props: PageProps<'/industry/[slug]'>,

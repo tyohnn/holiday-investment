@@ -18,9 +18,10 @@ export const metadata: Metadata = {
   description: 'KSIC 중분류로 덮은 전 상장사 위에, 분석이 진행된 산업을 겹쳐 놓은 지도',
 };
 
-// 업종 구성은 상장·폐지로만 바뀌므로 매 요청 재조회할 이유가 없다. 종목 페이지들이
-// revalidate=0 인 것은 공시·트래킹이 매일 바뀌기 때문이고, 이 화면은 성격이 다르다.
-export const revalidate = 3600;
+// 빌드 환경에는 DB 자격증명이 없으므로 프리렌더가 불가능하다 — revalidate 를 두면
+// 이 화면이 빌드 타임에 생성 대상이 되고, db.ts 의 폴백인 로컬 127.0.0.1:54321 로
+// 붙으러 가서 빌드가 깨진다(PR #38 최초 실패). 캐시는 데이터 계층에서 건다.
+export const revalidate = 0;
 
 export default async function IndustryMapPage() {
   const [{ divisions, totalListed }, industryMembers] = await Promise.all([
