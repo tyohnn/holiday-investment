@@ -52,6 +52,16 @@ REVENUE_EXCLUDE = ("기타", "원가", "총이익", "영업외", "누적")
 # 영업이익률·영업이익증가율 같은 파생 지표와 지분 귀속 분해를 걷어낸다.
 PROFIT_EXCLUDE = ("률", "율", "증가", "비율", "주당", "귀속", "계속", "중단", "영업외")
 
+# ROE·부채비율용. 자산총계는 회사마다 "자본과부채총계"/"부채와자본총계"/"부채 및 자본총계"로
+# 적히므로, 부채총계를 직접 못 찾으면 자산총계 − 자본총계로 역산한다.
+EQUITY_HINTS = ("자본총계",)
+LIAB_HINTS = ("부채총계",)
+ASSET_HINTS = ("자산총계", "자본과부채총계", "부채와자본총계", "부채 및 자본총계")
+NET_INCOME_HINTS = ("당기순이익", "당기순이익(손실)", "당기순손익")
+# 순이익 후보에서 반드시 빼야 하는 것들. "법인세비용차감전순이익"을 순이익으로 잡으면
+# 세금만큼 부풀고, "주당순이익"은 단위가 아예 다르다.
+NI_EXCLUDE = ("주당", "차감전", "포괄", "률", "율")
+
 
 def repo_root():
     here = os.path.abspath(__file__)
@@ -147,6 +157,83 @@ def pick(rows, hints, exclude=()):
     return None, None
 
 
+def is_ctrl(nm):
+    """지배주주 귀속 항목인가. `비지배`가 섞이면 부호가 반대라 반드시 걸러야 한다."""
+    return "지배" in nm and "비지배" not in nm
+
+
+def pick_bs(rows, hints, ctrl_only=False):
+    """재무상태표에서 고른다. ctrl_only 면 지배주주 귀속분만."""
+    subset = [r for r in rows if r.get("sj_div") == "BS"]
+    for hint in hints:
+        for r in subset:
+            nm = (r.get("account_nm") or "").strip()
+            if nm == hint and (not ctrl_only or is_ctrl(nm)):
+                return r.get("amount")
+    if ctrl_only:  # 정확일치가 없으면 지배주주 자본 표기를 폭넓게 찾는다
+        for r in subset:
+            nm = (r.get("account_nm") or "").strip()
+            if is_ctrl(nm) and ("자본" in nm or "지분" in nm) and "총계" not in nm:
+                return r.get("amount")
+    return None
+
+
+def pick_ni(rows, ctrl_only=False):
+    """당기순이익. ctrl_only 면 지배주주 귀속분."""
+    subset = [r for r in rows if r.get("sj_div") in ("IS", "CIS")]
+    cands = []
+    for r in subset:
+        nm = (r.get("account_nm") or "").strip()
+        if "순이익" not in nm and "순손익" not in nm:
+            continue
+        if any(x in nm for x in NI_EXCLUDE):
+            continue
+        if ctrl_only and not is_ctrl(nm):
+            continue
+        if not ctrl_only and "지배" in nm:  # 총계를 원할 땐 귀속 분해를 배제
+            continue
+        cands.append((nm, r.get("amount")))
+    for hint in NET_INCOME_HINTS:  # 정확일치 우선
+        for nm, amt in cands:
+            if nm == hint:
+                return amt
+    return cands[0][1] if cands else None
+
+
+def derive(rows):
+    """ROE 와 부채비율을 계산한다.
+
+    ROE 는 지배주주 기준이 표준이므로 분자·분모를 **같은 기준으로 맞춘다**. 지배주주
+    순이익과 지배주주지분이 둘 다 있으면 그 쌍을, 아니면 총계 쌍을 쓴다. 한쪽만
+    지배주주 기준으로 쓰면 LG화학처럼 총계 -9,771억 / 지배주주 -18,194억으로 갈리는
+    회사에서 배 이상 틀린다. 어느 기준을 썼는지 함께 돌려준다.
+    """
+    ni_c, eq_c = pick_ni(rows, ctrl_only=True), pick_bs(rows, (), ctrl_only=True)
+    if ni_c is not None and eq_c:
+        roe, basis, denom = ni_c / eq_c * 100, "지배", eq_c
+    else:
+        ni_t, eq_t = pick_ni(rows), pick_bs(rows, EQUITY_HINTS)
+        roe = (ni_t / eq_t * 100) if (ni_t is not None and eq_t) else None
+        basis, denom = ("총계" if roe is not None else None), eq_t
+
+    equity = pick_bs(rows, EQUITY_HINTS)
+    liab = pick_bs(rows, LIAB_HINTS)
+    if liab is None:  # 부채총계를 안 내는 회사는 자산총계에서 뺀다
+        asset = pick_bs(rows, ASSET_HINTS)
+        if asset is not None and equity is not None:
+            liab = asset - equity
+    debt_ratio = (liab / equity * 100) if (liab is not None and equity) else None
+
+    # 자본잠식이면 두 비율 모두 뒤집힌다 — 순손실을 음수 자본으로 나누면 ROE 가 양수로,
+    # 부채비율은 음수로 나온다. 다원시스 2025 가 실제 사례(자본총계 -5,156억 → ROE +37.9%,
+    # 부채비율 -219.5%). 숫자를 내보내는 대신 잠식 사실 자체를 표시한다.
+    impaired = (denom is not None and denom < 0) or (equity is not None and equity < 0)
+    if impaired:
+        return None, "자본잠식", None
+    return (round(roe, 1) if roe is not None else None, basis,
+            round(debt_ratio, 1) if debt_ratio is not None else None)
+
+
 def cmd_universe(args):
     url, key = credentials()
     rows = get("companies", {"select": "corp_code,stock_code,name,market,sector_code",
@@ -187,9 +274,9 @@ def cmd_screen(args):
             return get("financial_facts", {
                 "select": "bsns_year,sj_div,account_nm,amount",
                 "corp_code": f"eq.{co['corp_code']}",
-                "reprt_code": "eq.11011",   # 사업보고서(연간)
+                "reprt_code": "eq.11011",    # 사업보고서(연간)
                 "fs_div": f"eq.{fs_div}",
-                "sj_div": "in.(IS,CIS)",    # 회사마다 손익을 IS 또는 CIS 에 낸다 — pick() 참고
+                "sj_div": "in.(IS,CIS,BS)",  # 손익은 IS 또는 CIS(회사마다 다름), BS 는 ROE·부채비율용
                 "bsns_year": f"in.({','.join(str(y) for y in years)})",
             }, url, key)
 
@@ -205,9 +292,11 @@ def cmd_screen(args):
                "시장": co.get("market"), "연도": {}}
         for y in years:
             yr = [f for f in facts if f["bsns_year"] == y]
-            rev, rev_nm = pick(yr, REVENUE_HINTS)
+            rev, rev_nm = pick(yr, REVENUE_HINTS, REVENUE_EXCLUDE)
             op, op_nm = pick(yr, PROFIT_HINTS, PROFIT_EXCLUDE)
-            entry = {"매출": rev, "영업이익": op, "계정명": {"매출": rev_nm, "영업이익": op_nm}}
+            roe, roe_basis, debt_ratio = derive(yr)
+            entry = {"매출": rev, "영업이익": op, "ROE": roe, "ROE기준": roe_basis,
+                     "부채비율": debt_ratio, "계정명": {"매출": rev_nm, "영업이익": op_nm}}
             entry["이익률"] = round(op / rev * 100, 1) if (rev and op is not None and rev != 0) else None
             row["연도"][y] = entry
         table.append(row)
@@ -226,8 +315,10 @@ def cmd_screen(args):
 
     print(f"# 정량 스크린 — {len(table)}개사 · {years[0]}~{years[-1]} · 연간(11011)")
     print()
-    print("매출은 억원, 이익률은 %. `—` 는 해당 연도 DB 미보유다. "
+    print("매출은 억원, 이익률·ROE·부채비율은 %. `—` 는 해당 연도 DB 미보유다. "
           "기준은 연결(CFS)이며, 연결재무제표가 없는 회사만 별도(OFS)로 표기했다.")
+    print()
+    print("## 매출과 영업이익률")
     print()
     print("| 종목 | 코드 | 기준 | " + " | ".join(f"{y} 매출" for y in years) + " | "
           + " | ".join(f"{y} 이익률" for y in years) + " |")
@@ -236,6 +327,24 @@ def cmd_screen(args):
         cells = [fmt_amt(r["연도"][y]["매출"]) for y in years]
         cells += [fmt_pct(r["연도"][y]["이익률"]) for y in years]
         print(f"| {r['종목']} | {r['종목코드']} | {r['기준']} | " + " | ".join(cells) + " |")
+
+    print()
+    print("## ROE와 부채비율")
+    print()
+    print("교재 기준선은 **ROE 15% 이상**(D1·H1·H4, 버핏)과 **부채비율 100% 미만**(D1)이다. "
+          "ROE 기준란의 `지배`는 지배주주순이익÷지배주주지분, `총계`는 당기순이익÷자본총계다 "
+          "— 회사가 지배주주 항목을 따로 내지 않으면 총계로 떨어진다.")
+    print()
+    print("| 종목 | 코드 | ROE 기준 | " + " | ".join(f"{y} ROE" for y in years) + " | "
+          + " | ".join(f"{y} 부채" for y in years) + " |")
+    print("|---|---|---|" + "---|" * (len(years) * 2))
+    for r in table:
+        bases = {r["연도"][y]["ROE기준"] for y in years if r["연도"][y]["ROE기준"]}
+        basis = "/".join(sorted(bases)) if bases else "—"
+        cells = [fmt_pct(r["연도"][y]["ROE"]) for y in years]
+        cells += [fmt_pct(r["연도"][y]["부채비율"]) for y in years]
+        print(f"| {r['종목']} | {r['종목코드']} | {basis} | " + " | ".join(cells) + " |")
+
     if missing:
         print()
         print(f"**DB 미발견 종목코드**: {', '.join(missing)}")
