@@ -81,6 +81,21 @@
   --chart-3: #f59e0b; /* amber */
   --chart-4: #f43f5e; /* rose */
   --chart-5: #0ea5e9; /* sky */
+
+  /*
+   * Gain/loss semantics for the investment dashboard (/company). Aliased to
+   * the chart palette instead of new hex values so a stat card's up/down
+   * arrow always matches the color a line in the chart above it uses —
+   * defined once here because a var() reference re-resolves --chart-2/-4
+   * against whichever scope (light or .dark) is actually active.
+   */
+  --positive: var(--chart-2);
+  --negative: var(--chart-4);
+
+  /* Dashboard card elevation — subtle by default, a touch more on hover. */
+  --shadow-card: 0 1px 2px 0 rgb(0 0 0 / 0.04);
+  --shadow-card-hover: 0 12px 24px -8px rgb(0 0 0 / 0.12), 0 2px 6px -2px rgb(0 0 0 / 0.06);
+  --shadow-glow-primary: 0 0 0 1px color-mix(in oklch, var(--primary) 18%, transparent);
 }
 
 .dark {
@@ -118,6 +133,12 @@
   --chart-3: #fbbf24;
   --chart-4: #fb7185;
   --chart-5: #38bdf8;
+
+  /* Near-black card surfaces need deeper, more visible shadows than light mode's. */
+  --shadow-card: 0 1px 2px 0 rgb(0 0 0 / 0.3);
+  --shadow-card-hover: 0 16px 32px -8px rgb(0 0 0 / 0.55), 0 4px 10px -4px rgb(0 0 0 / 0.4);
+  --shadow-glow-primary: 0 0 0 1px color-mix(in oklch, var(--primary) 45%, transparent),
+    0 0 28px -10px color-mix(in oklch, var(--sidebar-primary) 55%, transparent);
 }
 
 @theme inline {
@@ -144,6 +165,8 @@
   --color-chart-3: var(--chart-3);
   --color-chart-4: var(--chart-4);
   --color-chart-5: var(--chart-5);
+  --color-positive: var(--positive);
+  --color-negative: var(--negative);
   --color-sidebar: var(--sidebar);
   --color-sidebar-foreground: var(--sidebar-foreground);
   --color-sidebar-primary: var(--sidebar-primary);

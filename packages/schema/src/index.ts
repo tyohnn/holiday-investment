@@ -14,6 +14,8 @@ import { z } from "zod";
 
 export * from "./labels";
 export * from "./ksic";
+export * from "./sectors";
+export * from "./value-chain";
 
 /** DART 금액·주식수는 "1,234,567" 같은 문자열로 온다. 숫자로 강제 변환하되 실패는 null. */
 export const dartNumber = z
@@ -135,6 +137,83 @@ export const DartEvent = z.object({
   payload: z.record(z.string(), z.unknown()),
 });
 export type DartEvent = z.infer<typeof DartEvent>;
+
+/**
+ * 지분 변동 원장 — 임원·주요주주 소유상황(`elestock`)과 대량보유상황(`majorstock`).
+ *
+ * 주의: 이 사실들은 `events` 에 없다. `events.event_type` 은 주요사항보고서 종류만
+ * 담고(자기주식취득결정·유상증자결정 등), `대량보유`·`임원ㆍ주요주주` 는 그쪽이 아니라
+ * `filings.report_nm` 값이자 이 테이블의 내용이다.
+ */
+export const OwnershipKind = z.enum(["elestock", "majorstock"]);
+export type OwnershipKind = z.infer<typeof OwnershipKind>;
+
+export const OwnershipTxn = z.object({
+  id: z.number(),
+  corp_code: z.string(),
+  kind: OwnershipKind,
+  rcept_no: z.string().nullable(),
+  rcept_dt: z.string().nullable(),
+  payload: z.record(z.string(), z.unknown()),
+});
+export type OwnershipTxn = z.infer<typeof OwnershipTxn>;
+
+export const OWNERSHIP_KIND_LABELS: Record<OwnershipKind, string> = {
+  elestock: "임원·주요주주",
+  majorstock: "대량보유",
+};
+
+/**
+ * 지분 원장 payload 에서 화면이 쓰는 값만 뽑는다.
+ *
+ * DART 원본 키를 그대로 보존하는 게 적재 원칙이라 payload 는 kind 마다 스키마가 다르다
+ * (`elestock` 은 `sp_stock_lmp_*`, `majorstock` 은 `stkqy`/`stkrt`). 그 차이를 여기서
+ * 한 번만 흡수한다.
+ */
+export function readOwnership(txn: OwnershipTxn): {
+  reporter: string | null;
+  /** 보유 주식수 */
+  shares: number | null;
+  /** 보유 비율 % */
+  ratio: number | null;
+  /** 증감 주식수 */
+  sharesDelta: number | null;
+  /** 부가 설명 — 직위(elestock) 또는 보고 사유(majorstock) */
+  note: string | null;
+} {
+  const p = txn.payload;
+  const str = (k: string): string | null => {
+    const v = p[k];
+    if (typeof v !== "string") return null;
+    const s = v.trim();
+    return !s || s === "-" ? null : s;
+  };
+  const numOf = (k: string): number | null => {
+    const s = str(k);
+    if (s === null) return null;
+    const n = Number(s.replace(/,/g, ""));
+    return Number.isFinite(n) ? n : null;
+  };
+
+  if (txn.kind === "elestock") {
+    const post = str("isu_exctv_ofcps");
+    const registered = str("isu_exctv_rgist_at");
+    return {
+      reporter: str("repror"),
+      shares: numOf("sp_stock_lmp_cnt"),
+      ratio: numOf("sp_stock_lmp_rate"),
+      sharesDelta: numOf("sp_stock_lmp_irds_cnt"),
+      note: [post, registered].filter(Boolean).join(" · ") || null,
+    };
+  }
+  return {
+    reporter: str("repror"),
+    shares: numOf("stkqy"),
+    ratio: numOf("stkrt"),
+    sharesDelta: numOf("stkqy_irds"),
+    note: str("report_resn") ?? str("report_tp"),
+  };
+}
 
 /** 사실 시계열 원장 (A2 판정: 이것이 트래킹의 정본) */
 export const DatePrecision = z.enum(["day", "month", "quarter", "year"]);
