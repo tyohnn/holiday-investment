@@ -30,6 +30,7 @@ import {
   DartEvent,
   Filing,
   FilingSection,
+  OwnershipTxn,
   TrackingFact,
   ksicDivision,
 } from "@investment/schema";
@@ -144,6 +145,49 @@ export async function getFilings(corpCode: string, limit = 40): Promise<Filing[]
     .limit(limit);
   if (error) throw error;
   return parseAll(Filing, data ?? [], "filings");
+}
+
+/**
+ * 지분 변동 원장. `events` 에는 없는 사실이다 — 자세한 이유는 schema 의 `OwnershipTxn` 주석.
+ */
+export async function getOwnershipTxns(
+  corpCode: string,
+  limit = 60,
+): Promise<OwnershipTxn[]> {
+  const { data, error } = await supabaseService
+    .from("ownership_txns")
+    .select("*")
+    .eq("corp_code", corpCode)
+    .order("rcept_dt", { ascending: false })
+    // 같은 날 여러 보고가 흔하다(가족 간 이동은 매도·매수가 같은 날짜다). 2차 정렬이
+    // 없으면 목록 순서가 조회마다 달라져 화면 헤드라인도 같이 흔들린다.
+    .order("id", { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+  return parseAll(OwnershipTxn, data ?? [], "ownership_txns");
+}
+
+/**
+ * 주제어로 공시 목록을 긁는다 — 지분·배당처럼 **`events` 에 안 실리는** 사실을 화면이
+ * 1차 자료로라도 보여주기 위한 통로다.
+ *
+ * `events.event_type` 은 주요사항보고서 종류만 담아서 대량보유·주요주주·배당이 통째로
+ * 빠진다. 그 셋은 `filings.report_nm` 에 있고(전역 배당 공시만 36,705건), 파싱된 상세가
+ * 없더라도 "언제 무슨 공시가 있었나"는 그대로 읽힌다.
+ */
+const THEMED_FILING_PATTERNS = ["대량보유", "주요주주", "배당", "자기주식", "자사주"] as const;
+
+export async function getThemedFilings(corpCode: string, limit = 120): Promise<Filing[]> {
+  const or = THEMED_FILING_PATTERNS.map((p) => `report_nm.like.*${p}*`).join(",");
+  const { data, error } = await supabaseService
+    .from("filings")
+    .select("*")
+    .eq("corp_code", corpCode)
+    .or(or)
+    .order("rcept_dt", { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+  return parseAll(Filing, data ?? [], "themed_filings");
 }
 
 export async function getCorrectionChains(corpCode: string, limit = 10): Promise<CorrectionChain[]> {
@@ -299,7 +343,10 @@ export async function getConceptSeries(
 export async function getCompanyPageData(stockCode: string) {
   const company = await getCompany(stockCode);
   if (!company) return null;
-  const [annual, filings, corrections, events, trackings, sections, cfInvesting] = await Promise.all([
+  const [
+    annual, filings, corrections, events, trackings, sections, cfInvesting,
+    ownershipTxns, themedFilings,
+  ] = await Promise.all([
     getAnnualSummary(company.corp_code),
     getFilings(company.corp_code),
     getCorrectionChains(company.corp_code),
@@ -307,8 +354,13 @@ export async function getCompanyPageData(stockCode: string) {
     getTrackings(company.corp_code),
     getNoteSections(company.corp_code),
     getConceptSeries(company.corp_code, "cf_investing"),
+    getOwnershipTxns(company.corp_code),
+    getThemedFilings(company.corp_code),
   ]);
-  return { company, annual, filings, corrections, events, trackings, sections, cfInvesting };
+  return {
+    company, annual, filings, corrections, events, trackings, sections, cfInvesting,
+    ownershipTxns, themedFilings,
+  };
 }
 
 /* ── 산업 지도 ─────────────────────────────────────────────────────────────── */

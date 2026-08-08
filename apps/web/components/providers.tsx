@@ -2,6 +2,7 @@
 
 import { ThemeProvider } from 'next-themes';
 import type { ReactNode } from 'react';
+import { TooltipProvider } from '@/components/ui/tooltip';
 
 /**
  * Dark mode. `attribute="class"` matches the `.dark` selector the shadcn theme
@@ -23,7 +24,7 @@ export function Providers({ children }: { children: ReactNode }) {
       disableTransitionOnChange
       scriptProps={scriptProps}
     >
-      {children}
+      <TooltipProvider delayDuration={200}>{children}</TooltipProvider>
     </ThemeProvider>
   );
 }

@@ -12,12 +12,14 @@
     "types:check": "next typegen && tsc --noEmit"
   },
   "dependencies": {
+    "@gsap/react": "^2.1.2",
     "@investment/schema": "workspace:*",
     "@phosphor-icons/react": "^2.1.10",
     "@supabase/supabase-js": "^2.110.8",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cnfast": "^0.0.8",
+    "gsap": "^3.15.0",
     "hast-util-to-string": "^3.0.1",
     "katex": "^0.16.22",
     "next": "16.2.11",

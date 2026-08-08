@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { appName } from '@/lib/shared';
+import { ThemeToggle } from '@/components/theme-toggle';
 
 /**
  * 플랫폼(교재 뷰어가 아닌 쪽) 공통 껍데기.
@@ -31,6 +32,7 @@ export function PlatformShell({
             <Link href="/book" className="hover:text-foreground">
               교재
             </Link>
+            <ThemeToggle />
           </nav>
         </div>
       </header>
