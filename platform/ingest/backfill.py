@@ -353,7 +353,23 @@ class KeyPool:
             self.used[k] = r.get("calls_used", 0)
             self.exhausted[k] = bool(r.get("exhausted", False)) or self.used[k] >= self.budget
 
+    def _roll_to_today(self):
+        """self.date 는 프로세스 시작 시각에 고정된다 — 실행이 자정을 넘기면 그 뒤로도
+        어제 날짜의 quota row 에 계속 쓰고 읽는다. 그러면 (a) 오늘자 사용량이 원장에
+        전혀 안 남고 (b) 어제 exhausted=True 로 잡힌 키가 오늘도 영원히 소진 상태로
+        남는다(리로드가 없으므로). next_key()/all_exhausted() 진입 시마다 실제 날짜와
+        비교해, 바뀌었으면 오늘 날짜의 quota row 를 다시 읽어(대개 비어 있으므로 예산이
+        자연히 리셋된다) used/exhausted 를 갈아 끼운다. 실측(2026-08-06→07): 이 리로드가
+        없어 19시간 넘게 돈 프로세스의 사용량 전량이 어제 날짜 행에 쌓였다."""
+        today = dt.date.today().isoformat()
+        if today != self.date:
+            self.date = today
+            self.used = {}
+            self.exhausted = {}
+            self._load()
+
     def next_key(self):
+        self._roll_to_today()
         n = len(self.keys)
         for _ in range(n):
             k = self.keys[self._i % n]
@@ -363,6 +379,7 @@ class KeyPool:
         return None
 
     def all_exhausted(self):
+        self._roll_to_today()
         return all(self.exhausted[k] for k in self.keys)
 
     def record_call(self, key, n=1):
