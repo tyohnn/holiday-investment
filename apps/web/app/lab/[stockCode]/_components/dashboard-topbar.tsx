@@ -10,6 +10,7 @@ import { SidebarTrigger } from '@/components/ui/sidebar';
 
 export function DashboardTopbar({ company }: { company: Company }) {
   const pathname = usePathname();
+  const onProducts = pathname.endsWith('/products') || pathname.includes('/products/');
   const board = BOARDS.find((b) => {
     const href = `/lab/${company.stock_code}/${b.slug}`;
     return pathname === href || pathname.startsWith(`${href}/`);
@@ -30,7 +31,24 @@ export function DashboardTopbar({ company }: { company: Company }) {
           /
         </span>
         <span className="truncate font-medium text-foreground">{company.name}</span>
-        {board && (
+        {onProducts && (
+          <>
+            <span aria-hidden className="text-border">
+              /
+            </span>
+            <Link
+              href={`/lab/${company.stock_code}/circle`}
+              className="truncate hover:text-foreground"
+            >
+              능력범위
+            </Link>
+            <span aria-hidden className="text-border">
+              /
+            </span>
+            <span className="truncate">제품 지도</span>
+          </>
+        )}
+        {board && !onProducts && (
           <>
             <span aria-hidden className="text-border">
               /

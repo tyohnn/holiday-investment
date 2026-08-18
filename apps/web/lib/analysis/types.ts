@@ -39,6 +39,7 @@ export type WidgetId =
   // 2 능력범위
   | 'business-model'
   | 'segment-mix'
+  | 'product-story'
   // 3 1차 자료
   | 'key-four-metrics'
   | 'cf-investing-notes'
