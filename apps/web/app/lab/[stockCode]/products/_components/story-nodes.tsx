@@ -1,6 +1,6 @@
 'use client';
 
-import { memo } from 'react';
+import { memo, useEffect, useRef, type ReactNode } from 'react';
 import { Handle, Position, type Node, type NodeProps } from '@xyflow/react';
 import { ArrowRightIcon, NewspaperIcon, TrendUpIcon } from '@phosphor-icons/react';
 import type { ProductStory, StoryLine, StoryProduct } from '@/lib/product-story';
@@ -34,7 +34,7 @@ function StoryNodeBody({
     >
       <Handle type="target" position={Position.Top} className="!opacity-0" />
       <Handle type="source" position={Position.Bottom} className="!opacity-0" />
-      <div className="nowheel nodrag nopan min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
+      <NodeScrollPane>
         {data.kind === 'overview' && <OverviewBody story={data.story} onGo={onGo} />}
         {data.kind === 'line' && data.line && (
           <LineBody
@@ -53,7 +53,35 @@ function StoryNodeBody({
             onGo={onGo}
           />
         )}
-      </div>
+      </NodeScrollPane>
+    </div>
+  );
+}
+
+/** 캔버스 줌은 막고, 이 상자만 세로로 굴린다. */
+function NodeScrollPane({ children }: { children: ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const onWheel = (event: WheelEvent) => {
+      event.stopPropagation();
+      if (el.scrollHeight <= el.clientHeight) return;
+      const next = Math.max(0, Math.min(el.scrollHeight - el.clientHeight, el.scrollTop + event.deltaY));
+      if (next !== el.scrollTop) {
+        event.preventDefault();
+        el.scrollTop = next;
+      }
+    };
+    el.addEventListener('wheel', onWheel, { passive: false, capture: true });
+    return () => el.removeEventListener('wheel', onWheel, { capture: true });
+  }, []);
+  return (
+    <div
+      ref={ref}
+      className="nowheel nodrag nopan min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain"
+    >
+      {children}
     </div>
   );
 }

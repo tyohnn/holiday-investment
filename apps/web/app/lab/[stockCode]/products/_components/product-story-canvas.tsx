@@ -77,13 +77,14 @@ function LockedStoryFlow({ story }: { story: ProductStory }) {
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape' && focusId !== nodeIdOverview()) {
-        e.preventDefault();
-        back();
-      }
+      if (e.key !== 'Escape') return;
+      if (focusId === nodeIdOverview()) return;
+      e.preventDefault();
+      e.stopPropagation();
+      back();
     }
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
   }, [back, focusId]);
 
   const crumbs = crumbsFor(story, focusId);
