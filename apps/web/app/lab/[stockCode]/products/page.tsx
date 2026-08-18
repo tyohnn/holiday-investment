@@ -32,7 +32,7 @@ export default async function ProductStoryPage(
           <h1 className="text-xl font-bold">제품 지도가 아직 없다</h1>
           <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
             {company.name}({stockCode})은 라인·SKU 스토리를 아직 수집하지 않았다.
-            에이피알(278470)처럼 부문 실적과 히트 SKU가 모이면 같은 장면 구조로 올린다.
+            에이피알(278470)처럼 부문 실적과 히트 SKU가 모이면 같은 잠긴 그래프 지도로 올린다.
           </p>
           <Link
             href={`/lab/${stockCode}/circle`}
