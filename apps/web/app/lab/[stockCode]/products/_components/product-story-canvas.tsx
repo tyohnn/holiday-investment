@@ -14,7 +14,6 @@ import {
   type DefaultEdgeOptions,
   type NodeTypes,
 } from '@xyflow/react';
-import '@xyflow/react/dist/style.css';
 import { ArrowLeftIcon } from '@phosphor-icons/react';
 import type { ProductStory } from '@/lib/product-story';
 import {

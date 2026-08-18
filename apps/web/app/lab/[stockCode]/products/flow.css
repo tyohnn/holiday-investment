@@ -1,0 +1,10 @@
+@import '@xyflow/react/dist/style.css';
+
+.react-flow {
+  background: transparent;
+}
+
+.react-flow__attribution {
+  background: transparent !important;
+  font-size: 10px;
+}
