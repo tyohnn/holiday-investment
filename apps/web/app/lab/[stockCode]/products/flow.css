@@ -4,6 +4,15 @@
   background: transparent;
 }
 
+/* 팬을 꺼 두므로 pane이 클릭을 가로채지 않게 한다. */
+.react-flow__pane {
+  pointer-events: none;
+}
+
+.react-flow__node {
+  pointer-events: all;
+}
+
 .react-flow__attribution {
   background: transparent !important;
   font-size: 10px;

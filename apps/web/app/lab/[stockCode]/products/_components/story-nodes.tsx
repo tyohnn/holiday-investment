@@ -1,6 +1,6 @@
 'use client';
 
-import { memo, useEffect, useRef, type ReactNode } from 'react';
+import { memo, type ReactNode } from 'react';
 import { Handle, Position, type Node, type NodeProps } from '@xyflow/react';
 import { ArrowRightIcon, NewspaperIcon, TrendUpIcon } from '@phosphor-icons/react';
 import type { ProductStory, StoryLine, StoryProduct } from '@/lib/product-story';
@@ -34,7 +34,7 @@ function StoryNodeBody({
     >
       <Handle type="target" position={Position.Top} className="!opacity-0" />
       <Handle type="source" position={Position.Bottom} className="!opacity-0" />
-      <NodeScrollPane>
+      <NodeScrollPane active={active}>
         {data.kind === 'overview' && <OverviewBody story={data.story} onGo={onGo} />}
         {data.kind === 'line' && data.line && (
           <LineBody
@@ -59,26 +59,10 @@ function StoryNodeBody({
 }
 
 /** 캔버스 줌은 막고, 이 상자만 세로로 굴린다. */
-function NodeScrollPane({ children }: { children: ReactNode }) {
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const onWheel = (event: WheelEvent) => {
-      event.stopPropagation();
-      if (el.scrollHeight <= el.clientHeight) return;
-      const next = Math.max(0, Math.min(el.scrollHeight - el.clientHeight, el.scrollTop + event.deltaY));
-      if (next !== el.scrollTop) {
-        event.preventDefault();
-        el.scrollTop = next;
-      }
-    };
-    el.addEventListener('wheel', onWheel, { passive: false, capture: true });
-    return () => el.removeEventListener('wheel', onWheel, { capture: true });
-  }, []);
+function NodeScrollPane({ children, active }: { children: ReactNode; active: boolean }) {
   return (
     <div
-      ref={ref}
+      data-story-scroll={active ? 'active' : undefined}
       className="nowheel nodrag nopan min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain"
     >
       {children}
@@ -141,6 +125,7 @@ function OverviewBody({
             <li key={line.id}>
               <button
                 type="button"
+                data-go={nodeIdLine(line.id)}
                 onClick={() => onGo(nodeIdLine(line.id))}
                 className="flex w-full flex-col rounded-xl border border-border bg-background px-3 py-2.5 text-left hover:border-foreground/20 hover:bg-muted/40"
               >
@@ -196,6 +181,7 @@ function LineBody({
             <li key={p.id}>
               <button
                 type="button"
+                data-go={nodeIdProduct(p.id)}
                 onClick={() => onGo(nodeIdProduct(p.id))}
                 className="flex w-full items-start justify-between gap-2 rounded-xl border border-border bg-background px-3 py-2.5 text-left hover:bg-muted/40"
               >

@@ -5,7 +5,7 @@
  * 휠 줌·핀치·드래그 팬·노드 드래그는 끈다. 카메라는 카드 클릭/뒤로/Esc의 fitView만 움직인다.
  * 노드 안 세로 스크롤은 nowheel + preventScrolling={false}로 웹페이지처럼 남긴다.
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Background,
   ReactFlow,
@@ -89,10 +89,28 @@ function LockedStoryFlow({ story }: { story: ProductStory }) {
 
   const crumbs = crumbsFor(story, focusId);
   const nav = useMemo(() => ({ focusId, go }), [focusId, go]);
+  const shellRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const shell = shellRef.current;
+    if (!shell) return;
+    const onWheel = (event: WheelEvent) => {
+      const pane = shell.querySelector<HTMLElement>('[data-story-scroll="active"]');
+      if (!pane || pane.scrollHeight <= pane.clientHeight) return;
+      event.preventDefault();
+      event.stopPropagation();
+      pane.scrollTop += event.deltaY;
+    };
+    shell.addEventListener('wheel', onWheel, { passive: false });
+    return () => shell.removeEventListener('wheel', onWheel);
+  }, [focusId]);
 
   return (
     <StoryNavContext.Provider value={nav}>
-      <div className="relative flex h-[calc(100dvh-3rem)] min-h-[32rem] flex-col overflow-hidden bg-background">
+      <div
+        ref={shellRef}
+        className="relative flex h-[calc(100dvh-3rem)] min-h-[32rem] flex-col overflow-hidden bg-background"
+      >
         <nav
           className="z-10 flex shrink-0 items-center gap-2 border-b border-border bg-background/95 px-4 py-2 sm:px-6"
           aria-label="장면 경로"
