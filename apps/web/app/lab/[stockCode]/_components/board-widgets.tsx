@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import {
   formatPercent,
   formatWon,
@@ -10,6 +11,7 @@ import {
   type TrackingFact,
 } from '@investment/schema';
 import { WIDGETS, type WidgetId } from '@/lib/analysis';
+import { getProductStory } from '@/lib/product-story';
 import { StaggerReveal } from '@/lib/motion/stagger-reveal';
 import { WidgetShell } from './widget-shell';
 import { TrackingFactList, filterTrackingsByTopics } from './tracking-fact-list';
@@ -70,6 +72,34 @@ function TrackingBoundWidget({
       emptyHint={emptyHint ?? '해당 주제 트래킹 사실 없음'}
     >
       <TrackingFactList facts={facts} />
+    </WidgetShell>
+  );
+}
+
+function ProductStoryWidget({ data }: { data: BoardData }) {
+  const meta = WIDGETS['product-story'];
+  const story = getProductStory(data.stockCode);
+  const empty = story == null;
+  return (
+    <WidgetShell
+      meta={meta}
+      claim={
+        empty
+          ? meta.claim
+          : `${story.brand} — ${story.lines.length}개 라인. 장면 안에서는 세로 스크롤만, 다음 영역은 줌으로 넘어간다.`
+      }
+      evidence={empty ? undefined : `수집 기준 ${story.asOf}`}
+      empty={empty}
+      emptyHint="이 종목은 아직 라인·SKU 스토리를 수집하지 않았다"
+    >
+      {story && (
+        <Link
+          href={`/lab/${data.stockCode}/products`}
+          className="inline-flex rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm font-medium hover:bg-muted"
+        >
+          제품 지도 열기
+        </Link>
+      )}
     </WidgetShell>
   );
 }
@@ -525,6 +555,8 @@ export function renderBoardWidget(widgetId: WidgetId, data: BoardData) {
     case 'capex-execution':
     case 'segment-mix':
       return <TrackingBoundWidget key={widgetId} data={data} widgetId={widgetId} />;
+    case 'product-story':
+      return <ProductStoryWidget key={widgetId} data={data} />;
     case 'news-yt-facts':
       return (
         <PlaceholderWidget

@@ -49,6 +49,14 @@ export const WIDGETS: Record<WidgetId, AnalysisWidgetMeta> = {
     textbooks: [B1, B3],
     trackingTopics: ['이익률-구조'],
   },
+  'product-story': {
+    id: 'product-story',
+    title: '제품 지도',
+    question: '무엇으로 컸고, 그 라인의 다음 장면은 무엇인가?',
+    claim: '부문 믹스에서 라인·SKU·뉴스까지 장면으로 내려간다. 한 장면은 세로 스크롤만 한다.',
+    trust: 'ir',
+    textbooks: [B1, C3],
+  },
 
   // ── 3 1차 자료 ────────────────────────────────────────────────────────────
   'key-four-metrics': {
@@ -295,7 +303,7 @@ export const BOARDS: AnalysisBoardMeta[] = [
     kind: 'widgets',
     dataState: 'partial',
     textbooks: [B1],
-    widgets: ['business-model', 'segment-mix'],
+    widgets: ['business-model', 'segment-mix', 'product-story'],
     agentPromise: '사업부문·매출 비중을 사업보고서에서 뽑아 수익원을 정리합니다.',
   },
   {
