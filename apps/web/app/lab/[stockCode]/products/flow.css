@@ -4,13 +4,19 @@
   background: transparent;
 }
 
-/* 팬을 꺼 두므로 pane이 클릭을 가로채지 않게 한다. */
+/*
+ * 잠긴 캔버스: pane은 클릭을 먹지 않는다.
+ * viewport/nodes 기본값은 pointer-events:none 이라, 자식 노드의 all이
+ * 변환된 좌표에서 히트 테스트에 빠진다. 여기만 다시 연다.
+ */
 .react-flow__pane {
-  pointer-events: none;
+  pointer-events: none !important;
 }
 
+.react-flow__viewport,
+.react-flow__nodes,
 .react-flow__node {
-  pointer-events: all;
+  pointer-events: auto !important;
 }
 
 .react-flow__attribution {
