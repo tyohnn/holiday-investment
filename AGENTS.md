@@ -39,6 +39,11 @@ deliverable; the site is a viewer over it.
   `/lab/<stockCode>/{board}`.
 - `pnpm types:check` (root) = the lint/build proxy (`next typegen && tsc --noEmit`).
 
+### UI 확인
+레이아웃·카피 수정은 코드와 타입체크만 한다. computer use / 화면 녹화는
+사용자가 스크린샷이나 영상을 요청했을 때만 한다. 그때는 **push 전에** 찍거나
+녹화하고, 그 결과에 맞춰 고친 뒤 푸시한다.
+
 **Running the Supabase stack (for `/company`)** — see `platform/README.md` for the full
 data workflow; the non-obvious cloud gotchas are:
 - Requires Docker + the `supabase` CLI (installed to `$HOME/.local/share/supabase`, must be
