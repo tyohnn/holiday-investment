@@ -35,6 +35,7 @@ import {
   ksicDivision,
 } from "@investment/schema";
 import { z } from "zod";
+import type { CompanyIndex } from "./company-index";
 
 const URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "http://127.0.0.1:54321";
 // 서비스 롤 키 — RLS 를 우회하는 유일한 입구. NEXT_PUBLIC_ 프리픽스가 아니므로
@@ -67,6 +68,43 @@ export async function listCompanies(): Promise<Company[]> {
   const { data, error } = await supabaseService.from("companies").select("*").order("name");
   if (error) throw error;
   return parseAll(Company, data ?? [], "companies");
+}
+
+const COMPANY_INDEX_PAGE = 1000;
+
+/**
+ * Command·홈이 쓰는 종목 인덱스. profile 을 빼서 행을 가볍게 두고,
+ * PostgREST 기본 1000행 상한을 페이지로 넘는다.
+ */
+export async function listCompanyIndex(): Promise<CompanyIndex[]> {
+  const out: CompanyIndex[] = [];
+  for (let offset = 0; ; offset += COMPANY_INDEX_PAGE) {
+    const { data, error } = await supabaseService
+      .from("companies")
+      .select("stock_code,name,market,sector_code")
+      .not("stock_code", "is", null)
+      .order("name")
+      .range(offset, offset + COMPANY_INDEX_PAGE - 1);
+    if (error) throw error;
+    const rows = (data ?? []).flatMap((row) => {
+      if (!row.stock_code || !row.name) return [];
+      const market =
+        row.market === 'KOSPI' || row.market === 'KOSDAQ' || row.market === 'KONEX'
+          ? row.market
+          : null;
+      return [
+        {
+          stock_code: row.stock_code,
+          name: row.name,
+          market,
+          sector_code: typeof row.sector_code === 'string' ? row.sector_code : null,
+        } satisfies CompanyIndex,
+      ];
+    });
+    out.push(...rows);
+    if (rows.length < COMPANY_INDEX_PAGE) break;
+  }
+  return out;
 }
 
 export async function getCompany(stockCode: string): Promise<Company | null> {
