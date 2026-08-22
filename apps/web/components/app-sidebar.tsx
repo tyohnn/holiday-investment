@@ -85,6 +85,20 @@ const STATE_DOT: Record<string, string> = {
   agent: 'bg-muted-foreground/35',
 };
 
+const BOARDS_OPEN_KEY = 'sidebar:boards-open';
+
+function readBoardsOpen(fallback: boolean): boolean {
+  if (typeof window === 'undefined') return fallback;
+  try {
+    const raw = window.sessionStorage.getItem(BOARDS_OPEN_KEY);
+    if (raw === '1') return true;
+    if (raw === '0') return false;
+  } catch {
+    /* ignore */
+  }
+  return fallback;
+}
+
 const GLOBAL_LINKS = [
   { href: '/company', label: '종목 목록', icon: ListBulletsIcon },
   { href: '/industry', label: '산업 지도', icon: GlobeHemisphereEastIcon },
@@ -99,11 +113,19 @@ export function AppSidebar() {
   const company = companies.find((item) => item.stock_code === stockCode);
   const onLab = pathname.startsWith('/lab/');
   const iconCollapsed = sidebarState === 'collapsed';
-  const [boardsOpen, setBoardsOpen] = useState(onLab);
+  const [boardsOpen, setBoardsOpen] = useState(() => readBoardsOpen(onLab));
 
   useEffect(() => {
     if (onLab) setBoardsOpen(true);
   }, [onLab]);
+
+  useEffect(() => {
+    try {
+      window.sessionStorage.setItem(BOARDS_OPEN_KEY, boardsOpen ? '1' : '0');
+    } catch {
+      /* ignore */
+    }
+  }, [boardsOpen]);
 
   return (
     <Sidebar collapsible="icon">
