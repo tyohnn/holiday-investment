@@ -20,7 +20,7 @@ import {
 } from '@phosphor-icons/react';
 import { appName } from '@/lib/shared';
 import { BOARDS, type BoardId } from '@/lib/analysis';
-import { companyIndustryName, parseLabPath } from '@/lib/platform/company-index';
+import { parseLabPath } from '@/lib/platform/company-index';
 import { cn } from '@/lib/cn';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { useSymbolCommand } from '@/components/symbol-command';
@@ -69,47 +69,32 @@ export function AppSidebar() {
 
   return (
     <Sidebar collapsible="icon">
-      <SidebarHeader>
+      <SidebarHeader className="h-12 justify-center border-b border-sidebar-border p-0 px-2">
         <SidebarMenu>
           <SidebarMenuItem>
-            <SidebarMenuButton
-              size="lg"
-              type="button"
-              className="h-12"
-              onClick={() => setOpen(true)}
-            >
-                {company ? (
-                  <>
-                    <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-primary text-[11px] font-bold text-primary-foreground">
-                      {company.name.slice(0, 1)}
-                    </span>
-                    <span className="flex min-w-0 flex-1 flex-col leading-tight">
-                      <span className="truncate text-sm font-semibold">{company.name}</span>
-                      <span className="truncate font-mono text-[10px] text-sidebar-foreground/60">
-                        {company.stock_code} · {companyIndustryName(company)}
-                      </span>
-                    </span>
-                  </>
-                ) : (
-                  <>
-                    <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-sidebar-accent text-sidebar-accent-foreground">
-                      <MagnifyingGlassIcon className="size-3.5" />
-                    </span>
-                    <span className="flex min-w-0 flex-1 flex-col leading-tight">
-                      <span className="truncate text-sm font-semibold">종목 검색</span>
-                      <span className="truncate text-[10px] text-sidebar-foreground/60">
-                        종목명 또는 코드
-                      </span>
-                    </span>
-                  </>
-                )}
-                <MagnifyingGlassIcon className="size-3.5 shrink-0 text-sidebar-foreground/45 group-data-[collapsible=icon]:hidden" />
+            <SidebarMenuButton type="button" onClick={() => setOpen(true)}>
+              {company ? (
+                <>
+                  <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-primary text-[11px] font-bold text-primary-foreground">
+                    {company.name.slice(0, 1)}
+                  </span>
+                  <span className="truncate text-sm font-semibold">{company.name}</span>
+                  <span className="ml-auto shrink-0 font-mono text-[10px] text-sidebar-foreground/60 group-data-[collapsible=icon]:hidden">
+                    {company.stock_code}
+                  </span>
+                </>
+              ) : (
+                <>
+                  <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-sidebar-accent text-sidebar-accent-foreground">
+                    <MagnifyingGlassIcon className="size-3.5" />
+                  </span>
+                  <span className="truncate text-sm font-semibold">종목 검색</span>
+                </>
+              )}
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarHeader>
-
-      <SidebarSeparator />
 
       <SidebarContent>
         <SidebarGroup>
