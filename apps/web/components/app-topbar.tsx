@@ -8,7 +8,6 @@ import { parseStockPath } from '@/lib/platform/company-index';
 import { useSymbolCommand } from '@/components/symbol-command';
 import { cn } from '@/lib/cn';
 import { Badge } from '@/components/ui/badge';
-import { Separator } from '@/components/ui/separator';
 import { SidebarTrigger } from '@/components/ui/sidebar';
 
 export function AppTopbar() {
@@ -37,10 +36,7 @@ export function AppTopbar() {
     <header className="sticky top-0 z-10 flex h-12 shrink-0 items-center gap-2 border-b border-border bg-background/95 px-3 backdrop-blur supports-backdrop-filter:bg-background/60 sm:px-4">
       <SidebarTrigger className="-ml-1" />
       {crumbs.length > 0 && (
-        <Separator
-          orientation="vertical"
-          className="!h-4 !self-center data-vertical:!h-4 data-vertical:!self-center"
-        />
+        <span aria-hidden className="inline-block h-4 w-px shrink-0 self-center bg-border" />
       )}
       <nav
         className="flex min-w-0 items-center gap-1.5 text-sm text-muted-foreground"
