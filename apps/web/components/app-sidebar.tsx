@@ -132,7 +132,7 @@ export function AppSidebar() {
       <SidebarHeader className="h-12 justify-center border-b border-sidebar-border p-0 px-2">
         <SidebarMenu>
           <SidebarMenuItem className="min-w-0">
-            <SidebarMenuButton>
+            <SidebarMenuButton
               type="button"
               onClick={() => setOpen(true)}
               className="min-w-0"
