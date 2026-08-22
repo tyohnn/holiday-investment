@@ -23,7 +23,7 @@ import { BOARDS, type BoardId } from '@/lib/analysis';
 import { companyIndustryName, parseLabPath } from '@/lib/platform/company-index';
 import { cn } from '@/lib/cn';
 import { ThemeToggle } from '@/components/theme-toggle';
-import { SymbolCommandTrigger, useSymbolCommand } from '@/components/symbol-command';
+import { useSymbolCommand } from '@/components/symbol-command';
 import {
   Sidebar,
   SidebarContent,
@@ -63,7 +63,7 @@ const GLOBAL_LINKS = [
 
 export function AppSidebar() {
   const pathname = usePathname();
-  const { companies } = useSymbolCommand();
+  const { companies, setOpen } = useSymbolCommand();
   const { stockCode } = parseLabPath(pathname);
   const company = companies.find((item) => item.stock_code === stockCode);
 
@@ -72,8 +72,12 @@ export function AppSidebar() {
       <SidebarHeader>
         <SidebarMenu>
           <SidebarMenuItem>
-            <SymbolCommandTrigger asChild>
-              <SidebarMenuButton size="lg" type="button" className="h-12">
+            <SidebarMenuButton
+              size="lg"
+              type="button"
+              className="h-12"
+              onClick={() => setOpen(true)}
+            >
                 {company ? (
                   <>
                     <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-primary text-[11px] font-bold text-primary-foreground">
@@ -100,8 +104,7 @@ export function AppSidebar() {
                   </>
                 )}
                 <MagnifyingGlassIcon className="size-3.5 shrink-0 text-sidebar-foreground/45 group-data-[collapsible=icon]:hidden" />
-              </SidebarMenuButton>
-            </SymbolCommandTrigger>
+            </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarHeader>

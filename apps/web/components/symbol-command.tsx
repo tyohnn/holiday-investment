@@ -1,17 +1,21 @@
 'use client';
 
 import {
+  cloneElement,
   createContext,
+  isValidElement,
   useCallback,
   useContext,
   useEffect,
   useMemo,
   useState,
   type ComponentProps,
+  type MouseEvent,
+  type ReactElement,
   type ReactNode,
 } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
-import { BookOpenTextIcon, GlobeHemisphereEastIcon } from '@phosphor-icons/react';
+import { BookOpenTextIcon, GlobeHemisphereEastIcon, XIcon } from '@phosphor-icons/react';
 import {
   companyMetaLine,
   labHref,
@@ -27,14 +31,13 @@ import {
 import { cn } from '@/lib/cn';
 import {
   Command,
-  CommandDialogContent,
   CommandEmpty,
   CommandGroup,
   CommandInput,
   CommandItem,
   CommandList,
 } from '@/components/ui/command';
-import { Dialog, DialogTrigger } from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
 import { Kbd, KbdGroup } from '@/components/ui/kbd';
 
 const RECENT_KEY = 'symbol-command:recent';
@@ -65,14 +68,38 @@ export function useSymbolCommand(): SymbolCommandValue {
   return ctx;
 }
 
+type TriggerProps = ComponentProps<'button'> & { asChild?: boolean };
+
 export function SymbolCommandTrigger({
+  asChild,
   children,
+  onClick,
   ...props
-}: ComponentProps<typeof DialogTrigger>) {
+}: TriggerProps) {
+  const { setOpen } = useSymbolCommand();
+
+  function openPalette(event: MouseEvent<HTMLElement>) {
+    onClick?.(event as MouseEvent<HTMLButtonElement>);
+    if (!event.defaultPrevented) setOpen(true);
+  }
+
+  if (asChild) {
+    if (!isValidElement<{ onClick?: (event: MouseEvent<HTMLElement>) => void }>(children)) {
+      return null;
+    }
+    return cloneElement(children, {
+      ...props,
+      onClick: (event: MouseEvent<HTMLElement>) => {
+        children.props.onClick?.(event);
+        openPalette(event);
+      },
+    });
+  }
+
   return (
-    <DialogTrigger data-symbol-command-trigger="" {...props}>
+    <button type="button" data-symbol-command-trigger="" onClick={openPalette} {...props}>
       {children}
-    </DialogTrigger>
+    </button>
   );
 }
 
@@ -178,10 +205,8 @@ export function SymbolCommandProvider({
 
   return (
     <SymbolCommandContext.Provider value={value}>
-      <Dialog open={open} onOpenChange={setOpen}>
-        {children}
-        <SymbolCommandDialog />
-      </Dialog>
+      {children}
+      <SymbolCommandDialog />
     </SymbolCommandContext.Provider>
   );
 }
@@ -221,6 +246,18 @@ function SymbolCommandDialog() {
   const filteredIndustries = showExtras ? industries.filter((item) => matchesIndustry(item, query)).slice(0, 12) : [];
   const filteredChapters = showExtras ? chapters.filter((item) => matchesChapter(item, query)).slice(0, 12) : [];
 
+  useEffect(() => {
+    if (!open) return;
+    function onKey(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        setOpen(false);
+      }
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open, setOpen]);
+
   function goCompany(stockCode: string) {
     remember(stockCode);
     setOpen(false);
@@ -232,19 +269,41 @@ function SymbolCommandDialog() {
     router.push(href);
   }
 
+  if (!open) return null;
+
   return (
-    <CommandDialogContent
-      title="종목 검색"
-      description="종목명 또는 종목코드로 검색합니다"
-      className="sm:max-w-xl"
-      showCloseButton
-      onCloseAutoFocus={(event) => event.preventDefault()}
-    >
-      <Command shouldFilter={false}>
+    <div className="fixed inset-0 z-[200]" role="presentation">
+      <button
+        type="button"
+        aria-label="검색 닫기"
+        className="absolute inset-0 bg-black/80"
+        onClick={() => setOpen(false)}
+      />
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="symbol-command-title"
+        className="absolute top-[18%] left-1/2 z-[201] w-[min(36rem,calc(100%-2rem))] -translate-x-1/2 overflow-hidden rounded-xl bg-popover text-popover-foreground shadow-lg ring-1 ring-foreground/10"
+      >
+        <h2 id="symbol-command-title" className="sr-only">
+          종목 검색
+        </h2>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          className="absolute top-2 right-2 z-[1]"
+          onClick={() => setOpen(false)}
+        >
+          <XIcon />
+          <span className="sr-only">닫기</span>
+        </Button>
+        <Command shouldFilter={false}>
         <CommandInput
           value={query}
           onValueChange={setQuery}
           placeholder="종목명, 종목코드"
+          autoFocus
         />
         <div className="flex flex-wrap gap-1 px-2 pt-2">
           {CHIPS.map((item) => (
@@ -272,6 +331,10 @@ function SymbolCommandDialog() {
                   key={`recent-${company.stock_code}`}
                   value={`recent:${company.stock_code}`}
                   onSelect={() => goCompany(company.stock_code)}
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                    goCompany(company.stock_code);
+                  }}
                 >
                   <SymbolRow company={company} dense />
                 </CommandItem>
@@ -285,6 +348,10 @@ function SymbolCommandDialog() {
                   key={`company-${company.stock_code}`}
                   value={`company:${company.stock_code}`}
                   onSelect={() => goCompany(company.stock_code)}
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                    goCompany(company.stock_code);
+                  }}
                 >
                   <SymbolRow company={company} dense />
                 </CommandItem>
@@ -298,6 +365,10 @@ function SymbolCommandDialog() {
                   key={`industry-${industry.slug}`}
                   value={`industry:${industry.slug}`}
                   onSelect={() => goHref(`/industry/${encodeURIComponent(industry.slug)}`)}
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                    goHref(`/industry/${encodeURIComponent(industry.slug)}`);
+                  }}
                 >
                   <GlobeHemisphereEastIcon className="size-4 text-muted-foreground" />
                   <span className="flex min-w-0 flex-col leading-tight">
@@ -315,6 +386,10 @@ function SymbolCommandDialog() {
                   key={chapter.href}
                   value={`chapter:${chapter.href}`}
                   onSelect={() => goHref(chapter.href)}
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                    goHref(chapter.href);
+                  }}
                 >
                   <BookOpenTextIcon className="size-4 text-muted-foreground" />
                   <span className="flex min-w-0 flex-col leading-tight">
@@ -329,6 +404,7 @@ function SymbolCommandDialog() {
           )}
         </CommandList>
       </Command>
-    </CommandDialogContent>
+      </div>
+    </div>
   );
 }
