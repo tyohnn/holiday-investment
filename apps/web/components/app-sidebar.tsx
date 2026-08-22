@@ -2,13 +2,14 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import type { ComponentType } from 'react';
+import { useEffect, useState, type ComponentType } from 'react';
 import {
   ArrowsLeftRightIcon,
   BinocularsIcon,
   BookOpenTextIcon,
   BuildingsIcon,
   CalculatorIcon,
+  CaretDownIcon,
   ChartLineUpIcon,
   ChartPieSliceIcon,
   CompassIcon,
@@ -18,6 +19,7 @@ import {
   GavelIcon,
   GlobeHemisphereEastIcon,
   ListBulletsIcon,
+  ListNumbersIcon,
   MagnifyingGlassIcon,
   NewspaperClippingIcon,
   PercentIcon,
@@ -48,7 +50,9 @@ import {
   SidebarMenuItem,
   SidebarRail,
   SidebarSeparator,
+  useSidebar,
 } from '@/components/ui/sidebar';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 
 const COMPANY_ICON: Record<CompanyMenuId, ComponentType<IconProps>> = {
   snapshot: SquaresFourIcon,
@@ -89,9 +93,17 @@ const GLOBAL_LINKS = [
 
 export function AppSidebar() {
   const pathname = usePathname();
+  const { state: sidebarState } = useSidebar();
   const { companies, setOpen, openSearch } = useSymbolCommand();
   const { stockCode, menuSlug } = parseStockPath(pathname);
   const company = companies.find((item) => item.stock_code === stockCode);
+  const onLab = pathname.startsWith('/lab/');
+  const iconCollapsed = sidebarState === 'collapsed';
+  const [boardsOpen, setBoardsOpen] = useState(onLab);
+
+  useEffect(() => {
+    if (onLab) setBoardsOpen(true);
+  }, [onLab]);
 
   return (
     <Sidebar collapsible="icon">
@@ -157,58 +169,77 @@ export function AppSidebar() {
 
         <SidebarSeparator />
 
-        <SidebarGroup>
-          <SidebarGroupLabel>분석 순서</SidebarGroupLabel>
-          <SidebarMenu>
-            {BOARDS.map((board) => {
-              const href = stockCode ? `/lab/${stockCode}/${board.slug}` : undefined;
-              const active = Boolean(href && (pathname === href || pathname.startsWith(`${href}/`)));
-              const Icon = BOARD_ICON[board.id];
-              return (
-                <SidebarMenuItem key={board.id}>
-                  {href ? (
-                    <SidebarMenuButton
-                      asChild
-                      isActive={active}
-                      tooltip={`${board.step}. ${board.title} — ${board.question}`}
-                    >
-                      <Link href={href}>
-                        <Icon weight={active ? 'fill' : 'regular'} />
-                        <span className="flex min-w-0 flex-1 items-center gap-1.5">
-                          <span className="font-mono text-[10px] tabular-nums text-sidebar-foreground/45">
-                            {board.step}
+        <Collapsible
+          open={iconCollapsed || boardsOpen}
+          onOpenChange={(next) => {
+            if (!iconCollapsed) setBoardsOpen(next);
+          }}
+          className="group/collapsible"
+        >
+          <SidebarGroup>
+            <SidebarGroupLabel
+              asChild
+              className="cursor-pointer hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+            >
+              <CollapsibleTrigger>
+                <ListNumbersIcon />
+                <span className="flex-1 truncate text-left">분석 순서</span>
+                <CaretDownIcon className="ml-auto transition-transform group-data-[state=open]/collapsible:rotate-180" />
+              </CollapsibleTrigger>
+            </SidebarGroupLabel>
+            <CollapsibleContent>
+              <SidebarMenu>
+                {BOARDS.map((board) => {
+                  const href = stockCode ? `/lab/${stockCode}/${board.slug}` : undefined;
+                  const active = Boolean(href && (pathname === href || pathname.startsWith(`${href}/`)));
+                  const Icon = BOARD_ICON[board.id];
+                  return (
+                    <SidebarMenuItem key={board.id}>
+                      {href ? (
+                        <SidebarMenuButton
+                          asChild
+                          isActive={active}
+                          tooltip={`${board.step}. ${board.title} — ${board.question}`}
+                        >
+                          <Link href={href}>
+                            <Icon weight={active ? 'fill' : 'regular'} />
+                            <span className="flex min-w-0 flex-1 items-center gap-1.5">
+                              <span className="font-mono text-[10px] tabular-nums text-sidebar-foreground/45">
+                                {board.step}
+                              </span>
+                              <span className="truncate">{board.title}</span>
+                            </span>
+                            <span
+                              aria-hidden
+                              className={cn(
+                                'size-1.5 shrink-0 rounded-full group-data-[collapsible=icon]:hidden',
+                                STATE_DOT[board.dataState],
+                              )}
+                            />
+                          </Link>
+                        </SidebarMenuButton>
+                      ) : (
+                        <SidebarMenuButton
+                          type="button"
+                          tooltip={`${board.step}. ${board.title} — ${board.question}`}
+                          onClick={() => openSearch({ boardSlug: board.slug })}
+                        >
+                          <Icon />
+                          <span className="flex min-w-0 flex-1 items-center gap-1.5">
+                            <span className="font-mono text-[10px] tabular-nums text-sidebar-foreground/45">
+                              {board.step}
+                            </span>
+                            <span className="truncate">{board.title}</span>
                           </span>
-                          <span className="truncate">{board.title}</span>
-                        </span>
-                        <span
-                          aria-hidden
-                          className={cn(
-                            'size-1.5 shrink-0 rounded-full group-data-[collapsible=icon]:hidden',
-                            STATE_DOT[board.dataState],
-                          )}
-                        />
-                      </Link>
-                    </SidebarMenuButton>
-                  ) : (
-                    <SidebarMenuButton
-                      type="button"
-                      tooltip={`${board.step}. ${board.title} — ${board.question}`}
-                      onClick={() => openSearch({ boardSlug: board.slug })}
-                    >
-                      <Icon />
-                      <span className="flex min-w-0 flex-1 items-center gap-1.5">
-                        <span className="font-mono text-[10px] tabular-nums text-sidebar-foreground/45">
-                          {board.step}
-                        </span>
-                        <span className="truncate">{board.title}</span>
-                      </span>
-                    </SidebarMenuButton>
-                  )}
-                </SidebarMenuItem>
-              );
-            })}
-          </SidebarMenu>
-        </SidebarGroup>
+                        </SidebarMenuButton>
+                      )}
+                    </SidebarMenuItem>
+                  );
+                })}
+              </SidebarMenu>
+            </CollapsibleContent>
+          </SidebarGroup>
+        </Collapsible>
       </SidebarContent>
 
       <SidebarFooter>
