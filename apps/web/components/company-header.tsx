@@ -1,6 +1,12 @@
 import { classifySector, type Company } from '@investment/schema';
 import { Badge } from '@/components/ui/badge';
-import { formatKoDate } from './format';
+
+function formatKoDate(date: string | null | undefined): string {
+  if (!date) return '—';
+  const m = date.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return date;
+  return `${m[1]}.${m[2]}.${m[3]}`;
+}
 
 export function CompanyHeader({ company }: { company: Company }) {
   const items: { label: string; value: string }[] = [
@@ -10,19 +16,18 @@ export function CompanyHeader({ company }: { company: Company }) {
   ];
 
   return (
-    <div className="relative overflow-hidden rounded-2xl border border-border bg-card p-5 shadow-[var(--shadow-card)] sm:p-6">
-      {/* Faint brand-tinted glow in the corner — restrained, not a full gradient wash. */}
+    <div className="relative overflow-hidden border-b border-border bg-card/95 px-4 py-3 shadow-[var(--shadow-card)] backdrop-blur supports-backdrop-filter:bg-card/80">
       <div
         aria-hidden
         className="pointer-events-none absolute -top-16 -right-16 size-48 rounded-full bg-primary/10 blur-3xl"
       />
       <div className="relative flex flex-wrap items-center gap-x-4 gap-y-2">
-        <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-primary text-lg font-bold text-primary-foreground">
+        <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary text-base font-bold text-primary-foreground">
           {company.name.slice(0, 1)}
         </span>
         <div className="min-w-0">
           <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
-            <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">{company.name}</h1>
+            <h1 className="text-xl font-bold tracking-tight sm:text-2xl">{company.name}</h1>
             <span className="font-mono text-sm text-muted-foreground">{company.stock_code}</span>
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-1.5">
@@ -33,7 +38,7 @@ export function CompanyHeader({ company }: { company: Company }) {
           </div>
         </div>
       </div>
-      <dl className="relative mt-5 grid grid-cols-2 gap-x-6 gap-y-2 border-t border-border pt-4 text-sm sm:grid-cols-3">
+      <dl className="relative mt-3 grid grid-cols-2 gap-x-6 gap-y-2 border-t border-border pt-3 text-sm sm:grid-cols-3">
         {items.map((item) => (
           <div key={item.label}>
             <dt className="text-muted-foreground">{item.label}</dt>

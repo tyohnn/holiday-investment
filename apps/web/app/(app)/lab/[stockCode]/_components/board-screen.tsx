@@ -4,7 +4,6 @@ import { getCompanyPageData } from '@/lib/platform/db';
 import { AgentCta } from './agent-cta';
 import { BoardPageHeader } from './board-page-header';
 import { WidgetGrid } from './board-widgets';
-import { CompanyHeader } from './company-header';
 import { CorrectionChains } from './correction-chains';
 import { EventsSection } from './events-section';
 import { FilingTimeline } from './filing-timeline';
@@ -32,7 +31,7 @@ export async function BoardScreen({
   const data = await getCompanyPageData(stockCode);
   if (!data) notFound();
 
-  const { company, annual, filings, corrections, events, trackings, sections } = data;
+  const { annual, filings, corrections, events, trackings, sections } = data;
   const latestYear = annual.length > 0 ? annual[annual.length - 1] : null;
   const previousYear = annual.length > 1 ? annual[annual.length - 2] : null;
 
@@ -47,7 +46,7 @@ export async function BoardScreen({
   };
 
   return (
-    <div className="space-y-8 pb-16">
+    <div className="space-y-6 pb-12">
       <BoardPageHeader board={board} />
 
       {/* 정성 단계는 빈 위젯 격자만 보여주는 대신, 무엇이 채워질지부터 말한다. */}
@@ -55,7 +54,6 @@ export async function BoardScreen({
 
       {boardId === 'primary' && (
         <>
-          <CompanyHeader company={company} />
           {latestYear && <KeyMetrics latest={latestYear} previous={previousYear} />}
           {annual.length > 0 && (
             <section>

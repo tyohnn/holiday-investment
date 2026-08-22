@@ -17,7 +17,7 @@ export function HomeLanding() {
     .filter((company): company is NonNullable<typeof company> => Boolean(company));
 
   return (
-    <div className="mx-auto w-full max-w-2xl pt-4">
+    <div className="mx-auto w-full max-w-2xl px-4 py-6 sm:px-6 lg:px-8">
       <p className="text-xs font-medium tracking-[0.08em] text-muted-foreground">종목 분석</p>
       <h1 className="mt-3 text-3xl font-semibold tracking-tight text-balance break-keep">
         종목을 검색해 분석을 시작합니다

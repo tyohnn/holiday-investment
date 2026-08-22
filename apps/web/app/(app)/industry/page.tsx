@@ -55,7 +55,7 @@ export default async function IndustryMapPage() {
   }
 
   return (
-    <div className="mx-auto max-w-7xl pb-16">
+    <div className="mx-auto max-w-7xl px-4 py-6 pb-16 sm:px-6 lg:px-8">
       <header>
         <h1 className="text-2xl font-bold tracking-tight">산업 지도</h1>
         <p className="mt-1 max-w-3xl text-sm leading-relaxed text-muted-foreground">

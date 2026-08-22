@@ -8,7 +8,6 @@ import {
 } from '@investment/schema';
 import { getCompanyMenu, type CompanyMenuId } from '@/lib/company';
 import { getCompanyPageData } from '@/lib/platform/db';
-import { CompanyHeader } from '../../../lab/[stockCode]/_components/company-header';
 import { CorrectionChains } from '../../../lab/[stockCode]/_components/correction-chains';
 import { EventsSection } from '../../../lab/[stockCode]/_components/events-section';
 import { FilingTimeline } from '../../../lab/[stockCode]/_components/filing-timeline';
@@ -26,19 +25,14 @@ export async function GuidePage({
   const data = await getCompanyPageData(stockCode);
   if (!data) notFound();
 
-  const { company, annual, filings, corrections, events, ownershipTxns } = data;
+  const { annual, filings, corrections, events, ownershipTxns } = data;
   const latestYear = annual.length > 0 ? annual[annual.length - 1] : null;
   const previousYear = annual.length > 1 ? annual[annual.length - 2] : null;
 
   return (
-    <div className="space-y-8 pb-16">
-      <header>
-        <h1 className="text-2xl font-semibold tracking-tight">{menu.title}</h1>
-      </header>
-
+    <div className="space-y-6 pb-12">
       {menuId === 'snapshot' && (
         <>
-          <CompanyHeader company={company} />
           {latestYear && <KeyMetrics latest={latestYear} previous={previousYear} />}
           {annual.length > 0 && (
             <section>
@@ -53,8 +47,6 @@ export async function GuidePage({
           )}
         </>
       )}
-
-      {menuId === 'profile' && <CompanyHeader company={company} />}
 
       {menuId === 'financials' && (
         <>
