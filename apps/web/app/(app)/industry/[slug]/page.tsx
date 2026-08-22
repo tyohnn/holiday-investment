@@ -68,7 +68,7 @@ export default async function IndustryDetailPage(props: PageProps<'/industry/[sl
   );
 
   return (
-    <div className="pb-16">
+    <div className="mx-auto max-w-7xl pb-16">
       <nav className="text-xs text-muted-foreground">
         <Link href="/industry" className="hover:text-foreground">
           산업 지도

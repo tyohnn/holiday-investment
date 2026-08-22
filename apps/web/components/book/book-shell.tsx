@@ -51,7 +51,7 @@ export async function BookShell({
           ) : null}
           <div className="ms-auto flex items-center gap-1">
             <Link
-              href="/company"
+              href="/"
               className="rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
             >
               리서치
