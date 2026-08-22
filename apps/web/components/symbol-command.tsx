@@ -51,9 +51,16 @@ const CHIPS: { id: MarketChip; label: string }[] = [
   { id: 'recent', label: '최근' },
 ];
 
+export type StockSearchIntent = {
+  menuSlug?: string;
+  boardSlug?: string;
+};
+
 type SymbolCommandValue = {
   open: boolean;
   setOpen: (open: boolean) => void;
+  openSearch: (intent?: StockSearchIntent) => void;
+  intent: StockSearchIntent | null;
   companies: CompanyIndex[];
   industries: IndustryIndex[];
   chapters: ChapterIndex[];
@@ -173,8 +180,19 @@ export function SymbolCommandProvider({
   chapters: ChapterIndex[];
   children: ReactNode;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpenState] = useState(false);
+  const [intent, setIntent] = useState<StockSearchIntent | null>(null);
   const [recentCodes, setRecentCodes] = useState<string[]>([]);
+
+  const setOpen = useCallback((next: boolean) => {
+    if (!next) setIntent(null);
+    setOpenState(next);
+  }, []);
+
+  const openSearch = useCallback((nextIntent?: StockSearchIntent) => {
+    setIntent(nextIntent ?? null);
+    setOpenState(true);
+  }, []);
 
   useEffect(() => {
     setRecentCodes(readRecent());
@@ -192,7 +210,8 @@ export function SymbolCommandProvider({
     function onKey(event: KeyboardEvent) {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
         event.preventDefault();
-        setOpen((value) => !value);
+        setIntent(null);
+        setOpenState((value) => !value);
       }
     }
     window.addEventListener('keydown', onKey);
@@ -200,8 +219,18 @@ export function SymbolCommandProvider({
   }, []);
 
   const value = useMemo<SymbolCommandValue>(
-    () => ({ open, setOpen, companies, industries, chapters, recentCodes, remember }),
-    [open, companies, industries, chapters, recentCodes, remember],
+    () => ({
+      open,
+      setOpen,
+      openSearch,
+      intent,
+      companies,
+      industries,
+      chapters,
+      recentCodes,
+      remember,
+    }),
+    [open, setOpen, openSearch, intent, companies, industries, chapters, recentCodes, remember],
   );
 
   return (
@@ -213,7 +242,8 @@ export function SymbolCommandProvider({
 }
 
 function SymbolCommandDialog() {
-  const { open, setOpen, companies, industries, chapters, recentCodes, remember } = useSymbolCommand();
+  const { open, setOpen, intent, companies, industries, chapters, recentCodes, remember } =
+    useSymbolCommand();
   const pathname = usePathname();
   const router = useRouter();
   const [query, setQuery] = useState('');
@@ -261,16 +291,17 @@ function SymbolCommandDialog() {
 
   function goCompany(stockCode: string) {
     remember(stockCode);
+    const nextHref = intent?.menuSlug
+      ? companyHref(stockCode, intent.menuSlug)
+      : intent?.boardSlug
+        ? labHref(stockCode, intent.boardSlug)
+        : menuSlug
+          ? companyHref(stockCode, menuSlug)
+          : boardSlug && pathname.startsWith('/lab/')
+            ? labHref(stockCode, boardSlug)
+            : companyHref(stockCode);
     setOpen(false);
-    if (menuSlug) {
-      router.push(companyHref(stockCode, menuSlug));
-      return;
-    }
-    if (boardSlug && pathname.startsWith('/lab/')) {
-      router.push(labHref(stockCode, boardSlug));
-      return;
-    }
-    router.push(companyHref(stockCode));
+    router.push(nextHref);
   }
 
   function goHref(href: string) {

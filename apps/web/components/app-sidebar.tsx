@@ -4,23 +4,34 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import type { ComponentType } from 'react';
 import {
+  ArrowsLeftRightIcon,
   BinocularsIcon,
   BookOpenTextIcon,
+  BuildingsIcon,
   CalculatorIcon,
+  ChartLineUpIcon,
+  ChartPieSliceIcon,
   CompassIcon,
+  FactoryIcon,
   FileTextIcon,
   FlowArrowIcon,
   GavelIcon,
   GlobeHemisphereEastIcon,
   ListBulletsIcon,
   MagnifyingGlassIcon,
+  NewspaperClippingIcon,
+  PercentIcon,
   PulseIcon,
+  ScalesIcon,
   ShieldCheckIcon,
+  SquaresFourIcon,
+  TableIcon,
+  UsersThreeIcon,
   type IconProps,
 } from '@phosphor-icons/react';
 import { appName } from '@/lib/shared';
 import { BOARDS, type BoardId } from '@/lib/analysis';
-import { COMPANY_MENUS, companyHref } from '@/lib/company';
+import { COMPANY_MENUS, companyHref, type CompanyMenuId } from '@/lib/company';
 import { parseStockPath } from '@/lib/platform/company-index';
 import { cn } from '@/lib/cn';
 import { ThemeToggle } from '@/components/theme-toggle';
@@ -38,6 +49,20 @@ import {
   SidebarRail,
   SidebarSeparator,
 } from '@/components/ui/sidebar';
+
+const COMPANY_ICON: Record<CompanyMenuId, ComponentType<IconProps>> = {
+  snapshot: SquaresFourIcon,
+  profile: BuildingsIcon,
+  financials: TableIcon,
+  ratios: PercentIcon,
+  indicators: ChartLineUpIcon,
+  consensus: UsersThreeIcon,
+  ownership: ChartPieSliceIcon,
+  sector: FactoryIcon,
+  peers: ArrowsLeftRightIcon,
+  'exchange-filings': NewspaperClippingIcon,
+  'fss-filings': ScalesIcon,
+};
 
 const BOARD_ICON: Record<BoardId, ComponentType<IconProps>> = {
   verdict: GavelIcon,
@@ -64,7 +89,7 @@ const GLOBAL_LINKS = [
 
 export function AppSidebar() {
   const pathname = usePathname();
-  const { companies, setOpen } = useSymbolCommand();
+  const { companies, setOpen, openSearch } = useSymbolCommand();
   const { stockCode, menuSlug } = parseStockPath(pathname);
   const company = companies.find((item) => item.stock_code === stockCode);
 
@@ -104,16 +129,23 @@ export function AppSidebar() {
             {COMPANY_MENUS.map((menu) => {
               const href = stockCode ? companyHref(stockCode, menu.slug) : undefined;
               const active = Boolean(href && menuSlug === menu.slug);
+              const Icon = COMPANY_ICON[menu.id];
               return (
                 <SidebarMenuItem key={menu.id}>
                   {href ? (
                     <SidebarMenuButton asChild isActive={active} tooltip={menu.title}>
                       <Link href={href}>
+                        <Icon weight={active ? 'fill' : 'regular'} />
                         <span className="truncate">{menu.title}</span>
                       </Link>
                     </SidebarMenuButton>
                   ) : (
-                    <SidebarMenuButton disabled tooltip="종목을 먼저 고르세요">
+                    <SidebarMenuButton
+                      type="button"
+                      tooltip={menu.title}
+                      onClick={() => openSearch({ menuSlug: menu.slug })}
+                    >
+                      <Icon />
                       <span className="truncate">{menu.title}</span>
                     </SidebarMenuButton>
                   )}
@@ -158,7 +190,11 @@ export function AppSidebar() {
                       </Link>
                     </SidebarMenuButton>
                   ) : (
-                    <SidebarMenuButton disabled tooltip="종목을 먼저 고르세요">
+                    <SidebarMenuButton
+                      type="button"
+                      tooltip={`${board.step}. ${board.title} — ${board.question}`}
+                      onClick={() => openSearch({ boardSlug: board.slug })}
+                    >
                       <Icon />
                       <span className="flex min-w-0 flex-1 items-center gap-1.5">
                         <span className="font-mono text-[10px] tabular-nums text-sidebar-foreground/45">
