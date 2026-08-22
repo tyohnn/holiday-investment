@@ -3,10 +3,15 @@
 import Link from 'next/link';
 import { MagnifyingGlassIcon } from '@phosphor-icons/react';
 import { labHref } from '@/lib/platform/company-index';
-import { ShortcutHint, SymbolRow, useSymbolCommand } from '@/components/symbol-command';
+import {
+  ShortcutHint,
+  SymbolCommandTrigger,
+  SymbolRow,
+  useSymbolCommand,
+} from '@/components/symbol-command';
 
 export function HomeLanding() {
-  const { companies, recentCodes, setOpen, remember } = useSymbolCommand();
+  const { companies, recentCodes, remember } = useSymbolCommand();
   const recent = recentCodes
     .map((code) => companies.find((company) => company.stock_code === code))
     .filter((company): company is NonNullable<typeof company> => Boolean(company));
@@ -21,15 +26,14 @@ export function HomeLanding() {
         이름이나 종목코드로 찾고, 분석 단계는 그대로 둔 채 종목만 바꿉니다.
       </p>
 
-      <button
+      <SymbolCommandTrigger
         type="button"
-        onClick={() => setOpen(true)}
         className="mt-8 flex w-full items-center gap-3 rounded-xl border border-border bg-card px-4 py-3 text-left shadow-[var(--shadow-card)] transition-colors hover:border-primary/50 hover:bg-accent/40"
       >
         <MagnifyingGlassIcon className="size-4 shrink-0 text-muted-foreground" />
         <span className="flex-1 text-sm text-muted-foreground">종목명, 종목코드</span>
         <ShortcutHint />
-      </button>
+      </SymbolCommandTrigger>
 
       {recent.length > 0 && (
         <section className="mt-10">
@@ -74,13 +78,12 @@ export function HomeLanding() {
               ))}
             </ul>
             {companies.length > 20 && (
-              <button
+              <SymbolCommandTrigger
                 type="button"
-                onClick={() => setOpen(true)}
                 className="mt-2 w-full rounded-lg px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent/40 hover:text-foreground"
               >
                 나머지 {companies.length - 20}개 종목 검색
-              </button>
+              </SymbolCommandTrigger>
             )}
           </>
         )}

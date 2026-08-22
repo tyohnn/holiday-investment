@@ -33,6 +33,36 @@ function Command({
   )
 }
 
+function CommandDialogContent({
+  title = "Command Palette",
+  description = "Search for a command to run...",
+  children,
+  className,
+  showCloseButton = false,
+  ...props
+}: React.ComponentProps<typeof DialogContent> & {
+  title?: string
+  description?: string
+  showCloseButton?: boolean
+}) {
+  return (
+    <DialogContent
+      className={cn(
+        "top-1/3 z-[100] translate-y-0 overflow-hidden rounded-xl! p-0",
+        className
+      )}
+      showCloseButton={showCloseButton}
+      {...props}
+    >
+      <DialogHeader className="sr-only">
+        <DialogTitle>{title}</DialogTitle>
+        <DialogDescription>{description}</DialogDescription>
+      </DialogHeader>
+      {children}
+    </DialogContent>
+  )
+}
+
 function CommandDialog({
   title = "Command Palette",
   description = "Search for a command to run...",
@@ -48,19 +78,14 @@ function CommandDialog({
 }) {
   return (
     <Dialog {...props}>
-      <DialogHeader className="sr-only">
-        <DialogTitle>{title}</DialogTitle>
-        <DialogDescription>{description}</DialogDescription>
-      </DialogHeader>
-      <DialogContent
-        className={cn(
-          "top-1/3 translate-y-0 overflow-hidden rounded-xl! p-0",
-          className
-        )}
+      <CommandDialogContent
+        title={title}
+        description={description}
+        className={className}
         showCloseButton={showCloseButton}
       >
         {children}
-      </DialogContent>
+      </CommandDialogContent>
     </Dialog>
   )
 }
@@ -185,6 +210,7 @@ function CommandShortcut({
 export {
   Command,
   CommandDialog,
+  CommandDialogContent,
   CommandInput,
   CommandList,
   CommandEmpty,

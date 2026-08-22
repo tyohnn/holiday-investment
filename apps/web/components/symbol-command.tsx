@@ -7,6 +7,7 @@ import {
   useEffect,
   useMemo,
   useState,
+  type ComponentProps,
   type ReactNode,
 } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
@@ -26,13 +27,14 @@ import {
 import { cn } from '@/lib/cn';
 import {
   Command,
-  CommandDialog,
+  CommandDialogContent,
   CommandEmpty,
   CommandGroup,
   CommandInput,
   CommandItem,
   CommandList,
 } from '@/components/ui/command';
+import { Dialog, DialogTrigger } from '@/components/ui/dialog';
 import { Kbd, KbdGroup } from '@/components/ui/kbd';
 
 const RECENT_KEY = 'symbol-command:recent';
@@ -61,6 +63,17 @@ export function useSymbolCommand(): SymbolCommandValue {
   const ctx = useContext(SymbolCommandContext);
   if (!ctx) throw new Error('useSymbolCommand must be used within SymbolCommandProvider');
   return ctx;
+}
+
+export function SymbolCommandTrigger({
+  children,
+  ...props
+}: ComponentProps<typeof DialogTrigger>) {
+  return (
+    <DialogTrigger data-symbol-command-trigger="" {...props}>
+      {children}
+    </DialogTrigger>
+  );
 }
 
 function readRecent(): string[] {
@@ -165,8 +178,10 @@ export function SymbolCommandProvider({
 
   return (
     <SymbolCommandContext.Provider value={value}>
-      {children}
-      <SymbolCommandDialog />
+      <Dialog open={open} onOpenChange={setOpen}>
+        {children}
+        <SymbolCommandDialog />
+      </Dialog>
     </SymbolCommandContext.Provider>
   );
 }
@@ -218,13 +233,12 @@ function SymbolCommandDialog() {
   }
 
   return (
-    <CommandDialog
-      open={open}
-      onOpenChange={setOpen}
+    <CommandDialogContent
       title="종목 검색"
       description="종목명 또는 종목코드로 검색합니다"
       className="sm:max-w-xl"
       showCloseButton
+      onCloseAutoFocus={(event) => event.preventDefault()}
     >
       <Command shouldFilter={false}>
         <CommandInput
@@ -315,6 +329,6 @@ function SymbolCommandDialog() {
           )}
         </CommandList>
       </Command>
-    </CommandDialog>
+    </CommandDialogContent>
   );
 }
