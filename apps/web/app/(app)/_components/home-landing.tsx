@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { MagnifyingGlassIcon } from '@phosphor-icons/react';
-import { labHref } from '@/lib/platform/company-index';
+import { companyHref } from '@/lib/platform/company-index';
 import {
   ShortcutHint,
   SymbolCommandTrigger,
@@ -23,7 +23,7 @@ export function HomeLanding() {
         종목을 검색해 분석을 시작합니다
       </h1>
       <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
-        이름이나 종목코드로 찾고, 분석 단계는 그대로 둔 채 종목만 바꿉니다.
+        이름이나 종목코드로 찾고, 메뉴는 그대로 둔 채 종목만 바꿉니다.
       </p>
 
       <SymbolCommandTrigger
@@ -42,7 +42,7 @@ export function HomeLanding() {
             {recent.map((company) => (
               <li key={company.stock_code}>
                 <Link
-                  href={labHref(company.stock_code)}
+                  href={companyHref(company.stock_code)}
                   onClick={() => remember(company.stock_code)}
                   className="flex items-center px-3 py-2.5 transition-colors hover:bg-accent/50"
                 >
@@ -68,7 +68,7 @@ export function HomeLanding() {
               {companies.slice(0, 20).map((company) => (
                 <li key={company.stock_code}>
                   <Link
-                    href={labHref(company.stock_code)}
+                    href={companyHref(company.stock_code)}
                     onClick={() => remember(company.stock_code)}
                     className="flex items-center px-3 py-2.5 transition-colors hover:bg-accent/50"
                   >

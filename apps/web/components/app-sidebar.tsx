@@ -20,7 +20,8 @@ import {
 } from '@phosphor-icons/react';
 import { appName } from '@/lib/shared';
 import { BOARDS, type BoardId } from '@/lib/analysis';
-import { parseLabPath } from '@/lib/platform/company-index';
+import { COMPANY_MENUS, companyHref } from '@/lib/company';
+import { parseStockPath } from '@/lib/platform/company-index';
 import { cn } from '@/lib/cn';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { useSymbolCommand } from '@/components/symbol-command';
@@ -64,7 +65,7 @@ const GLOBAL_LINKS = [
 export function AppSidebar() {
   const pathname = usePathname();
   const { companies, setOpen } = useSymbolCommand();
-  const { stockCode } = parseLabPath(pathname);
+  const { stockCode, menuSlug } = parseStockPath(pathname);
   const company = companies.find((item) => item.stock_code === stockCode);
 
   return (
@@ -98,6 +99,33 @@ export function AppSidebar() {
 
       <SidebarContent>
         <SidebarGroup>
+          <SidebarGroupLabel>기업정보</SidebarGroupLabel>
+          <SidebarMenu>
+            {COMPANY_MENUS.map((menu) => {
+              const href = stockCode ? companyHref(stockCode, menu.slug) : undefined;
+              const active = Boolean(href && menuSlug === menu.slug);
+              return (
+                <SidebarMenuItem key={menu.id}>
+                  {href ? (
+                    <SidebarMenuButton asChild isActive={active} tooltip={menu.title}>
+                      <Link href={href}>
+                        <span className="truncate">{menu.title}</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  ) : (
+                    <SidebarMenuButton disabled tooltip="종목을 먼저 고르세요">
+                      <span className="truncate">{menu.title}</span>
+                    </SidebarMenuButton>
+                  )}
+                </SidebarMenuItem>
+              );
+            })}
+          </SidebarMenu>
+        </SidebarGroup>
+
+        <SidebarSeparator />
+
+        <SidebarGroup>
           <SidebarGroupLabel>분석 순서</SidebarGroupLabel>
           <SidebarMenu>
             {BOARDS.map((board) => {
@@ -130,10 +158,7 @@ export function AppSidebar() {
                       </Link>
                     </SidebarMenuButton>
                   ) : (
-                    <SidebarMenuButton
-                      disabled
-                      tooltip="종목을 먼저 고르세요"
-                    >
+                    <SidebarMenuButton disabled tooltip="종목을 먼저 고르세요">
                       <Icon />
                       <span className="flex min-w-0 flex-1 items-center gap-1.5">
                         <span className="font-mono text-[10px] tabular-nums text-sidebar-foreground/45">
@@ -154,7 +179,10 @@ export function AppSidebar() {
         <SidebarSeparator className="mb-1" />
         <SidebarMenu>
           {GLOBAL_LINKS.map((link) => {
-            const active = pathname === link.href || pathname.startsWith(`${link.href}/`);
+            const active =
+              link.href === '/company'
+                ? pathname === '/company'
+                : pathname === link.href || pathname.startsWith(`${link.href}/`);
             return (
               <SidebarMenuItem key={link.href}>
                 <SidebarMenuButton asChild isActive={active} tooltip={link.label}>

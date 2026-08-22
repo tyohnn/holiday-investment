@@ -18,11 +18,12 @@ import { usePathname, useRouter } from 'next/navigation';
 import { BookOpenTextIcon, GlobeHemisphereEastIcon, XIcon } from '@phosphor-icons/react';
 import {
   companyMetaLine,
+  companyHref,
   labHref,
   matchesChapter,
   matchesCompany,
   matchesIndustry,
-  parseLabPath,
+  parseStockPath,
   type ChapterIndex,
   type CompanyIndex,
   type IndustryIndex,
@@ -225,7 +226,7 @@ function SymbolCommandDialog() {
     }
   }, [open]);
 
-  const { boardSlug } = parseLabPath(pathname);
+  const { menuSlug, boardSlug } = parseStockPath(pathname);
   const recentCompanies = recentCodes
     .map((code) => companies.find((company) => company.stock_code === code))
     .filter((company): company is CompanyIndex => Boolean(company));
@@ -261,7 +262,15 @@ function SymbolCommandDialog() {
   function goCompany(stockCode: string) {
     remember(stockCode);
     setOpen(false);
-    router.push(labHref(stockCode, boardSlug));
+    if (menuSlug) {
+      router.push(companyHref(stockCode, menuSlug));
+      return;
+    }
+    if (boardSlug && pathname.startsWith('/lab/')) {
+      router.push(labHref(stockCode, boardSlug));
+      return;
+    }
+    router.push(companyHref(stockCode));
   }
 
   function goHref(href: string) {

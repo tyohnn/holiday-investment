@@ -18,7 +18,7 @@ export default async function CompanyListPage() {
     <div className="mx-auto max-w-5xl">
       <h1 className="text-2xl font-bold tracking-tight">종목 목록</h1>
       <p className="mt-1 text-sm text-muted-foreground">
-        DART 공시·사실 시계열이 적재된 종목입니다. 카드를 누르면 판정 화면으로 이동합니다.
+        DART 공시·사실 시계열이 적재된 종목입니다. 카드를 누르면 Snapshot으로 이동합니다.
       </p>
 
       {companies.length === 0 ? (

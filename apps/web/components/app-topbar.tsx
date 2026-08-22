@@ -3,7 +3,8 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { BOARDS } from '@/lib/analysis';
-import { parseLabPath } from '@/lib/platform/company-index';
+import { getCompanyMenuBySlug } from '@/lib/company';
+import { parseStockPath } from '@/lib/platform/company-index';
 import { useSymbolCommand } from '@/components/symbol-command';
 import { cn } from '@/lib/cn';
 import { Badge } from '@/components/ui/badge';
@@ -13,22 +14,21 @@ import { SidebarTrigger } from '@/components/ui/sidebar';
 export function AppTopbar() {
   const pathname = usePathname();
   const { companies } = useSymbolCommand();
-  const { stockCode } = parseLabPath(pathname);
+  const { stockCode, menuSlug, boardSlug } = parseStockPath(pathname);
   const company = companies.find((item) => item.stock_code === stockCode);
-  const board = BOARDS.find((item) => {
-    if (!stockCode) return false;
-    const href = `/lab/${stockCode}/${item.slug}`;
-    return pathname === href || pathname.startsWith(`${href}/`);
-  });
+  const board = BOARDS.find((item) => item.slug === boardSlug);
+  const menu = menuSlug ? getCompanyMenuBySlug(menuSlug) : undefined;
 
   const crumbs: { href?: string; label: string; mono?: boolean }[] = [{ href: '/', label: '홈' }];
-  if (pathname === '/company' || pathname.startsWith('/company/')) {
+  if (pathname === '/company') {
     crumbs.push({ label: '종목 목록' });
   } else if (pathname === '/industry' || pathname.startsWith('/industry/')) {
     crumbs.push({ href: '/industry', label: '산업 지도' });
   } else if (company) {
     crumbs.push({ label: company.name });
-    if (board) {
+    if (menu) {
+      crumbs.push({ label: menu.title });
+    } else if (board) {
       crumbs.push({ label: `${board.step}. ${board.title}` });
     }
   }

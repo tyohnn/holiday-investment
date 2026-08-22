@@ -1,8 +1,16 @@
-import { redirect } from 'next/navigation';
-import { boardHref } from '@/lib/analysis';
+import type { Metadata } from 'next';
+import { GuidePage } from './_components/guide-page';
 
-/** 종목 진입점은 논증의 1단계(판정)로 보낸다 — 답이 랜딩이어야 한다. */
-export default async function StockIndexPage(props: PageProps<'/company/[stockCode]'>) {
+export const revalidate = 0;
+
+export async function generateMetadata(
+  props: PageProps<'/company/[stockCode]'>,
+): Promise<Metadata> {
   const { stockCode } = await props.params;
-  redirect(boardHref(stockCode));
+  return { title: `Snapshot · ${stockCode}` };
+}
+
+export default async function Page(props: PageProps<'/company/[stockCode]'>) {
+  const { stockCode } = await props.params;
+  return <GuidePage stockCode={stockCode} menuId="snapshot" />;
 }

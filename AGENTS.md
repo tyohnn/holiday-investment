@@ -33,8 +33,10 @@ deliverable; the site is a viewer over it.
   To point the app at the hosted project instead, set `NEXT_PUBLIC_SUPABASE_URL` and
   `SUPABASE_SERVICE_KEY` in `apps/web/.env.local` (gitignored). Without a backend,
   `/company` 500s.
-  `/company/<stockCode>` 307-redirects to `/company/<stockCode>/revenue`. Seeded stock codes:
-  `259960` (크래프톤), `247540` (에코프로비엠).
+  `/company/<stockCode>` is the FnGuide 기업정보 landing (Snapshot). Submenus live
+  under `/company/<stockCode>/{profile,financials,ratios,...}`. Seeded stock codes:
+  `259960` (크래프톤), `247540` (에코프로비엠). The 8-step workbench remains at
+  `/lab/<stockCode>/{board}`.
 - `pnpm types:check` (root) = the lint/build proxy (`next typegen && tsc --noEmit`).
 
 **Running the Supabase stack (for `/company`)** — see `platform/README.md` for the full

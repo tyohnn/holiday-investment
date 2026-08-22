@@ -1,5 +1,10 @@
 import { classifySector } from '@investment/schema';
 import { getBoardBySlug, LEGACY_BOARD_SLUGS } from '@/lib/analysis';
+import {
+  DEFAULT_COMPANY_MENU_SLUG,
+  companyHref,
+  getCompanyMenuBySlug,
+} from '@/lib/company';
 
 /** Command·홈 목록이 쓰는 가벼운 종목 행. profile jsonb 는 가져오지 않는다. */
 export type CompanyIndex = {
@@ -45,6 +50,38 @@ export function parseLabPath(pathname: string): { stockCode: string | null; boar
 
 export function labHref(stockCode: string, boardSlug = 'verdict'): string {
   return `/lab/${stockCode}/${boardSlug}`;
+}
+
+export { companyHref };
+
+export function parseCompanyPath(pathname: string): {
+  stockCode: string | null;
+  menuSlug: string;
+} {
+  const match = pathname.match(/^\/company\/(\d{6})(?:\/([^/]+))?/);
+  if (!match) return { stockCode: null, menuSlug: DEFAULT_COMPANY_MENU_SLUG };
+  const raw = match[2] ?? DEFAULT_COMPANY_MENU_SLUG;
+  return {
+    stockCode: match[1] ?? null,
+    menuSlug: getCompanyMenuBySlug(raw) ? raw : DEFAULT_COMPANY_MENU_SLUG,
+  };
+}
+
+export function parseStockPath(pathname: string): {
+  stockCode: string | null;
+  menuSlug: string | null;
+  boardSlug: string | null;
+} {
+  const company = parseCompanyPath(pathname);
+  if (company.stockCode) {
+    return { stockCode: company.stockCode, menuSlug: company.menuSlug, boardSlug: null };
+  }
+  const lab = parseLabPath(pathname);
+  return {
+    stockCode: lab.stockCode,
+    menuSlug: null,
+    boardSlug: lab.stockCode ? lab.boardSlug : null,
+  };
 }
 
 export function matchesCompany(company: CompanyIndex, query: string): boolean {
