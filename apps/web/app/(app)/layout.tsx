@@ -51,7 +51,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
 
   return (
     <SymbolCommandProvider companies={companies} industries={industryIndex()} chapters={chapters}>
-      <SidebarProvider>
+      <SidebarProvider className="h-svh overflow-hidden">
         <AppSidebar />
         <SidebarInset className="h-svh overflow-hidden">
           <AppTopbar />
