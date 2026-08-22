@@ -19,7 +19,7 @@ export function AppTopbar() {
   const board = BOARDS.find((item) => item.slug === boardSlug);
   const menu = menuSlug ? getCompanyMenuBySlug(menuSlug) : undefined;
 
-  const crumbs: { href?: string; label: string; mono?: boolean }[] = [{ href: '/', label: '홈' }];
+  const crumbs: { href?: string; label: string }[] = [];
   if (pathname === '/company') {
     crumbs.push({ label: '종목 목록' });
   } else if (pathname === '/industry' || pathname.startsWith('/industry/')) {
@@ -36,7 +36,12 @@ export function AppTopbar() {
   return (
     <header className="sticky top-0 z-10 flex h-12 shrink-0 items-center gap-2 border-b border-border bg-background/95 px-3 backdrop-blur supports-backdrop-filter:bg-background/60 sm:px-4">
       <SidebarTrigger className="-ml-1" />
-      <Separator orientation="vertical" className="h-4 self-center" />
+      {crumbs.length > 0 && (
+        <Separator
+          orientation="vertical"
+          className="!h-4 !self-center data-vertical:!h-4 data-vertical:!self-center"
+        />
+      )}
       <nav
         className="flex min-w-0 items-center gap-1.5 text-sm text-muted-foreground"
         aria-label="이동 경로"

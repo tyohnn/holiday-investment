@@ -16,26 +16,17 @@ export function CompanyHeader({ company }: { company: Company }) {
   ];
 
   return (
-    <div className="relative overflow-hidden border-b border-border bg-card/95 px-4 py-3 shadow-[var(--shadow-card)] backdrop-blur supports-backdrop-filter:bg-card/80">
-      <div
-        aria-hidden
-        className="pointer-events-none absolute -top-16 -right-16 size-48 rounded-full bg-primary/10 blur-3xl"
-      />
-      <div className="relative flex flex-wrap items-center gap-x-4 gap-y-2">
-        <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary text-base font-bold text-primary-foreground">
-          {company.name.slice(0, 1)}
-        </span>
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
-            <h1 className="text-xl font-bold tracking-tight sm:text-2xl">{company.name}</h1>
-            <span className="font-mono text-sm text-muted-foreground">{company.stock_code}</span>
-          </div>
-          <div className="mt-1 flex flex-wrap items-center gap-1.5">
-            {company.market && <Badge variant="secondary">{company.market}</Badge>}
-            <Badge variant="outline">
-              {classifySector(company.sector_code, company.stock_code)?.industryName ?? '업종 미상'}
-            </Badge>
-          </div>
+    <div className="relative overflow-hidden border-b border-border bg-card px-4 py-3">
+      <div className="relative min-w-0">
+        <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
+          <h1 className="text-xl font-bold tracking-tight sm:text-2xl">{company.name}</h1>
+          <span className="font-mono text-sm text-muted-foreground">{company.stock_code}</span>
+        </div>
+        <div className="mt-1 flex flex-wrap items-center gap-1.5">
+          {company.market && <Badge variant="secondary">{company.market}</Badge>}
+          <Badge variant="outline">
+            {classifySector(company.sector_code, company.stock_code)?.industryName ?? '업종 미상'}
+          </Badge>
         </div>
       </div>
       <dl className="relative mt-3 grid grid-cols-2 gap-x-6 gap-y-2 border-t border-border pt-3 text-sm sm:grid-cols-3">
