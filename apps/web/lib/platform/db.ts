@@ -23,6 +23,7 @@
 import "server-only";
 
 import { createClient } from "@supabase/supabase-js";
+import { gunzipSync } from "node:zlib";
 import {
   AnnualSummary,
   Company,
@@ -259,16 +260,57 @@ export async function getTrackings(corpCode: string): Promise<TrackingFact[]> {
   return parseAll(TrackingFact, data ?? [], "trackings");
 }
 
-/** 단일 섹션 원문 조회 — 목록(getNoteSections)과 분리. 138KB 짜리 content 를 목록에 얹지 않는다. */
+/**
+ * 공시 섹션의 저장 위치 — Postgres(filing_sections) 대신 Storage 객체
+ * docs/<corp_code>/<rcept_no>.sections.json.gz (버킷 platform-raw). platform/ingest/docs_storage.py
+ * 가 쓰는 것과 동일한 버킷·경로 규약 — 새 상수를 여기서 발명하는 게 아니라 그쪽 규약을 그대로
+ * 옮겨 적은 것이다(자연키 교훈과 같은 이유로, 실제 분할·경로 로직은 Python 쪽 한 곳에만 있다).
+ */
+const DOCS_STORAGE_BUCKET = "platform-raw";
+
+function sectionsObjectPath(corpCode: string, rceptNo: string): string {
+  return `docs/${corpCode}/${rceptNo}.sections.json.gz`;
+}
+
+/** Storage 에서 gzip JSON 섹션 배열을 받아 파싱한다. 객체가 없으면(아직 추출 안 됐거나
+ *  정기보고서가 아닌 공시) null — 호출부는 이 rcept_no 를 조용히 건너뛴다(에러가 아니다). */
+async function downloadSectionsObject(
+  corpCode: string,
+  rceptNo: string,
+): Promise<{ rcept_no: string; sec_no: number; title: string; content: string; is_note: boolean; is_biz: boolean }[] | null> {
+  const { data, error } = await supabaseService.storage
+    .from(DOCS_STORAGE_BUCKET)
+    .download(sectionsObjectPath(corpCode, rceptNo));
+  if (error || !data) return null;
+  const gz = Buffer.from(await data.arrayBuffer());
+  try {
+    const json = JSON.parse(gunzipSync(gz).toString("utf-8"));
+    return Array.isArray(json) ? json : null;
+  } catch {
+    return null;
+  }
+}
+
+/** 단일 섹션 원문 조회 — 목록(getNoteSections)과 분리. 138KB 짜리 content 를 목록에 얹지 않는다.
+ *  Storage 객체 하나(그 rcept_no 전체 섹션)를 받아 sec_no 로 골라낸다 — Postgres 시절처럼
+ *  섹션 하나만 별도로 조회할 수는 없다(Storage 객체 단위가 rcept_no 이지 섹션이 아니다),
+ *  다만 이 페이지가 받는 객체는 여전히 1개뿐이라 목록 페이지보다 가볍다. id 는 Storage 에
+ *  더 이상 없는 Postgres identity 였으므로 sec_no 로 대체한다(FilingSection.id 는 UI 에서
+ *  React key 로만 쓰이고, 단일 조회 페이지에서는 아예 안 쓰인다). */
 export async function getFilingSectionContent(rceptNo: string, secNo: number): Promise<FilingSection | null> {
-  const { data, error } = await supabaseService
-    .from('filing_sections')
-    .select('id,rcept_no,sec_no,title,is_note,is_biz,content')
-    .eq('rcept_no', rceptNo)
-    .eq('sec_no', secNo)
+  const { data: filing, error } = await supabaseService
+    .from("filings")
+    .select("corp_code")
+    .eq("rcept_no", rceptNo)
     .maybeSingle();
   if (error) throw error;
-  return data ? FilingSection.parse(data) : null;
+  if (!filing) return null;
+  const sections = await downloadSectionsObject(filing.corp_code as string, rceptNo);
+  if (!sections) return null;
+  const row = sections.find((s) => s.sec_no === secNo);
+  if (!row) return null;
+  const parsed = FilingSection.safeParse({ ...row, id: row.sec_no });
+  return parsed.success ? parsed.data : null;
 }
 
 /** rcept_no 단건 조회 — 섹션 상세 페이지가 소속 공시(제출인·보고서명·접수일·소유 회사)를 확인할 때 쓴다. */
@@ -278,35 +320,50 @@ export async function getFilingByRceptNo(rceptNo: string): Promise<Filing | null
   return data ? Filing.parse(data) : null;
 }
 
-/** 목록 표시용 — filing_sections 에 소속 공시(보고서명·접수일)를 얹은 뷰. content 는 여기 없다
- *  (100KB+ 인 섹션이 있어 목록에는 얹지 않는다 — getFilingSectionContent 로 개별 조회). */
+/** 목록 표시용 — Storage 섹션 객체에 소속 공시(보고서명·접수일)를 얹은 뷰. content 는 여기
+ *  없다(100KB+ 인 섹션이 있어 목록에는 얹지 않는다 — getFilingSectionContent 로 개별 조회). */
 export type NoteSectionListItem = FilingSection & { report_nm: string; filing_rcept_dt: string };
 
+// docs_storage.py 가 섹션 객체를 만드는 대상과 정확히 같은 필터(정기보고서만) — 여기서 후보를
+// 더 넓게 잡아봐야 어차피 다운로드가 404(객체 없음)로 스킵되니 의미가 없고, 좁혀야 후보
+// filings 조회 자체가 정기보고서 위주로 온다.
+const REGULAR_REPORT_PATTERNS = ["사업보고서", "분기보고서", "반기보고서"] as const;
+
+// 한 페이지 로드에서 내려받는 Storage 객체 수의 상한. 이 목록은 회사 페이지의 부속
+// 섹션이라(getCompanyPageData 가 다른 8개 쿼리와 Promise.all 로 병렬 실행) 여기서 N 개를
+// 전부 내려받으면 그만큼 그 페이지 응답이 느려진다. 사업보고서·분기보고서·반기보고서는
+// 합쳐서 연 4회쯤 나오므로 5건이면 최근 1년 남짓을 덮는다 — AGENTS.md 가 권장하는 3~5건의
+// 상단을 택했다(주석·사업의 내용은 오래된 분기보다 최신 분기가 훨씬 자주 인용된다).
+const NOTE_SECTIONS_FILING_CANDIDATES = 5;
+
 export async function getNoteSections(corpCode: string, limit = 20): Promise<NoteSectionListItem[]> {
-  const { data: filings } = await supabaseService
+  const or = REGULAR_REPORT_PATTERNS.map((p) => `report_nm.like.*${p}*`).join(",");
+  const { data: filings, error } = await supabaseService
     .from("filings")
-    .select("rcept_no")
+    .select("rcept_no,report_nm,rcept_dt")
     .eq("corp_code", corpCode)
+    .or(or)
     .order("rcept_dt", { ascending: false })
-    .limit(60);
-  const rcepts = (filings ?? []).map((f: { rcept_no: string }) => f.rcept_no);
-  if (!rcepts.length) return [];
-  const { data, error } = await supabaseService
-    .from("filing_sections")
-    .select("id,rcept_no,sec_no,title,is_note,is_biz,filings(report_nm,rcept_dt)")
-    .in("rcept_no", rcepts)
-    .or("is_note.eq.true,is_biz.eq.true")
-    .order("rcept_no", { ascending: false })
-    .limit(limit);
+    .limit(NOTE_SECTIONS_FILING_CANDIDATES);
   if (error) throw error;
-  return (data ?? []).flatMap((row) => {
-    // Supabase 타입은 임베드를 배열로 추론하지만 FK 단건 관계라 객체로 온다.
-    const raw = row as unknown as Record<string, unknown>;
-    const filing = raw.filings as { report_nm: string; rcept_dt: string } | null;
-    const parsed = FilingSection.safeParse(raw);
-    if (!parsed.success || !filing) return [];
-    return [{ ...parsed.data, report_nm: filing.report_nm, filing_rcept_dt: filing.rcept_dt }];
-  });
+  if (!filings?.length) return [];
+
+  const out: NoteSectionListItem[] = [];
+  for (const filing of filings as { rcept_no: string; report_nm: string; rcept_dt: string }[]) {
+    if (out.length >= limit) break;
+    const sections = await downloadSectionsObject(corpCode, filing.rcept_no);
+    if (!sections) continue; // 아직 추출 안 됐거나(비관심 종목) 정기보고서가 아니었던 경우
+    for (const row of sections) {
+      if (!(row.is_note || row.is_biz)) continue;
+      if (out.length >= limit) break;
+      // content 는 목록에 얹지 않는다(주석 하나가 10만자를 넘기도 한다 — FilingSection 주석 참고).
+      const { content: _content, ...rest } = row;
+      const parsed = FilingSection.safeParse({ ...rest, id: row.sec_no });
+      if (!parsed.success) continue;
+      out.push({ ...parsed.data, report_nm: filing.report_nm, filing_rcept_dt: filing.rcept_dt });
+    }
+  }
+  return out;
 }
 
 /**
