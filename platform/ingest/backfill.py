@@ -565,10 +565,16 @@ def cmd_seed(args):
 # ─────────────────────────────────────────────── run
 
 def resolve_corp_codes_from_stock(stock_codes):
-    q = "ingest_corps?stock_code=in.(%s)&select=corp_code,stock_code" % ",".join(
-        urllib.parse.quote(s) for s in stock_codes)
-    rows = rest("GET", q)
-    found = {r["stock_code"]: r["corp_code"] for r in rows}
+    # in.() 을 URL 하나에 다 넣으면 대량 파티션(1,877개 ≈ 13KB)에서 URL 이 서버 한계에
+    # 잘려 뒤쪽 코드가 조용히 "없음" 처리된다 — 병렬 파티션 첫 가동에서 실측된 사고.
+    # fetch_corp_info 와 같은 200개 청크 규약을 쓴다.
+    found = {}
+    for i in range(0, len(stock_codes), 200):
+        chunk = stock_codes[i:i + 200]
+        q = "ingest_corps?stock_code=in.(%s)&select=corp_code,stock_code" % ",".join(
+            urllib.parse.quote(s) for s in chunk)
+        for r in rest("GET", q):
+            found[r["stock_code"]] = r["corp_code"]
     missing = [s for s in stock_codes if s not in found]
     if missing:
         print("경고: 큐(ingest_corps)에 없는 종목코드 무시됨: %s" % ",".join(missing), file=sys.stderr)
