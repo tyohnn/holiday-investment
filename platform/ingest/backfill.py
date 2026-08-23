@@ -506,18 +506,27 @@ def record_listing_status(corp_code, corp_cls):
          {"corp_cls": corp_cls}, prefer="return=minimal")
 
 
-def reclaim_stale_running():
+def reclaim_stale_running(corp_filter=None):
     """크래시(kill -9 등, 신호를 못 받는 경우)로 running 에 멈춘 행을 나이 기준으로 회수한다.
-    정상 종료 경로(Ctrl-C/SIGTERM)는 이미 mark_pending 으로 즉시 되돌리므로, 이건 그 백스톱."""
+    정상 종료 경로(Ctrl-C/SIGTERM)는 이미 mark_pending 으로 즉시 되돌리므로, 이건 그 백스톱.
+
+    corp_filter: --companies 로 회사를 분할해 여러 run 을 병렬로 돌릴 때, 자기 파티션
+    밖의 running 을 회수하면 **다른 살아있는 프로세스의 진행 중 작업을 뺏는다**(대형사
+    docs 잡은 30분을 훌쩍 넘긴다 — 삼성 실측 1시간+). 그래서 파티션이 지정된 run 은
+    자기 회사들만 회수한다. 필터 없는 단독 run 은 종전대로 전역 회수(백스톱 원의미)."""
     cutoff = (dt.datetime.now(dt.timezone.utc) -
               dt.timedelta(minutes=RUNNING_STALE_MINUTES)).isoformat()
     stale = rest_get_all("ingest_progress?status=eq.running&started_at=lt.%s"
                           "&select=corp_code,stage&order=corp_code,stage" % urllib.parse.quote(cutoff))
+    if corp_filter is not None:
+        allowed = set(corp_filter)
+        stale = [r for r in stale if r["corp_code"] in allowed]
     for r in stale:
         mark_pending(r["corp_code"], r["stage"])
     if stale:
-        print("회수(reclaim): %d분 넘게 running 이던 작업 %d건 → pending" %
-              (RUNNING_STALE_MINUTES, len(stale)))
+        print("회수(reclaim): %d분 넘게 running 이던 작업 %d건 → pending%s" %
+              (RUNNING_STALE_MINUTES, len(stale),
+               "  (파티션 내 한정)" if corp_filter is not None else ""))
     return len(stale)
 
 
@@ -641,7 +650,9 @@ def cmd_run(args):
                               "  (상장상태 게이트 해제됨)" if args.include_delisted else ""))
 
     if not args.dry_run:
-        reclaim_stale_running()
+        # --companies 파티션 run 은 자기 회사만 회수한다 (병렬 run 의 진행 중 작업 보호).
+        reclaim_stale_running(resolve_corp_codes_from_stock(company_filter)
+                              if company_filter else None)
 
     jobs = discover_jobs(stages, company_filter)
     if not jobs:
