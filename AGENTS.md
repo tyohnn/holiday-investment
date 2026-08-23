@@ -150,10 +150,11 @@ report_items 1,923,002 · ownership_txns 27,739 · events 13,810 · registration
 filing_corrections 236,303. 공시는 2026-07-29까지 최신.
 
 ### 스키마 함정 (서브에이전트 프롬프트에 매번 복사)
-- **정형 재무의 정본은 `fin_periods`다. `financial_facts`는 전역 0행으로 비워졌다**
-  (2026-08-06 확인). 예전 문서가 말하던 13.9M행은 더 이상 없다 — `financial_facts`·
-  `annual_summary`·`financial_metrics`를 조회하면 조용히 빈 결과가 나오므로 쓰지 않는다.
-  아카이브만 `fin_archive`(2,659행)에 남아 있다.
+- **웹·스크리너용 정본은 `fin_periods`, 원본 `financial_facts`는 13,920,062행 DB 상주**
+  (2026-08-24 확정 — 한때 0행으로 비웠다가 복원·유지 결정. 증분 적재가 이 테이블에 쓰고
+  rebuild 가 회사 전체 이력을 읽으므로 비워두면 파이프라인이 깨진다). Storage
+  `platform-raw/fin/<corp>.json.gz` 가 검증된 백업(전량 왕복 무결성 실측), 매니페스트는
+  `fin_archive`(2,659행). `annual_summary`·`financial_metrics` 뷰는 참조용 잔존물이다.
 - **`fin_periods`가 `sj_div`·`account_nm` 지옥을 이미 흡수했다.** 회사마다 다른 계정명
   ("매출액"/"영업수익"/"수익(매출액)")과 IS/CIS 선택을 적재 함수가 해결해 컬럼으로 편다:
   `revenue · operating_income · net_income · assets · liabilities · equity · cash ·
