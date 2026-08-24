@@ -58,8 +58,19 @@ class DartError(Exception):
         super().__init__("%s %s" % (status, message))
 
 
-def _throttle(min_interval=0.15):
-    """분당 1,000회 제한에 한참 못 미치게 예의상 간격을 둔다."""
+_DEFAULT_THROTTLE = float(os.environ.get("DART_MIN_INTERVAL", "0.15"))
+
+
+def _throttle(min_interval=None):
+    """호출 간 최소 간격. 기본 0.15초(분당 제한 대비 여유)지만, 환경변수
+    DART_MIN_INTERVAL 로 늘릴 수 있다 — 일일 쿼터를 하루에 고르게 펴야 할 때 쓴다.
+
+    실측(2026-08-23): 10키로 6시간에 256,248콜을 쓰자 21시부터 020(일일 쿼터 초과)이
+    쏟아졌고, 소진된 키에 재시도가 몰리며 IP 차단까지 갔다. "키당 2만/일"이 실제로
+    집행된다 — 속도가 아니라 **하루 총량**이 벽이다. 총량이 정해져 있으면 빨리 쓰고
+    막히는 것보다 24시간에 펴는 쪽이 낫다(020 폭주와 그로 인한 IP 페널티를 피한다)."""
+    if min_interval is None:
+        min_interval = _DEFAULT_THROTTLE
     wait = _LAST_CALL[0] + min_interval - time.time()
     if wait > 0:
         time.sleep(wait)
