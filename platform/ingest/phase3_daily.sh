@@ -36,15 +36,27 @@ wait_unblocked() {
   done
 }
 
+# 오늘 이미 쓴 콜 수 (전 키 합계). KeyPool 이 원장에 upsert 하므로 여기서 되읽는다.
+used_today() {
+  curl -s -G "$(url)/rest/v1/ingest_api_quota" \
+    --data-urlencode "quota_date=eq.$(date '+%Y-%m-%d')" \
+    --data-urlencode "select=calls_used" -H "apikey: $(key)" -H "Authorization: Bearer $(key)" 2>/dev/null \
+    | python3 -c "import sys,json;print(sum(r['calls_used'] for r in json.load(sys.stdin)))" 2>/dev/null || echo 0
+}
+
 start_partitions() {
+  # ★ --budget 은 키당 실제 일일 한도(20,000)여야 한다. 이전엔 100000 이라 KeyPool 이
+  #   소진을 영영 감지하지 못했고, 한도를 넘긴 뒤에도 계속 때려 020 폭주 → IP 차단으로
+  #   갔다(2026-08-23·24 두 번). 2만으로 두면 KeyPool 이 스스로 키를 소진 처리하고
+  #   전 키 소진 시 정상 종료한다 — 020 을 애초에 만들지 않는 것이 최선의 방어다.
   for i in 0 1 2 3; do
     DART_API_KEYS="$(cat platform/data/p3_keys$i.txt)" DART_MIN_INTERVAL=1.7 \
       nohup caffeinate -is python3 -u platform/ingest/backfill.py run --phase 3 \
-      --companies "$(cat platform/data/p3_part$i.txt)" --budget 100000 \
+      --companies "$(cat platform/data/p3_part$i.txt)" --budget 20000 \
       > platform/backfill-phase3-p$i.log 2>&1 &
     sleep 2
   done
-  say "파티션 4개 기동 (간격 1.7s/프로세스 ≈ 전체 2.3콜/초)"
+  say "파티션 4개 기동 (간격 1.7s/프로세스, 키당 예산 2만)"
 }
 
 stop_partitions() {
@@ -59,10 +71,22 @@ stop_partitions() {
 say "=== phase3_daily 시작 ==="
 while true; do
   wait_unblocked
-  start_partitions
 
-  # 그날 몫을 다 쓸 때까지 감시
-  while true; do
+  # ★ 시작 전 오늘 몫 확인. 2026-08-24 사고: 어제 태운 물량이 KST 기준 오늘 날짜로
+  #   기록돼 있었는데(09시엔 이미 31만콜 소진) 그걸 안 보고 재개해 10분 만에 020 1,424건
+  #   → IP 차단. "차단이 풀렸다"와 "오늘 쓸 몫이 남았다"는 다른 조건이다.
+  u=$(used_today)
+  started=0
+  if [ -n "$u" ] && [ "$u" -ge 180000 ]; then
+    say "오늘 이미 ${u}콜 사용 — 한도(20만) 근접, 기동 생략하고 다음날 대기"
+  else
+    say "오늘 사용 ${u}콜 — 기동"
+    start_partitions
+    started=1
+  fi
+
+  # 그날 몫을 다 쓸 때까지 감시 (기동 안 했으면 건너뛴다)
+  while [ "$started" -eq 1 ]; do
     sleep 600
     alive=$(pgrep -f "python3 -u platform/ingest/backfill.py run --phase 3" | wc -l | tr -d ' ')
     if [ "$alive" -eq 0 ]; then say "파티션 전부 종료됨(완주 또는 크래시)"; break; fi

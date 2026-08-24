@@ -567,10 +567,16 @@ def load_docs(key, corp, redo=False):
         # (filing_docs?select=rcept_no,filings!inner(corp_code)&filings.corp_code=eq.<code>
         # 가 호스티드에서 200/[] 로 정상 응답, filings→companies 같은 형태의 임베딩 필터가
         # 실제로 3행을 돌려주는 것도 별도로 확인했다).
+        #
+        # ★ status=eq.ok 가 반드시 있어야 한다. 없으면 실패 기록(020 쿼터 초과·일시적
+        #   네트워크 오류 등)까지 "완료"로 간주해 **영영 재시도하지 않는다** — 2026-08-24
+        #   실측으로 85,509건이 이 상태로 묶여 있었다(쿼터 소진 중 계속 돌린 결과).
+        #   원문 없는 공시(status=014)도 error 로 기록되어 매번 재시도되지만, 그건
+        #   회사당 1% 남짓이고 헛돈 콜보다 데이터 유실이 훨씬 나쁘다.
         offset = 0
         while True:
             page = rest("GET",
-                "filing_docs?select=rcept_no,filings!inner(corp_code)"
+                "filing_docs?select=rcept_no,filings!inner(corp_code)&status=eq.ok"
                 "&filings.corp_code=eq.%s&limit=1000&offset=%d" % (corp["corp_code"], offset))
             done.update(r["rcept_no"] for r in page)
             if len(page) < 1000:
