@@ -45,6 +45,10 @@ used_today() {
 }
 
 start_partitions() {
+  # 이미 돌고 있으면 다시 띄우지 않는다 — 러너를 재기동해도 파티션이 중복 생성되지
+  # 않게 하는 멱등 가드(중복되면 같은 회사를 두 프로세스가 잡고 쿼터를 두 배로 태운다).
+  n=$(pgrep -f "python3 -u platform/ingest/backfill.py run --phase 3" | wc -l | tr -d ' ')
+  if [ "$n" -gt 0 ]; then say "파티션 ${n}개 이미 실행 중 — 기동 생략"; return 0; fi
   # ★ --budget 은 키당 실제 일일 한도(20,000)여야 한다. 이전엔 100000 이라 KeyPool 이
   #   소진을 영영 감지하지 못했고, 한도를 넘긴 뒤에도 계속 때려 020 폭주 → IP 차단으로
   #   갔다(2026-08-23·24 두 번). 2만으로 두면 KeyPool 이 스스로 키를 소진 처리하고
