@@ -10,6 +10,7 @@ import datetime as dt
 import io
 import json
 import os
+import re
 import time
 import urllib.parse
 import xml.etree.ElementTree as ET
@@ -127,8 +128,16 @@ def call_zip(key, path, **params):
         with zipfile.ZipFile(io.BytesIO(raw)) as z:
             files = ZipFiles((n, z.read(n)) for n in z.namelist())
     except zipfile.BadZipFile:
-        # zip 이 아니면 오류 응답 — 메시지를 그대로 올린다
-        raise DartError("ZIP", raw[:300].decode("utf-8", "replace"))
+        # zip 이 아니면 오류 응답 — XML 본문에서 status 를 뽑아 그 코드로 던진다.
+        #
+        # ★ 예전엔 무조건 status="ZIP" 으로 던져서, 020(사용한도 초과)이 쿼터 소진으로
+        #   인식되지 못했다. backfill 의 _run_with_retry 는 status 를 보고 QuotaExhausted
+        #   로 승격하는데 "ZIP" 은 그 분기를 못 타고, load_docs 는 그걸 "원문 없는 공시"
+        #   취급해 실패 기록만 남기고 계속 때렸다 — 한도에 닿은 키로 020 을 수만 건
+        #   쌓다가 IP 차단까지 간 경로가 이것이다(2026-08-23·24·25 실측).
+        body = raw[:300].decode("utf-8", "replace")
+        m = re.search(r"<status>\s*(\d+)\s*</status>", body)
+        raise DartError(m.group(1) if m else "ZIP", body)
     files.raw = raw
     return files
 
