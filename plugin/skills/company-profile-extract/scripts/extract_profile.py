@@ -30,6 +30,10 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 _REPO = os.path.abspath(os.path.join(_HERE, "..", "..", "..", ".."))
 sys.path.insert(0, os.path.join(_REPO, "platform", "ingest"))
 import ingest  # noqa: E402  — rest()/upsert()/replace_scope()/storage_download() 재사용, 재발명 금지
+import llm_fallback  # noqa: E402  — 규칙 파서가 0행/실패로 남긴 3블록(연혁·부문별매출·
+# 시장점유율)의 LLM 폴백(2026-08-25 추가). --llm-fallback 이 꺼져 있으면 이 모듈의
+# run_fallback() 은 호출 자체가 안 된다 — import 만으로는 API 호출도, 규칙 경로 변경도
+# 없다(순수 stdlib, ANTHROPIC_API_KEY 를 읽지도 않는다 — 그건 call_claude() 안에서만).
 
 EXTRACTED_BY = "rule"
 
@@ -187,10 +191,15 @@ def infer_period_labels(md_text, table_pos, periods, fallback_year=None):
 
 
 def fact(concept, item_name, period_key, amount, unit=None, value_basis=None,
-         status="ok", section=None, table=None):
+         status="ok", section=None, table=None, extracted_by=None):
+    # extracted_by 기본값은 모듈 상수(EXTRACTED_BY='rule') — 이 파라미터는 LLM 폴백
+    # (llm_fallback.py)이 규칙 산출물과 구분되는 태그('llm:claude-sonnet-5')를 같은
+    # fact() 생성기로 만들 수 있게 하려고 추가했다(2026-08-25). 기존 호출부(파서 5개)는
+    # 전부 이 인자를 안 넘기므로 동작이 그대로다 — 폴백만 추가, 기존 동작 불변.
     return {"concept": concept, "item_name": item_name, "period_key": period_key,
             "amount": amount, "unit": unit, "value_basis": value_basis, "status": status,
-            "source_section": section, "source_table": table}
+            "source_section": section, "source_table": table,
+            "extracted_by": extracted_by or EXTRACTED_BY}
 
 
 # ══════════════════════════════════════════════════════════ 1. 회사의 연혁 → corp_history
@@ -748,8 +757,12 @@ def load_sections(corp_code, rcept_no):
     return {s["title"]: s["content"] for s in sections}, None
 
 
-def extract_one(corp_code, rcept_no):
-    """한 (corp_code, rcept_no) 에서 5블록을 전부 추출한다.
+def extract_one(corp_code, rcept_no, llm_fallback_enabled=False, llm_dry_run=False,
+                 llm_dump_dir=None):
+    """한 (corp_code, rcept_no) 에서 5블록을 전부 추출한다. 규칙(항상 실행) 다음에,
+    llm_fallback_enabled 이면 규칙이 0행으로 남긴 3블록(연혁·부문별매출·시장점유율)만
+    LLM 폴백으로 보충한다(2026-08-25) — 규칙이 이미 채운 블록은 절대 건드리지 않는다
+    (재현성-시험-3사.md 결론: "규칙이 되는 걸 LLM 으로 대체하지 마라").
     반환: (fin_details 후보 facts, corp_history 후보 items, notes)"""
     notes = []
     sections, err = load_sections(corp_code, rcept_no)
@@ -804,6 +817,19 @@ def extract_one(corp_code, rcept_no):
             notes.append("확인불가: 주주·자사주 %d행 스킵(period_key NOT NULL, 회계연도 불명)" % len(missing_pk))
             facts = [f for f in facts if f["period_key"] is not None]
 
+    if llm_fallback_enabled:
+        # 함수 참조(fact/num/parse_period_col/infer_period_labels)를 그대로 넘긴다 —
+        # llm_fallback.py 가 이 모듈을 import 해 재구현하는 대신 여기서 준 참조로 정확히
+        # 같은 결정론적 로직(기간 라벨 매핑 등)을 재사용한다(재발명·순환 import 둘 다 없음).
+        llm_facts, llm_hist, llm_notes = llm_fallback.run_fallback(
+            corp_code, rcept_no, sections, fy_int, facts, hist,
+            fact_fn=fact, num_fn=num, parse_period_col_fn=parse_period_col,
+            infer_period_labels_fn=infer_period_labels,
+            dry_run=llm_dry_run, dump_dir=llm_dump_dir)
+        facts += llm_facts
+        hist += llm_hist
+        notes += llm_notes
+
     return facts, hist, notes
 
 
@@ -815,7 +841,10 @@ def to_db_row(corp_code, rcept_no, f):
         "item_name": f["item_name"], "amount": f["amount"], "unit": f["unit"],
         "value_basis": f["value_basis"], "status": f["status"], "source_rcept_no": rcept_no,
         "source_section": f["source_section"], "source_table": f["source_table"],
-        "extracted_by": EXTRACTED_BY,
+        # f.get(...) 폴백: 규칙 파서 5개는 이 키를 안 채우던 시절과 동일하게 'rule'로
+        # 떨어진다. LLM 폴백(llm_fallback.py)이 만든 fact 는 'llm:claude-sonnet-5' 를
+        # 직접 채워 넣어 여기서 그대로 통과한다(감독 규칙 ③, extracted_by 로 구분).
+        "extracted_by": f.get("extracted_by") or EXTRACTED_BY,
     }
 
 
@@ -823,7 +852,8 @@ def to_history_row(corp_code, rcept_no, h):
     return {
         "corp_code": corp_code, "event_ym": h["event_ym"], "category": h["category"],
         "content": h["content"], "source_rcept_no": rcept_no,
-        "source_section": h["source_section"], "extracted_by": EXTRACTED_BY,
+        "source_section": h["source_section"],
+        "extracted_by": h.get("extracted_by") or EXTRACTED_BY,
     }
 
 
@@ -901,7 +931,8 @@ def print_coverage(corp_code, rcept_no, facts, hist, held, notes):
 
 # ══════════════════════════════════════════════════════════ CLI
 
-def run(corps, rcepts_arg, do_load):
+def run(corps, rcepts_arg, do_load, llm_fallback_enabled=False, llm_dry_run=False,
+        llm_dump_dir=None):
     """회사×회차를 순회하며 추출·적재한다. 한 회차의 예외가 나머지 전체를 막지 않도록
     회사·회차 단위로 격리한다(2026-08-25 3사 재현시험 실측 — parse_treasury 의 TypeError
     가 run() 에서 잡히지 않아, 세 회사를 한 명령으로 돌렸을 때 삼양식품에서 죽으면서 뒤에
@@ -909,6 +940,10 @@ def run(corps, rcepts_arg, do_load):
     콘솔에 남기고, 마지막에 실패 목록을 모아 반환한다 — 무인 배치에서 이 반환값으로 종료
     코드를 정할 수 있다(아래 main())."""
     ingest.print_target()
+    if llm_fallback_enabled:
+        print("LLM 폴백: 켜짐 (%s, %s)" % (
+            "dry-run — 프롬프트 덤프만, API 호출 안 함" if llm_dry_run else "실제 API 호출",
+            "덤프 디렉터리=%s" % llm_dump_dir if llm_dump_dir else "덤프 디렉터리 미지정"))
     failures = []
     for corp_code in corps:
         rcepts = rcepts_arg
@@ -922,7 +957,9 @@ def run(corps, rcepts_arg, do_load):
             print("\n=== corp=%s rcept=%s (%s) ===" % (
                 corp_code, rcept_no, "적재" if do_load else "검증만(dry-run)"))
             try:
-                facts, hist, notes = extract_one(corp_code, rcept_no)
+                facts, hist, notes = extract_one(
+                    corp_code, rcept_no, llm_fallback_enabled=llm_fallback_enabled,
+                    llm_dry_run=llm_dry_run, llm_dump_dir=llm_dump_dir)
                 facts, held = apply_gates(corp_code, facts, notes)
                 if do_load:
                     load_scope(corp_code, rcept_no, facts, hist)
@@ -956,6 +993,16 @@ def main():
         sp.add_argument("--corps", required=True, help="쉼표구분 corp_code 목록 (예: 00126380)")
         sp.add_argument("--rcepts", default=None,
                          help="쉼표구분 rcept_no 목록 — 생략 시 회사별 최신 사업보고서 1건 자동 선택")
+        # 2026-08-25 추가 — 규칙이 0행으로 남긴 3블록(연혁·부문별매출·시장점유율)만 LLM
+        # 폴백으로 보충한다(llm_fallback.py). 규칙이 이미 채운 블록·주주현황·R&D 는 절대
+        # 건드리지 않는다. 기본값 꺼짐 — 켜지 않으면 이 스크립트는 이전과 100% 동일하다.
+        sp.add_argument("--llm-fallback", action="store_true", dest="llm_fallback",
+                         help="규칙이 0행/실패로 남긴 연혁·부문별매출·시장점유율만 Claude API로 폴백 추출")
+        sp.add_argument("--dry-run", action="store_true", dest="llm_dry_run",
+                         help="LLM 폴백을 켜되 실제 API 호출 없이 프롬프트+절단원문을 파일로 덤프만 한다"
+                              "(--llm-dump-dir 필요). --llm-fallback 없이 이 플래그만 줘도 자동으로 켠다.")
+        sp.add_argument("--llm-dump-dir", default=None, dest="llm_dump_dir",
+                         help="--dry-run 덤프 파일을 쓸 디렉터리(코드에 하드코딩하지 않는다 — 세션마다 다르므로 호출부가 지정)")
 
     sp_extract = sub.add_parser("extract", help="5블록 추출 → 게이트 → fin_details/corp_history 적재")
     add_common(sp_extract)
@@ -965,7 +1012,21 @@ def main():
     args = p.parse_args()
     corps = [c.strip() for c in args.corps.split(",") if c.strip()]
     rcepts = [r.strip() for r in args.rcepts.split(",")] if args.rcepts else None
-    failures = run(corps, rcepts, do_load=(args.cmd == "extract"))
+    llm_fallback_enabled = args.llm_fallback or args.llm_dry_run
+    if args.llm_dry_run and not args.llm_dump_dir:
+        p.error("--dry-run 은 --llm-dump-dir 없이 쓸 수 없다 — 덤프를 어디에 쓸지 명시하라")
+    # 감독 지시 그대로: 키가 없으면 "명확히 에러 내고 종료" — 회사마다 조용히 확인불가로
+    # 새며 계속 도는 걸 막는다. call_claude() 안에도 같은 체크가 있지만(2선 방어), 거기서
+    # 걸리면 run() 의 회사·회차별 try/except 가 이걸 "이 블록 하나의 실패"로 삼켜 note 로만
+    # 남기고 계속 돈다 — 키 부재는 그런 개별 실패가 아니라 전역 설정 오류이므로, 실제 API
+    # 호출을 시도하기 전(회사 순회 시작 전)에 여기서 한 번에 끊는다.
+    if llm_fallback_enabled and not args.llm_dry_run and not os.environ.get("ANTHROPIC_API_KEY"):
+        print("ANTHROPIC_API_KEY 환경변수가 없다 — --llm-fallback 실호출을 실행할 수 없다.")
+        print("export ANTHROPIC_API_KEY=... 를 설정하고 재실행하라(--dry-run 이면 호출 없이 진행 가능).")
+        sys.exit(1)
+    failures = run(corps, rcepts, do_load=(args.cmd == "extract"),
+                    llm_fallback_enabled=llm_fallback_enabled, llm_dry_run=args.llm_dry_run,
+                    llm_dump_dir=args.llm_dump_dir)
     # 무인 실행(cron/launchd 래퍼)이 "일부 실패"를 알 수 있게 종료 코드로도 신호한다 —
     # 콘솔 로그만으로는 사람이 매번 스크롤을 다 읽어야 실패를 알아챈다.
     sys.exit(1 if failures else 0)

@@ -7,7 +7,9 @@ description: >-
   부문매출 적재해줘", "FnGuide 기업개요 데이터 채워줘", "사업보고서에서 뽑아서 넣어줘"
   라고 하거나, fin_details/corp_history 를 특정 회사에 대해 채우라고 요청하면 이 스킬을
   쓴다. 삼성전자(00126380) 파일럿으로 절차·게이트가 검증됐다. DART API 호출 없음(Storage
-  원문만 읽는다), LLM 추출 없음(이번 단계는 규칙 기반만 — extracted_by='rule' 고정).
+  원문만 읽는다). 규칙 기반이 우선(extracted_by='rule')이고, 연혁·부문별매출·시장점유율
+  3블록만 규칙이 0행일 때 `--llm-fallback`으로 Claude API 폴백(extracted_by='llm:...')을
+  붙일 수 있다(2026-08-25 추가, 기본 꺼짐).
 ---
 
 # 기업 프로필 추출 (FnGuide 5블록 → fin_details/corp_history)
@@ -158,10 +160,37 @@ python3 plugin/skills/company-profile-extract/scripts/extract_profile.py verify 
 가능한 차이만 있는지 확인한 뒤에만 `extract`로 실제 적재한다. 한 회차만 보고 고치면
 다른 회차가 조용히 깨질 수 있다(파일럿이 실측한 바로 그 실패 모드).
 
-## 알려진 한계 (이번 단계 범위 밖 — 지어내지 않고 명시)
+## LLM 폴백 (`--llm-fallback`, 2026-08-25 추가)
 
-- **LLM 폴백 없음**: `SEGMENT_SUMMARY_WHITELIST`에 없는 회사는 부문별 비중/영업이익/
-  총자산이 전부 확인불가다. 다음 단계(LLM 추출)의 명시적 후보.
+2026-08-25 3사 재현시험(`references/재현성-시험-3사.md`)이 "개념 축 자체가 회사마다
+다르다"로 확정한 세 블록 — **연혁(`corp_history`) · 부문별 매출 절대금액
+(`segment_revenue`) · 시장점유율(`market_share`)** — 만, 규칙 파서가 0행으로 남겼을 때
+Claude API(`claude-sonnet-5`)로 보충한다(`scripts/llm_fallback.py`). 주주현황·R&D·
+`segment_revenue_pct`/`segment_operating_income`/`segment_total_assets`(★화이트리스트
+표)는 이 폴백 범위 밖이다 — 규칙이 통과하는 블록을 LLM으로 대체하지 않는다.
+
+```bash
+# 프롬프트만 확인(호출 없음) — 새 회사에 붙이기 전 항상 먼저 이걸로 절단·프롬프트를 본다
+python3 plugin/skills/company-profile-extract/scripts/extract_profile.py verify \
+    --corps 00126380 --llm-fallback --dry-run --llm-dump-dir /path/to/dump
+
+# 실제 호출(ANTHROPIC_API_KEY 필요 — 없으면 즉시 에러 종료, 조용히 건너뛰지 않는다)
+python3 plugin/skills/company-profile-extract/scripts/extract_profile.py extract \
+    --corps 00126380 --llm-fallback
+```
+
+핵심 설계: LLM은 원문 표기(`raw_amount`·`unit_label`)만 옮기고, 단위 환산·기간 라벨→
+연도 매핑은 규칙 파서의 `num()`/`parse_period_col()`/`infer_period_labels()`를 그대로
+재사용해 결정론적으로 계산한다(LLM이 계산하지 않는다). `extracted_by='llm:claude-sonnet-5'`
+로 규칙 산출물과 구분되고, 같은 `apply_gates()`(부문합 ±1%·[0,100] 범위·자릿수 sanity)를
+그대로 통과해야 적재된다. 원문에 관련 키워드가 0건이면(예: 시장점유율 개념이 아예 없는
+건설사) API 호출 자체를 생략하고 확인불가로 남긴다(비용 절약, 결과는 동일).
+
+## 알려진 한계 (지어내지 않고 명시)
+
+- **`SEGMENT_SUMMARY_WHITELIST`에 없는 회사**는 부문별 비중/영업이익/총자산이 전부
+  확인불가다(위 LLM 폴백 범위 밖 — 절대 매출액과 달리 이 표는 2단 헤더+rowspan이 겹쳐
+  회사별 화이트리스트 없이는 규칙도 LLM도 안전하게 못 푼다고 판단해 손대지 않았다).
 - **임원 지분·5%이상 합계**: 사업보고서 본문에 원천 데이터가 없다(추정: 임원ㆍ주요주주
   소유상황보고서라는 별도 `report_nm` 계열 공시가 원천). 이 스킬은 Storage의 사업보고서
   섹션만 읽으므로 다룰 수 없다 — DART API 호출도 금지돼 있어(이번 단계 규율) 이 공시
