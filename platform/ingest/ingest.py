@@ -611,6 +611,67 @@ def load_docs(key, corp, redo=False):
     print("  filing_docs: 성공 %d · 실패 %d" % (ok, err))
 
 
+def load_docs_for_rcepts(key, items, redo=False):
+    """공시 원문 — load_docs() 와 같은 Storage 규약(docs/<corp_code>/<rcept_no>.zip)·
+    filing_docs 매니페스트를 쓰지만, **회사 전체 이력이 아니라 호출자가 지정한 (corp_code,
+    rcept_no) 목록만** 받는다. daily_sync.py 가 "오늘 새로 들어온 공시" 만 원문을 받고 싶을 때
+    쓰는 경로다 — load_docs() 는 그 회사의 filings 전체를 DB 에서 다시 긁어 done-set 과
+    diff 하므로 이 용도엔 안 맞는다(코드 재사용 대신 나란히 추가한 이유: load_docs() 자체를
+    고치면 백필의 회사 단위 경로가 흔들릴 위험이 있다 — 요구사항이 기존 동작 불변임).
+
+    items: [(corp_code, rcept_no), ...] 리스트 — **in-place 로 줄인다**(처리한 항목을
+    앞에서부터 pop 한다). 쿼터 소진(backfill.QuotaExhausted)을 만나면 그 항목은 빼지 않고
+    즉시 위로 던진다: load_docs() 의 기존 관용구(`except Exception` 으로 전부 삼켜 "error:"
+    기록 후 계속)를 그대로 따르면, 소진된 키로 남은 rcept 전부를 계속 시도해 020 을 반복해서
+    맞는다 — phase3-daily.log 의 "020 급증" 버스트가 이 경로(load_docs 의 동일 관용구)에서
+    난 것으로 보인다(정황상 추정, 확인 불가). QuotaExhausted 를 클래스명 문자열로만 식별하는
+    이유는 ingest.py 가 backfill.py 를 import 하면 순환 import 가 되기 때문이다(backfill.py 가
+    이미 ingest.py 를 import 한다) — isinstance 대신 type(e).__name__ 비교로 결합 없이 구분한다.
+
+    호출자(daily_sync.py)는 예외를 잡고 items 에 남은 걸 보고 새 키로 다시 부르면 이어서
+    처리된다(멱등 — filing_docs.status=ok 스킵 로직이 재호출마다 다시 돈다).
+    반환: (ok건수, err건수) — 정상 종료(items 를 끝까지 비웠을 때)만.
+    """
+    if not redo and items:
+        # load_docs() 의 "status=eq.ok 만 완료로 본다" 규약을 그대로 따른다(실패 기록을
+        # 완료로 착각해 영영 재시도 안 하는 사고 재발 방지 — ingest.py 모듈 주석 참고).
+        rcepts = [r for _, r in items]
+        done = set()
+        for i in range(0, len(rcepts), 200):  # in.() URL 길이 보호 (fetch_corp_info 규약과 동일)
+            chunk = rcepts[i:i + 200]
+            q = ("filing_docs?select=rcept_no&status=eq.ok&rcept_no=in.(%s)" %
+                 ",".join(urllib.parse.quote(r) for r in chunk))
+            done.update(row["rcept_no"] for row in rest("GET", q))
+        items[:] = [(c, r) for c, r in items if r not in done]
+
+    ok = err = 0
+    while items:
+        corp_code, rcept = items[0]
+        try:
+            files = api.call_zip(key, "document.xml", rcept_no=rcept)
+            main_name = sorted(files)[0]
+            zip_bytes = files.raw
+            sha256 = hashlib.sha256(zip_bytes).hexdigest()
+            path = "%s/%s/%s.zip" % (DOCS_PREFIX, corp_code, rcept)
+            status, text = storage_upload(path, zip_bytes, "application/zip")
+            if status not in (200, 201):
+                raise RuntimeError("Storage 업로드 실패 %s: %s" % (status, str(text)[:200]))
+            upsert("filing_docs", [{
+                "rcept_no": rcept, "file_name": main_name, "n_files": len(files),
+                "bytes": len(files[main_name]), "status": "ok",
+                "storage_path": path, "zip_bytes": len(zip_bytes), "zip_sha256": sha256,
+            }], on_conflict="rcept_no")
+            ok += 1
+        except Exception as e:
+            if type(e).__name__ == "QuotaExhausted":
+                raise
+            err += 1
+            upsert("filing_docs", [{"rcept_no": rcept, "status": "error:%s" % str(e)[:200]}],
+                   on_conflict="rcept_no")
+        items.pop(0)
+    return ok, err
+
+
 def load_ownership(key, corp):
     data = api.ownership(key, corp["corp_code"])
     kind_map = {"대량보유(5%)": "majorstock", "임원·주요주주 소유보고": "elestock"}
