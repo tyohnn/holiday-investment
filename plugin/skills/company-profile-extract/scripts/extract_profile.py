@@ -30,10 +30,11 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 _REPO = os.path.abspath(os.path.join(_HERE, "..", "..", "..", ".."))
 sys.path.insert(0, os.path.join(_REPO, "platform", "ingest"))
 import ingest  # noqa: E402  — rest()/upsert()/replace_scope()/storage_download() 재사용, 재발명 금지
-import llm_fallback  # noqa: E402  — 규칙 파서가 0행/실패로 남긴 3블록(연혁·부문별매출·
-# 시장점유율)의 LLM 폴백(2026-08-25 추가). --llm-fallback 이 꺼져 있으면 이 모듈의
-# run_fallback() 은 호출 자체가 안 된다 — import 만으로는 API 호출도, 규칙 경로 변경도
-# 없다(순수 stdlib, ANTHROPIC_API_KEY 를 읽지도 않는다 — 그건 call_claude() 안에서만).
+# 2026-08-25: llm_fallback.py 를 여기서 import 하지 않는다. 예전엔 --llm-fallback 플래그로
+# 이 모듈이 Anthropic API 를 호출하는 폴백을 inline 으로 끼워 넣었지만, 지금은 llm_fallback.py
+# 자체가 (에이전트가 직접 실행하는) 독립 2단계 CLI(prepare/ingest)로 바뀌어 이 스크립트와
+# 별개로 돈다 — 방향이 뒤집혀 llm_fallback.py 가 이 모듈(extract_profile)을 import 한다.
+# 여기서 다시 llm_fallback 을 import 하면 순환 import 가 된다.
 
 EXTRACTED_BY = "rule"
 
@@ -757,12 +758,15 @@ def load_sections(corp_code, rcept_no):
     return {s["title"]: s["content"] for s in sections}, None
 
 
-def extract_one(corp_code, rcept_no, llm_fallback_enabled=False, llm_dry_run=False,
-                 llm_dump_dir=None):
-    """한 (corp_code, rcept_no) 에서 5블록을 전부 추출한다. 규칙(항상 실행) 다음에,
-    llm_fallback_enabled 이면 규칙이 0행으로 남긴 3블록(연혁·부문별매출·시장점유율)만
-    LLM 폴백으로 보충한다(2026-08-25) — 규칙이 이미 채운 블록은 절대 건드리지 않는다
-    (재현성-시험-3사.md 결론: "규칙이 되는 걸 LLM 으로 대체하지 마라").
+def extract_one(corp_code, rcept_no):
+    """한 (corp_code, rcept_no) 에서 5블록을 규칙 기반으로 전부 추출한다(항상 규칙만 —
+    2026-08-25부터 이 함수는 LLM/에이전트 폴백을 호출하지 않는다). 규칙이 0행으로 남긴
+    블록(연혁·부문별매출·시장점유율)을 보충하려면 이 스크립트의 `extract`/`verify`를
+    먼저 돌린 뒤, 별도로 `llm_fallback.py prepare`→(에이전트가 채움)→`llm_fallback.py
+    ingest`를 이어서 실행한다(SKILL.md 절차 참고) — 이 함수 안에서 자동으로 이어지지
+    않는다(재현성-시험-3사.md 결론: "규칙이 되는 걸 LLM/에이전트로 대체하지 마라",
+    그리고 에이전트 폴백은 이제 이 프로세스 안에서 동기 실행되는 API 호출이 아니라
+    별도 세션에서 에이전트가 수행하는 절차이므로 애초에 여기서 호출할 수 없다).
     반환: (fin_details 후보 facts, corp_history 후보 items, notes)"""
     notes = []
     sections, err = load_sections(corp_code, rcept_no)
@@ -816,19 +820,6 @@ def extract_one(corp_code, rcept_no, llm_fallback_enabled=False, llm_dry_run=Fal
         else:
             notes.append("확인불가: 주주·자사주 %d행 스킵(period_key NOT NULL, 회계연도 불명)" % len(missing_pk))
             facts = [f for f in facts if f["period_key"] is not None]
-
-    if llm_fallback_enabled:
-        # 함수 참조(fact/num/parse_period_col/infer_period_labels)를 그대로 넘긴다 —
-        # llm_fallback.py 가 이 모듈을 import 해 재구현하는 대신 여기서 준 참조로 정확히
-        # 같은 결정론적 로직(기간 라벨 매핑 등)을 재사용한다(재발명·순환 import 둘 다 없음).
-        llm_facts, llm_hist, llm_notes = llm_fallback.run_fallback(
-            corp_code, rcept_no, sections, fy_int, facts, hist,
-            fact_fn=fact, num_fn=num, parse_period_col_fn=parse_period_col,
-            infer_period_labels_fn=infer_period_labels,
-            dry_run=llm_dry_run, dump_dir=llm_dump_dir)
-        facts += llm_facts
-        hist += llm_hist
-        notes += llm_notes
 
     return facts, hist, notes
 
@@ -931,19 +922,15 @@ def print_coverage(corp_code, rcept_no, facts, hist, held, notes):
 
 # ══════════════════════════════════════════════════════════ CLI
 
-def run(corps, rcepts_arg, do_load, llm_fallback_enabled=False, llm_dry_run=False,
-        llm_dump_dir=None):
+def run(corps, rcepts_arg, do_load):
     """회사×회차를 순회하며 추출·적재한다. 한 회차의 예외가 나머지 전체를 막지 않도록
     회사·회차 단위로 격리한다(2026-08-25 3사 재현시험 실측 — parse_treasury 의 TypeError
     가 run() 에서 잡히지 않아, 세 회사를 한 명령으로 돌렸을 때 삼양식품에서 죽으면서 뒤에
     있던 동신건설은 시도조차 되지 않았다). 실패를 삼키지 않고 어느 회사·회차·무슨 예외인지
     콘솔에 남기고, 마지막에 실패 목록을 모아 반환한다 — 무인 배치에서 이 반환값으로 종료
-    코드를 정할 수 있다(아래 main())."""
+    코드를 정할 수 있다(아래 main()). 규칙 기반만 실행한다 — 에이전트 폴백은 별도 프로세스
+    (`llm_fallback.py prepare`/`ingest`, SKILL.md 절차)로 이 함수 밖에서 돈다."""
     ingest.print_target()
-    if llm_fallback_enabled:
-        print("LLM 폴백: 켜짐 (%s, %s)" % (
-            "dry-run — 프롬프트 덤프만, API 호출 안 함" if llm_dry_run else "실제 API 호출",
-            "덤프 디렉터리=%s" % llm_dump_dir if llm_dump_dir else "덤프 디렉터리 미지정"))
     failures = []
     for corp_code in corps:
         rcepts = rcepts_arg
@@ -957,9 +944,7 @@ def run(corps, rcepts_arg, do_load, llm_fallback_enabled=False, llm_dry_run=Fals
             print("\n=== corp=%s rcept=%s (%s) ===" % (
                 corp_code, rcept_no, "적재" if do_load else "검증만(dry-run)"))
             try:
-                facts, hist, notes = extract_one(
-                    corp_code, rcept_no, llm_fallback_enabled=llm_fallback_enabled,
-                    llm_dry_run=llm_dry_run, llm_dump_dir=llm_dump_dir)
+                facts, hist, notes = extract_one(corp_code, rcept_no)
                 facts, held = apply_gates(corp_code, facts, notes)
                 if do_load:
                     load_scope(corp_code, rcept_no, facts, hist)
@@ -985,6 +970,99 @@ def run(corps, rcepts_arg, do_load, llm_fallback_enabled=False, llm_dry_run=Fals
     return failures
 
 
+# ══════════════════════════════════════════════════════════ 일일 진입점 — pending
+
+# "정기보고서"라고 해도 이 스킬의 5블록 파서(특히 연혁·R&D 섹션 헤딩)는 사업보고서 구조를
+# 전제로 검증됐다(분기·반기보고서는 그 섹션들을 축약하거나 아예 생략하는 경우가 많다 —
+# 미검증). latest_annual_rcept() 가 이미 쓰는 필터와 동일하게 사업보고서만 대상으로 좁힌다
+# — 스코프를 넓히려면(분기·반기 포함) 먼저 그 보고서 유형에서 5블록 파서가 실제로 뭘
+# 뽑아내는지 검증해야 한다(이번 작업 범위 밖).
+_REPORT_NM_FILTER = "like.사업보고서*"
+
+
+def _paginate_rest(path, params, page_size=1000):
+    """PostgREST 기본 limit(1000)을 넘는 결과를 offset 페이지네이션으로 전부 받는다.
+    AGENTS.md 경고 그대로: "조용히 잘린 표본이 최대 오류원이다" — pending 목록이 잘리면
+    이미 처리된 rcept를 처리 안 된 걸로 오판하거나 그 반대가 나서, 여기선 항상 끝까지 받는다."""
+    rows, offset = [], 0
+    base = dict(params)
+    while True:
+        base["limit"] = str(page_size)
+        base["offset"] = str(offset)
+        page = db_rows_pg(path, base)
+        rows.extend(page)
+        if len(page) < page_size:
+            break
+        offset += page_size
+    return rows
+
+
+def pending_rcepts(corps=None, limit=None):
+    """filing_docs.status='ok'(Storage 원문 백필 완료)인 **사업보고서** 중 fin_details·
+    corp_history 어느 쪽에도 이 rcept_no 를 source_rcept_no 로 가진 행이 하나도 없는
+    회차를 찾는다 — "오늘 이 스킬이 아직 한 번도 처리하지 않은 회차" 목록이다.
+
+    순서는 **오래된 것부터**(rcept_dt asc)로 정했다: 이 스킬은 무인 배치로 매일 조금씩만
+    처리하므로(--limit), 최신 우선으로 정렬하면 신규 사업보고서 시즌마다 몰리는 최근
+    회차만 계속 처리하고 훨씬 오래전에 쌓인 백로그(Phase 1 백필 시점부터 누적된 과거
+    회차들)는 영영 뒤로 밀린다 — 오래된 것부터 밀어내는 쪽이 전체 백로그를 유한 시간에
+    소진한다는 보장이 있다(최신 우선은 그 보장이 없다, 새 공시가 계속 얹히면 꼬리가
+    끝없이 늘어난다).
+
+    ★ 알려진 공백(반드시 SKILL.md·references/무인운영-요건.md 와 함께 읽는다): 이 함수가
+    보는 filings 테이블 자체가 2026-08-04 이후로 갱신되지 않고 있다(오늘은 08-25) — 신규
+    공시를 받아오는 별도 백필 단계가 없으면, 이 목록은 "이미 알고 있던 과거 회차 중
+    안 채운 것"만 반환하고 최근 3주치 신규 사업보고서는 애초에 filings 에 없어 여기
+    나타나지도 않는다."""
+    filter_params = {
+        "select": "rcept_no,filings!inner(corp_code,report_nm,rcept_dt)",
+        "status": "eq.ok", "storage_path": "not.is.null",
+        "filings.report_nm": _REPORT_NM_FILTER,
+        # order 를 반드시 명시한다: Postgres는 ORDER BY 없는 결과의 행 순서를 보장하지
+        # 않는다 — 실측: order 없이 offset/limit 페이지네이션을 돌리면 페이지 경계에서
+        # 같은 행이 중복되거나 누락됐다(6,923건 스캔에서 여러 rcept_no가 두 번씩 나옴).
+        # rcept_no는 PK라 항상 유일해 페이지 간 겹침·누락이 생기지 않는다.
+        "order": "rcept_no",
+    }
+    if corps:
+        filter_params["filings.corp_code"] = "in.(%s)" % ",".join(corps)
+    candidates = _paginate_rest("filing_docs", filter_params)
+    candidates = {c["rcept_no"]: c for c in candidates}.values()  # 방어적 dedupe(위 order 수정으로 이론상 불필요하지만 안전망으로 유지)
+
+    done = set()
+    for table in ("fin_details", "corp_history"):
+        rows = _paginate_rest(table, {"select": "source_rcept_no",
+                                       "source_rcept_no": "not.is.null", "order": "id"})
+        done.update(r["source_rcept_no"] for r in rows if r.get("source_rcept_no"))
+
+    out = []
+    for row in candidates:
+        rcept_no = row["rcept_no"]
+        if rcept_no in done:
+            continue
+        f = row.get("filings") or {}
+        out.append({"corp_code": f.get("corp_code"), "rcept_no": rcept_no,
+                     "report_nm": f.get("report_nm"), "rcept_dt": f.get("rcept_dt")})
+    out.sort(key=lambda r: (r["rcept_dt"] or "", r["rcept_no"]))
+    total = len(out)
+    if limit:
+        out = out[:limit]
+    return out, total
+
+
+def cmd_pending(args):
+    ingest.print_target()
+    corps = [c.strip() for c in args.corps.split(",")] if args.corps else None
+    rows, total = pending_rcepts(corps=corps, limit=args.limit)
+    print("미처리 사업보고서: 총 %d건(정렬: rcept_dt 오름차순, 오래된 것부터)"
+          " — 이번 출력 %d건" % (total, len(rows)))
+    for r in rows:
+        print("  %s  %-14s  %-28s  %s" % (
+            r["rcept_dt"] or "?", r["corp_code"] or "?", r["rcept_no"], r["report_nm"] or ""))
+    if not rows:
+        print("  (없음)")
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -993,40 +1071,26 @@ def main():
         sp.add_argument("--corps", required=True, help="쉼표구분 corp_code 목록 (예: 00126380)")
         sp.add_argument("--rcepts", default=None,
                          help="쉼표구분 rcept_no 목록 — 생략 시 회사별 최신 사업보고서 1건 자동 선택")
-        # 2026-08-25 추가 — 규칙이 0행으로 남긴 3블록(연혁·부문별매출·시장점유율)만 LLM
-        # 폴백으로 보충한다(llm_fallback.py). 규칙이 이미 채운 블록·주주현황·R&D 는 절대
-        # 건드리지 않는다. 기본값 꺼짐 — 켜지 않으면 이 스크립트는 이전과 100% 동일하다.
-        sp.add_argument("--llm-fallback", action="store_true", dest="llm_fallback",
-                         help="규칙이 0행/실패로 남긴 연혁·부문별매출·시장점유율만 Claude API로 폴백 추출")
-        sp.add_argument("--dry-run", action="store_true", dest="llm_dry_run",
-                         help="LLM 폴백을 켜되 실제 API 호출 없이 프롬프트+절단원문을 파일로 덤프만 한다"
-                              "(--llm-dump-dir 필요). --llm-fallback 없이 이 플래그만 줘도 자동으로 켠다.")
-        sp.add_argument("--llm-dump-dir", default=None, dest="llm_dump_dir",
-                         help="--dry-run 덤프 파일을 쓸 디렉터리(코드에 하드코딩하지 않는다 — 세션마다 다르므로 호출부가 지정)")
 
-    sp_extract = sub.add_parser("extract", help="5블록 추출 → 게이트 → fin_details/corp_history 적재")
+    sp_extract = sub.add_parser("extract", help="5블록 규칙 기반 추출 → 게이트 → fin_details/corp_history 적재")
     add_common(sp_extract)
     sp_verify = sub.add_parser("verify", help="적재 없이 파싱+게이트만 재실행(dry-run)")
     add_common(sp_verify)
 
+    sp_pending = sub.add_parser(
+        "pending", help="일일 진입점 — 아직 fin_details/corp_history 에 안 실린 사업보고서 목록")
+    sp_pending.add_argument("--corps", default=None, help="쉼표구분 corp_code 목록(생략 시 전체)")
+    sp_pending.add_argument("--limit", type=int, default=None, help="오늘 처리할 건수 상한")
+    sp_pending.set_defaults(func=cmd_pending)
+
     args = p.parse_args()
+    if args.cmd == "pending":
+        args.func(args)
+        return
+
     corps = [c.strip() for c in args.corps.split(",") if c.strip()]
     rcepts = [r.strip() for r in args.rcepts.split(",")] if args.rcepts else None
-    llm_fallback_enabled = args.llm_fallback or args.llm_dry_run
-    if args.llm_dry_run and not args.llm_dump_dir:
-        p.error("--dry-run 은 --llm-dump-dir 없이 쓸 수 없다 — 덤프를 어디에 쓸지 명시하라")
-    # 감독 지시 그대로: 키가 없으면 "명확히 에러 내고 종료" — 회사마다 조용히 확인불가로
-    # 새며 계속 도는 걸 막는다. call_claude() 안에도 같은 체크가 있지만(2선 방어), 거기서
-    # 걸리면 run() 의 회사·회차별 try/except 가 이걸 "이 블록 하나의 실패"로 삼켜 note 로만
-    # 남기고 계속 돈다 — 키 부재는 그런 개별 실패가 아니라 전역 설정 오류이므로, 실제 API
-    # 호출을 시도하기 전(회사 순회 시작 전)에 여기서 한 번에 끊는다.
-    if llm_fallback_enabled and not args.llm_dry_run and not os.environ.get("ANTHROPIC_API_KEY"):
-        print("ANTHROPIC_API_KEY 환경변수가 없다 — --llm-fallback 실호출을 실행할 수 없다.")
-        print("export ANTHROPIC_API_KEY=... 를 설정하고 재실행하라(--dry-run 이면 호출 없이 진행 가능).")
-        sys.exit(1)
-    failures = run(corps, rcepts, do_load=(args.cmd == "extract"),
-                    llm_fallback_enabled=llm_fallback_enabled, llm_dry_run=args.llm_dry_run,
-                    llm_dump_dir=args.llm_dump_dir)
+    failures = run(corps, rcepts, do_load=(args.cmd == "extract"))
     # 무인 실행(cron/launchd 래퍼)이 "일부 실패"를 알 수 있게 종료 코드로도 신호한다 —
     # 콘솔 로그만으로는 사람이 매번 스크롤을 다 읽어야 실패를 알아챈다.
     sys.exit(1 if failures else 0)

@@ -4,12 +4,14 @@ description: >-
   DART 정기보고서 원문(Storage에 이미 백필된 사업보고서 섹션)을 규칙 기반으로 파싱해
   FnGuide 기업개요 화면의 5블록(최근연혁·연구개발비·부문별매출·시장점유율·주주현황)을
   fin_details/corp_history 에 적재한다. 사용자가 "이 회사 프로필 채워줘", "연혁·R&D·
-  부문매출 적재해줘", "FnGuide 기업개요 데이터 채워줘", "사업보고서에서 뽑아서 넣어줘"
-  라고 하거나, fin_details/corp_history 를 특정 회사에 대해 채우라고 요청하면 이 스킬을
-  쓴다. 삼성전자(00126380) 파일럿으로 절차·게이트가 검증됐다. DART API 호출 없음(Storage
-  원문만 읽는다). 규칙 기반이 우선(extracted_by='rule')이고, 연혁·부문별매출·시장점유율
-  3블록만 규칙이 0행일 때 `--llm-fallback`으로 Claude API 폴백(extracted_by='llm:...')을
-  붙일 수 있다(2026-08-25 추가, 기본 꺼짐).
+  부문매출 적재해줘", "FnGuide 기업개요 데이터 채워줘", "사업보고서에서 뽑아서 넣어줘",
+  "오늘 처리할 것 찾아줘"라고 하거나, fin_details/corp_history 를 특정 회사에 대해
+  채우라고 요청하면, 또는 스케줄러가 이 스킬을 일일 배치로 부르면 쓴다. 삼성전자
+  (00126380) 파일럿으로 절차·게이트가 검증됐다. DART API 호출 없음(Storage 원문만
+  읽는다). 규칙 기반이 우선(extracted_by='rule')이고, 연혁·부문별매출·시장점유율 3블록만
+  규칙이 0행일 때 **이 스킬을 실행하는 에이전트 자신**이 원문을 읽고 채운다
+  (extracted_by='agent', 2026-08-25 재설계 — 예전엔 별도 Claude API 호출이었으나 이제
+  API 키·요금·응답 파싱이 필요 없다). 일일 진입점은 `extract_profile.py pending`.
 ---
 
 # 기업 프로필 추출 (FnGuide 5블록 → fin_details/corp_history)
@@ -91,8 +93,10 @@ Storage에 이미 백필된 사업보고서 섹션(`docs/<corp_code>/<rcept_no>.
 
 ## 절차
 
-1. **대상 확인**: `--corps <corp_code,...>` (필수), `--rcepts <rcept_no,...>` (생략 시
-   회사별 최신 사업보고서 1건을 filings 테이블에서 자동 선택).
+1. **대상 확인**: 스케줄러가 부른 무인 배치라면 `python3 extract_profile.py pending
+   --limit <N>`로 오늘 처리할 (corp_code, rcept_no) 목록을 받는다(아래 "일일 진입점"
+   참고). 사람이 특정 회사를 지목했다면 `--corps <corp_code,...>` (필수), `--rcepts
+   <rcept_no,...>` (생략 시 회사별 최신 사업보고서 1건을 filings 테이블에서 자동 선택).
 2. **Storage 섹션 확인**: `docs/<corp_code>/<rcept_no>.sections.json.gz` 가 없으면(Phase 3
    백필 미완료) 그 회차는 확인불가로 스킵하고 다음으로 넘어간다 — 전체 실행을 중단하지 않는다.
 3. **규칙 파서**: 5블록을 각각 파싱한다(코드는 `scripts/extract_profile.py`, 함수별로
@@ -121,6 +125,36 @@ Storage에 이미 백필된 사업보고서 섹션(`docs/<corp_code>/<rcept_no>.
    `storage_download()`를 그대로 재사용한다(재발명 금지).
 6. **커버리지 보고**: 콘솔에 concept별 적재/확인불가/게이트보류 건수 + 게이트 통과·실패
    로그를 찍는다(`print_coverage`). 이 출력이 곧 "무엇이 다 들어갔는가"의 실행 증거다.
+7. **에이전트 폴백** (규칙이 0행으로 남긴 연혁·부문별매출·시장점유율만): 아래 "에이전트
+   폴백" 절 그대로 `llm_fallback.py prepare` → 이 스킬을 실행하는 에이전트 자신이 읽고
+   채움 → `llm_fallback.py ingest` 순서로 진행한다. 게이트 실패나 처음 보는 표 구조는
+   **보고하고 다음 회차로 넘어간다** — 멈추지 않는다.
+
+## 일일 진입점 — `pending`
+
+스케줄러가 이 스킬을 매일 부를 때, "오늘 뭘 처리할지"를 사람이 매번 정해주지 않는다.
+`extract_profile.py pending`이 filing_docs.status='ok'(Storage 원문 백필 완료)인
+**사업보고서** 중 `fin_details`·`corp_history` 어느 쪽에도 아직 `source_rcept_no`가
+없는 회차를 찾아 목록으로 낸다:
+
+```bash
+python3 plugin/skills/company-profile-extract/scripts/extract_profile.py pending --limit 20
+```
+
+정렬은 **오래된 것부터**(rcept_dt 오름차순)다 — 근거: 이 스킬은 매일 조금씩만
+처리하므로(`--limit`), 최신 우선으로 정렬하면 신규 사업보고서 시즌(3~4월)마다 몰리는
+최근 회차만 계속 처리하고 예전부터 쌓인 백로그는 영영 뒤로 밀린다. 오래된 것부터
+처리하면 백로그가 유한 시간에 소진된다는 보장이 있다(최신 우선은 새 공시가 계속
+얹히므로 그 보장이 없다).
+
+**★ 알려진 공백 — 이 목록에 안 뜬다고 "다 처리됐다"는 뜻이 아니다.** `pending`은
+`filings` 테이블에 이미 있는 회차만 본다. 그런데 이 레포에서 신규 공시를 받아오는
+별도 백필 단계가 매일 돌지 않으면 `filings`가 갱신되지 않는다 — 아래 "알려진 한계"의
+공백을 반드시 함께 읽는다.
+
+무인 배치의 일일 절차: `pending --limit N` → 그 목록의 (corp_code, rcept_no)로
+`extract` 실행(규칙 기반, 항상 먼저) → 규칙이 0행으로 남긴 블록만 "에이전트 폴백"
+절차로 보충.
 
 ## 사용법
 
@@ -140,6 +174,9 @@ python3 plugin/skills/company-profile-extract/scripts/extract_profile.py extract
 # 적재 없이 파싱+게이트만 재실행(dry-run) — 파서를 고친 뒤 회귀 확인에 쓴다
 python3 plugin/skills/company-profile-extract/scripts/extract_profile.py verify \
     --corps 00126380 --rcepts 20260310002820,20250311001085
+
+# 일일 진입점 — 오늘 처리할 사업보고서 목록(아직 안 채워진 것만, 오래된 것부터)
+python3 plugin/skills/company-profile-extract/scripts/extract_profile.py pending --limit 20
 ```
 
 `ingest.py`와 같은 대상 해석 규칙을 따른다: `SUPABASE_REST_URL`/`SUPABASE_SERVICE_KEY`
@@ -160,37 +197,94 @@ python3 plugin/skills/company-profile-extract/scripts/extract_profile.py verify 
 가능한 차이만 있는지 확인한 뒤에만 `extract`로 실제 적재한다. 한 회차만 보고 고치면
 다른 회차가 조용히 깨질 수 있다(파일럿이 실측한 바로 그 실패 모드).
 
-## LLM 폴백 (`--llm-fallback`, 2026-08-25 추가)
+## 에이전트 폴백 (2026-08-25 재설계 — API 호출이 아니라 에이전트가 직접 읽는다)
 
+### 설계가 바뀐 이유
+예전엔 `llm_fallback.py`가 Anthropic API를 직접 호출했다(`ANTHROPIC_API_KEY` 필요).
+그런데 실제 운영은 **Claude Code 스케줄러가 이 스킬을 매일 호출하는 방식**이다 — 즉
+이 스킬을 실행하는 에이전트 자신이 이미 LLM이다. API로 다시 감쌀 이유가 없다: 키
+관리·요금·HTTP 재시도·응답 파싱이 전부 불필요해진다. 그래서 `llm_fallback.py`는 더
+이상 어떤 모델도 호출하지 않는다 — 대신 **에이전트가 직접 실행하는 2단계 CLI**로
+바뀌었다.
+
+### 대상 (그대로 유지)
 2026-08-25 3사 재현시험(`references/재현성-시험-3사.md`)이 "개념 축 자체가 회사마다
 다르다"로 확정한 세 블록 — **연혁(`corp_history`) · 부문별 매출 절대금액
 (`segment_revenue`) · 시장점유율(`market_share`)** — 만, 규칙 파서가 0행으로 남겼을 때
-Claude API(`claude-sonnet-5`)로 보충한다(`scripts/llm_fallback.py`). 주주현황·R&D·
-`segment_revenue_pct`/`segment_operating_income`/`segment_total_assets`(★화이트리스트
-표)는 이 폴백 범위 밖이다 — 규칙이 통과하는 블록을 LLM으로 대체하지 않는다.
+에이전트가 보충한다. 주주현황·R&D·`segment_revenue_pct`/`segment_operating_income`/
+`segment_total_assets`(★화이트리스트 표)는 이 폴백 범위 밖이다 — 규칙이 통과하는
+블록을 에이전트로 대체하지 않는다.
 
-```bash
-# 프롬프트만 확인(호출 없음) — 새 회사에 붙이기 전 항상 먼저 이걸로 절단·프롬프트를 본다
-python3 plugin/skills/company-profile-extract/scripts/extract_profile.py verify \
-    --corps 00126380 --llm-fallback --dry-run --llm-dump-dir /path/to/dump
+### 절차 (스케줄러가 이 스킬을 부르면 에이전트가 그대로 따른다)
 
-# 실제 호출(ANTHROPIC_API_KEY 필요 — 없으면 즉시 에러 종료, 조용히 건너뛰지 않는다)
-python3 plugin/skills/company-profile-extract/scripts/extract_profile.py extract \
-    --corps 00126380 --llm-fallback
-```
+1. **대상 선정**: 위 "일일 진입점"의 `pending`으로 오늘 처리할 (corp_code, rcept_no)를
+   받는다. 사람이 특정 회사를 지목했으면 그 회사·회차를 쓴다.
+2. **규칙 파서 실행**: `extract_profile.py extract --corps <corp> --rcepts <rcept>`를
+   먼저 돌린다(항상 규칙이 먼저다). 콘솔의 커버리지 보고에서 연혁·부문별매출·시장점유율
+   중 0행인 블록을 확인한다.
+3. **`prepare`로 원문 절단분 받기**: 0행인 블록만 아래로 준비한다(이미 행이 있는
+   블록은 `prepare`가 자동으로 건너뛴다 — `--force`로 강제 재준비 가능).
+   ```bash
+   python3 plugin/skills/company-profile-extract/scripts/llm_fallback.py prepare \
+       --corps <corp_code> --rcepts <rcept_no> --out-dir <임시 디렉터리>
+   ```
+   출력 파일(`<corp>_<rcept>_<block>.txt`)마다 ①원문 절단분 ②지시문(아래 규율 그대로)
+   ③출력 JSON 계약이 들어 있다.
+4. **에이전트가 직접 읽고 구조화**: 이 스킬을 실행하는 에이전트가 그 파일을 Read로
+   읽고, 각 prepare 파일 안의 지시문을 그대로 따른다 — 예전 API 프롬프트의 규율을
+   그대로 옮긴 것이다:
+   - **원문에 있는 숫자·문구만** 옮긴다. 계산·추정·보간 금지.
+   - **단위 환산(억원→원 등)은 절대 하지 않는다** — `raw_amount`(원문 표기 그대로)와
+     `unit_label`(원문 단위 문구 그대로)만 적는다. 환산은 코드(`num()`/`UNIT_SCALE`)가
+     결정론적으로 한다.
+   - 표 헤더의 기간 라벨(`period_header`)도 원문 그대로 옮긴다 — "제65기"인지
+     "2025.12"인지 "당기"인지 연도로 계산하지 않는다(`ingest`가 규칙 함수로 변환한다).
+   - **출처를 특정할 수 없으면 그 항목을 아예 넣지 않는다** — `source_table`이 없으면
+     `ingest`가 적재를 거부한다.
+   - **원문에서 못 찾으면 정직하게 비운다**(빈 배열/키 생략) — 지어내지 않는다. 왜
+     없는지는 JSON의 `agent_notes`에 한 줄 남긴다.
+   - 결과를 `<out_dir>/<corp_code>_<rcept_no>.ingest.json` 하나에 출력 계약대로 쓴다
+     (여러 블록을 준비했으면 같은 파일에 키를 더한다).
+5. **`ingest` 실행**: 규칙과 동일한 게이트(부문합 ±1%·[0,100] 범위·자릿수 sanity)를
+   반드시 통과해야 적재된다.
+   ```bash
+   python3 plugin/skills/company-profile-extract/scripts/llm_fallback.py ingest \
+       --json <out_dir>/<corp_code>_<rcept_no>.ingest.json
+   # 적재 없이 게이트만 먼저 보고 싶으면 --dry-run 추가
+   ```
+6. **게이트 실패·처음 보는 표 구조는 보고하고 넘어간다** — 멈추지 않는다. `ingest`
+   콘솔 출력이 곧 그 회차의 실행 증거다(게이트 통과/보류 건수 + notes).
 
-핵심 설계: LLM은 원문 표기(`raw_amount`·`unit_label`)만 옮기고, 단위 환산·기간 라벨→
-연도 매핑은 규칙 파서의 `num()`/`parse_period_col()`/`infer_period_labels()`를 그대로
-재사용해 결정론적으로 계산한다(LLM이 계산하지 않는다). `extracted_by='llm:claude-sonnet-5'`
-로 규칙 산출물과 구분되고, 같은 `apply_gates()`(부문합 ±1%·[0,100] 범위·자릿수 sanity)를
-그대로 통과해야 적재된다. 원문에 관련 키워드가 0건이면(예: 시장점유율 개념이 아예 없는
-건설사) API 호출 자체를 생략하고 확인불가로 남긴다(비용 절약, 결과는 동일).
+### 에이전트 방식의 이점과 대가
+**이점**: 애매한 표를 만나면 원문을 더 넓게 다시 읽을 수 있고(API 방식은 절단 폭이
+고정), 판단이 안 서면 리트라이·프롬프트 재설계 없이 즉시 "확인 불가"로 남길 수 있다.
+**대가**: API 방식보다 **결정성이 약하다** — 같은 원문도 실행마다 다르게 옮길 수
+있다. 그래서 **게이트와 출처 3단이 API 방식보다 더 중요하다** — `ingest`는 게이트를
+우회하는 경로를 두지 않는다(모든 facts가 항상 `apply_gates()`를 통과해야 적재된다).
+
+핵심 설계(그대로 유지): 원문 표기(`raw_amount`·`unit_label`)만 에이전트가 옮기고,
+단위 환산·기간 라벨→연도 매핑은 규칙 파서의 `num()`/`parse_period_col()`/
+`infer_period_labels()`를 그대로 재사용해 결정론적으로 계산한다(에이전트가 계산하지
+않는다 — 계산은 항상 코드가 한다). `extracted_by='agent'`로 규칙 산출물(`'rule'`)과
+구분된다. 원문에 관련 키워드가 0건이면(예: 시장점유율 개념이 아예 없는 건설사)
+`prepare`가 파일 생성 자체를 생략하고 확인불가로 남긴다(예전 API 방식의 "호출 생략"과
+동일한 절약 효과).
 
 ## 알려진 한계 (지어내지 않고 명시)
 
+- **★ 신규 공시를 받아오는 경로가 이 스킬 범위 밖에 있고, 지금 아무것도 안 돈다.**
+  `filings`의 최신 `rcept_dt`가 2026-08-04인데(이 스킬이 보는 것도 이 테이블이다),
+  이 문서 작성일 기준 이미 3주 가까이 지났다 — Phase 1 백필로 한 번 채운 뒤 갱신되지
+  않고 있다. `extract_profile.py pending`은 `filings`에 이미 있는 회차만 스캔하므로,
+  이 공백이 그대로면 **매일 스킬이 돌아도 과거에 못 채운 회차만 처리하고 최근 신규
+  사업보고서는 영영 목록에 뜨지 않는다.** 새 공시 수집(DART API 호출, backfill 쪽
+  책임)은 이 스킬의 범위 밖이지만, 이 스킬이 실제로 "오늘의 신규 공시"를 처리하려면
+  그 선행 단계가 먼저 매일 돌아야 한다 — 지금은 그 연결이 없다(`references/
+  무인운영-요건.md` §3 참고).
 - **`SEGMENT_SUMMARY_WHITELIST`에 없는 회사**는 부문별 비중/영업이익/총자산이 전부
-  확인불가다(위 LLM 폴백 범위 밖 — 절대 매출액과 달리 이 표는 2단 헤더+rowspan이 겹쳐
-  회사별 화이트리스트 없이는 규칙도 LLM도 안전하게 못 푼다고 판단해 손대지 않았다).
+  확인불가다(위 에이전트 폴백 범위 밖 — 절대 매출액과 달리 이 표는 2단 헤더+rowspan이
+  겹쳐 회사별 화이트리스트 없이는 규칙도 에이전트도 안전하게 못 푼다고 판단해 손대지
+  않았다).
 - **임원 지분·5%이상 합계**: 사업보고서 본문에 원천 데이터가 없다(추정: 임원ㆍ주요주주
   소유상황보고서라는 별도 `report_nm` 계열 공시가 원천). 이 스킬은 Storage의 사업보고서
   섹션만 읽으므로 다룰 수 없다 — DART API 호출도 금지돼 있어(이번 단계 규율) 이 공시
@@ -222,7 +316,8 @@ python3 plugin/skills/company-profile-extract/scripts/extract_profile.py extract
 
 | 파일 | 내용 |
 |---|---|
-| `scripts/extract_profile.py` | 파서 5개 + 게이트 4종 + 적재(`extract`) + 검증만(`verify`) |
+| `scripts/extract_profile.py` | 파서 5개 + 게이트 4종 + 적재(`extract`) + 검증만(`verify`) + 일일 진입점(`pending`) |
+| `scripts/llm_fallback.py` | 에이전트 폴백 2단계 — 원문 절단+지시문 파일 생성(`prepare`), 에이전트가 채운 JSON 게이트·적재(`ingest`). `extract_profile.py`를 import해 결정론적 함수(`num`/`parse_period_col`/`infer_period_labels`/`fact`/`apply_gates`)를 재사용한다(모델 호출 없음, `ANTHROPIC_API_KEY` 안 읽음). |
 
-스크립트는 순수 표준 라이브러리 + 레포 내 `platform/ingest/ingest.py`(PostgREST/Storage
-헬퍼)만 쓴다 — 별도 pip 설치 불필요.
+두 스크립트 모두 순수 표준 라이브러리 + 레포 내 `platform/ingest/ingest.py`(PostgREST/
+Storage 헬퍼)만 쓴다 — 별도 pip 설치 불필요.
