@@ -23,6 +23,7 @@ import json
 import os
 import re
 import sys
+import traceback
 import urllib.parse
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -109,29 +110,80 @@ def parse_md_tables(md_text):
     return out
 
 
-def infer_period_labels(md_text, table_pos, periods):
-    """'제N기' 헤더 라벨을 실제 연도로 매핑한다.
+def parse_period_col(s):
+    """표 헤더 열 하나가 회계기간을 가리키는지 판정한다. 반환: ('gi', N) | ('year', YYYY) | None.
 
-    사업보고서 본문은 표 앞뒤 서술 문단에 'YYYY년(제N기) 당사의 …' 형태의 앵커 문장을
-    반복적으로 남긴다(회사·항목과 무관하게 같은 회계연도를 계속 재언급하기 때문 — 삼성전자
-    두 사업보고서 모두에서 실측: 2025 보고서는 '2025년(제57기)'가 문서 전체에 9회, 2024
-    보고서는 '2024년(제56기)'가 등장). 표보다 앞에 나온 가장 가까운 앵커를 기준 삼아
-    나머지 '제N기' 컬럼의 연도를 산술로 역산한다 — 하드코딩된 기수→연도 표 없이도
-    회사·회차가 바뀌어도 동작한다."""
+    'YYYY.MM'(예: 2025.12)·'YYYY년'·'YYYY' 처럼 헤더 자체에 연도가 이미 박혀 있으면
+    기수→연도 역산 없이도(앵커 불필요) 바로 연도를 알 수 있다 — 2026-08-25 3사 재현시험이
+    지적한 "표 헤더 자체에 연도·기수가 있는 경우"를 흡수한다."""
+    s = s.strip()
+    m = re.fullmatch(r"제\s*(\d+)\s*기", s)
+    if m:
+        return ("gi", int(m.group(1)))
+    m = re.fullmatch(r"(\d{4})\.\d{2}", s)
+    if m:
+        return ("year", int(m.group(1)))
+    m = re.fullmatch(r"(\d{4})년?", s)
+    if m:
+        return ("year", int(m.group(1)))
+    return None
+
+
+def infer_period_labels(md_text, table_pos, periods, fallback_year=None):
+    """'제N기' 헤더 라벨을 실제 연도로 매핑한다. 반환: (dict, source|None) — source 는
+    라벨을 어느 경로로 얻었는지(디버깅·신뢰도 판단용, notes 에 그대로 남긴다).
+
+    앵커 우선순위(2026-08-25 3사 재현시험 §B — 삼성 전용이던 앵커 1개를 3개로 넓혔다):
+    1. **본문 앵커 문장**: 'YYYY년(제N기) 당사의 …' 형태(회사·항목과 무관하게 같은
+       회계연도를 반복 재언급 — 삼성전자 실측: '2025년(제57기)'가 문서 전체 9회). 표보다
+       앞에 나온 가장 가까운 문장을 쓴다. 세 회사(부국증권·삼양식품·동신건설) 사업보고서
+       전수 검색 결과 이 문장이 **한 번도** 나오지 않았다 — 삼성 고유 관용구였지 DART
+       표준 문구가 아니다. 그래서 이 앵커 하나에만 의존하면 세 회사 전부 R&D·부문매출이
+       조용히 0건이 된다(실측).
+    2. **표 헤더 자체의 연도** (`parse_period_col` 이 'year' 로 판정하는 열): 앵커 문장이
+       전혀 없어도 헤더가 이미 연도를 담고 있으면 그대로 쓴다.
+    3. **report_nm 회계연도 역산 폴백**: 위 둘 다 없으면, DART 관행상 '제N기' 컬럼은
+       항상 최신 회차가 맨 앞(왼쪽)에 온다는 전제로, 이 rcept_no 의 회계연도(filings.
+       report_nm, 이미 DB 에 있다 — extract_one 이 호출자에서 구해 넘긴다)를 표의 첫
+       period 컬럼에 대응시키고 나머지를 그 기수 차이만큼 역산한다. 본문에 앵커 문장이
+       없는 회사에서도 최소 1개 앵커를 확보하기 위한 것이다.
+    """
     anchor = None
+    anchor_source = None
     for m in re.finditer(r"(\d{4})년\s*\(제\s*(\d+)\s*기\)", md_text[:table_pos]):
         anchor = (int(m.group(1)), int(m.group(2)))
-    if anchor is None:
-        return {}
-    anchor_year, anchor_gi = anchor
+    if anchor is not None:
+        anchor_source = "본문앵커문장"
+    elif fallback_year and periods:
+        first = parse_period_col(periods[0])
+        if first and first[0] == "gi":
+            anchor = (fallback_year, first[1])
+            anchor_source = "report_nm회계연도역산(표첫컬럼=최신회차가정)"
+
     out = {}
+    used_anchor = used_direct_year = False
     for p in periods:
-        gm = re.fullmatch(r"제\s*(\d+)\s*기", p.strip())
-        if not gm:
+        parsed = parse_period_col(p)
+        if not parsed:
             continue
-        gi = int(gm.group(1))
-        out[p] = str(anchor_year - (anchor_gi - gi))
-    return out
+        kind, val = parsed
+        if kind == "year":
+            out[p] = str(val)
+            used_direct_year = True
+        elif kind == "gi" and anchor:
+            anchor_year, anchor_gi = anchor
+            out[p] = str(anchor_year - (anchor_gi - val))
+            used_anchor = True
+
+    if not out:
+        return {}, None
+    if used_anchor and used_direct_year:
+        source = "%s+표헤더자체연도" % anchor_source
+    elif used_anchor:
+        source = anchor_source
+    else:
+        source = "표헤더자체연도"
+    return out, source
 
 
 def fact(concept, item_name, period_key, amount, unit=None, value_basis=None,
@@ -195,17 +247,17 @@ RD_LABEL_RULES = [
 ]
 
 
-def parse_rd(md_text):
+def parse_rd(md_text, fallback_year=None, notes=None):
+    if notes is None:
+        notes = []
     facts = []
     for t in parse_md_tables(md_text):
         if norm(t["header"][0] if t["header"] else "") != "과목":
             continue
         header = t["header"]
-        period_idx = [i for i, h in enumerate(header) if i > 0 and re.fullmatch(r"제\s*\d+\s*기", h.strip())]
+        period_idx = [i for i, h in enumerate(header) if i > 0 and parse_period_col(h)]
         periods = [header[i] for i in period_idx]
-        labels = infer_period_labels(md_text, t["_pos"], periods)
-        if not labels:
-            continue  # 앵커('YYYY년(제N기)') 문장을 못 찾으면 연도를 확정할 수 없다 — 스킵
+        labels, label_source = infer_period_labels(md_text, t["_pos"], periods, fallback_year)
 
         matched = {}  # canonical_label -> (row, shift)
         for row in t["rows"]:
@@ -226,6 +278,18 @@ def parse_rd(md_text):
             if hit:
                 canon, shift, basis = hit
                 matched[canon] = (row, shift, basis)
+
+        if not labels:
+            # 라벨(과목) 매칭은 성공했을 수 있는데 연도를 못 붙이면 fin_details.period_key
+            # (NOT NULL)를 채울 수 없어 적재 자체가 불가능하다 — 그래도 조용히 버리지 않고
+            # 무엇이 매칭됐었는지는 남긴다(2026-08-25 3사 재현시험이 지적한 "조용한 0행"
+            # 방지). 다음 '과목' 표가 있으면 계속 찾아본다(continue, 전체 포기 아님).
+            notes.append("R&D: 과목 표는 찾았고 라벨 매칭 %d건(%s) 성공했으나 기수→연도 "
+                         "앵커를 못 찾아 전체 스킵(period_key 확보 불가) — periods=%s" %
+                         (len(matched), ",".join(sorted(matched.keys())) or "없음", periods))
+            continue
+        notes.append("R&D: 기간 라벨 획득 경로=%s (%s)" %
+                     (label_source, ", ".join("%s→%s" % (p, labels.get(p)) for p in periods)))
 
         unit_scale = 1_000_000  # 표 단위: 백만원 → KRW
         for i, pidx in enumerate(period_idx):
@@ -254,17 +318,23 @@ def parse_rd(md_text):
 # 함정(파일럿 §1, findings): 6열 헤더(부문/매출유형/품목/제N기...) 중 '기타'·'합계' 행은
 # 원본 병합 셀 때문에 실제 칸 수가 줄어 있다 — 헤더 열 수 기준 고정 인덱싱은 이 두 행에서
 # 조용히 틀린 값을 읽는다. 라벨(row[0])로 행 종류를 가려 각자의 오프셋을 쓴다.
-def parse_segment_revenue(md_text):
+def parse_segment_revenue(md_text, fallback_year=None, notes=None):
+    if notes is None:
+        notes = []
     facts = []
     for t in parse_md_tables(md_text):
         h = [norm(c) for c in t["header"]]
         if h[:3] != ["부문", "매출유형", "품목"]:
             continue
-        period_idx = [i for i, c in enumerate(t["header"]) if i >= 3 and re.fullmatch(r"제\s*\d+\s*기", c.strip())]
+        period_idx = [i for i, c in enumerate(t["header"]) if i >= 3 and parse_period_col(c)]
         periods = [t["header"][i] for i in period_idx]
-        labels = infer_period_labels(md_text, t["_pos"], periods)
+        labels, label_source = infer_period_labels(md_text, t["_pos"], periods, fallback_year)
         if not labels:
+            notes.append("부문별 매출: 표는 찾았으나(부문/매출유형/품목 헤더 일치) 기수→연도 "
+                         "앵커를 못 찾아 전체 스킵(period_key 확보 불가) — periods=%s" % periods)
             continue
+        notes.append("부문별 매출: 기간 라벨 획득 경로=%s (%s)" %
+                     (label_source, ", ".join("%s→%s" % (p, labels.get(p)) for p in periods)))
         scale = 100_000_000  # 억원 → KRW
         for row in t["rows"]:
             if not row:
@@ -303,7 +373,9 @@ _METRIC_CONCEPT = {"매출액": "segment_revenue", "영업이익": "segment_oper
                     "총자산": "segment_total_assets"}
 
 
-def parse_segment_summary(md_text, corp_code):
+def parse_segment_summary(md_text, corp_code, fallback_year=None, notes=None):
+    if notes is None:
+        notes = []
     wl = SEGMENT_SUMMARY_WHITELIST.get(corp_code)
     if not wl:
         return [], "확인불가:부문화이트리스트미등록(회사별전용파서필요,LLM폴백후보)"
@@ -312,11 +384,13 @@ def parse_segment_summary(md_text, corp_code):
         h = [norm(c) for c in t["header"]]
         if h[:2] != ["부문", "구분"]:
             continue
-        period_idx = [i for i, c in enumerate(t["header"]) if i >= 2 and re.fullmatch(r"제\s*\d+\s*기", c.strip())]
+        period_idx = [i for i, c in enumerate(t["header"]) if i >= 2 and parse_period_col(c)]
         periods = [t["header"][i] for i in period_idx]
-        labels = infer_period_labels(md_text, t["_pos"], periods)
+        labels, label_source = infer_period_labels(md_text, t["_pos"], periods, fallback_year)
         if not labels:
-            return [], "확인불가:기수연도앵커없음"
+            return [], "확인불가:기수연도앵커없음(periods=%s)" % periods
+        notes.append("부문별 요약재무현황: 기간 라벨 획득 경로=%s (%s)" %
+                     (label_source, ", ".join("%s→%s" % (p, labels.get(p)) for p in periods)))
         scale = 100_000_000  # 억원 → KRW
         cur_seg = None
         for row in t["rows"]:
@@ -449,11 +523,39 @@ def parse_shareholders(md_text):
     return facts
 
 
+def treasury_total_col(rows):
+    """'주식의 총수' 표에서 '합계' 열이 데이터 행의 몇 번째 칸인지 찾는다.
+
+    함정(2026-08-25 3사 재현시험 §5·§C): 원표는 '구분|주식의종류(보통주/우선주/합계)|비고'
+    2단 헤더인데, rowspan(연도 병합과 같은 계열의 붕괴)이 markdown 변환에서 풀리며
+    상위 헤더('구분|주식의종류|비고')는 `t["header"]`로, 하위 서브헤더('보통주|우선주|
+    합계|…')는 표의 첫 데이터 행(`rows[0]`)처럼 보이는 별도 줄로 쪼개진다. 이때 서브헤더는
+    맨 앞 라벨 칸('구분')을 반복하지 않으므로, 데이터 행 기준으로 한 칸씩 밀려 있다
+    (서브헤더 index i == 데이터 행 index i+1). '합계' 열은 우선주가 있으면 3번째 칸
+    (부국증권·삼성전자 실측), 우선주가 없으면 2번째 칸(동신건설 실측)이라 **고정 인덱스로는
+    한쪽에서 반드시 틀린 칸(비고)을 읽는다** — 그래서 인덱스를 서브헤더에서 직접 찾는다.
+    못 찾으면 None(호출부는 확인불가로 남기고 절대 추측하지 않는다)."""
+    if not rows:
+        return None
+    subheader = rows[0]
+    if not subheader or norm(subheader[0]) != "보통주":
+        return None
+    for i, c in enumerate(subheader):
+        if norm(c) == "합계":
+            return i + 1  # 라벨 칸만큼 데이터 행에서는 한 칸 뒤로 밀린다
+    return None
+
+
 def parse_treasury(md_text):
     """자기주식 보유비율 — 'I. 회사의 개요 > 4. 주식의 총수 등'에 있다(섹션이 다르다,
     파일럿 §2-4 함정). 원문 반올림(1자리)과 발행주식총수÷자기주식수 정밀계산 두 값을
     별도 item_name 으로 남긴다(같은 자연키에 value_basis 만 다른 두 행은 유니크 제약을
-    위반한다 — 마이그레이션 주석 그대로)."""
+    위반한다 — 마이그레이션 주석 그대로).
+
+    함정(2026-08-25 3사 재현시험 §5): 자기주식수(Ⅴ)가 통째로 공란('-')인 회사가 있다
+    (삼양식품 2025 사업보고서) — 발행주식총수(Ⅳ)는 정상 숫자인데 자기주식수만 없으면
+    `treasury/issued`가 None 으로 나눗셈을 시도해 TypeError 로 배치 전체를 죽였다. 이제
+    두 값 중 하나라도 없으면 계산하지 않고 확인불가 레코드로 남긴다 — 지어내지 않는다."""
     facts = []
     tables = parse_md_tables(md_text)
     for t in tables:
@@ -461,24 +563,41 @@ def parse_treasury(md_text):
         row0s = [r[0] for r in t["rows"] if r]
         if h[:1] != ["구분"]:
             continue
+        total_col = treasury_total_col(t["rows"])
         if "Ⅶ.자기주식보유비율" in [norm(r) for r in row0s]:
             for row in t["rows"]:
-                if row and norm(row[0]) == "Ⅶ.자기주식보유비율" and len(row) >= 4:
-                    v = num(row[3])
+                if row and norm(row[0]) == "Ⅶ.자기주식보유비율":
+                    idx = total_col if total_col is not None and total_col < len(row) else None
+                    v = num(row[idx]) if idx is not None else None
+                    status = ("ok" if v is not None else
+                               "확인불가:원문값없음(공란)" if idx is not None else
+                               "확인불가:합계열위치불명(서브헤더미탐지)")
                     facts.append(fact("shareholding_pct", "자사주_원문반올림", None, v, "pct",
-                                       "원문반올림1자리", "ok" if v is not None else "확인불가:원문값없음(공란)",
+                                       "원문반올림1자리", status,
                                        "I.4.가 주식의 총수", "주식의 총수 등 (자기주식 보유비율)"))
         if "Ⅳ.발행주식의총수(Ⅱ-Ⅲ)" in [norm(r) for r in row0s]:
             rows_by_label = {norm(r[0]): r for r in t["rows"] if r}
             v4 = rows_by_label.get("Ⅳ.발행주식의총수(Ⅱ-Ⅲ)")
             v5 = rows_by_label.get("Ⅴ.자기주식수")
-            if v4 and v5 and len(v4) >= 4 and len(v5) >= 4:
-                issued, treasury = num(v4[3]), num(v5[3])
-                if issued:
-                    facts.append(fact("shareholding_pct", "자사주_정밀계산", None,
-                                       round(treasury / issued * 100, 4), "pct", "정밀계산", "ok",
+            if v4 and v5:
+                if total_col is None:
+                    facts.append(fact("shareholding_pct", "자사주_정밀계산", None, None, "pct",
+                                       "정밀계산", "확인불가:합계열위치불명(서브헤더미탐지)",
                                        "I.4.가 주식의 총수",
                                        "자기주식수(Ⅴ)/발행주식총수(Ⅳ)×100"))
+                else:
+                    issued = num(v4[total_col]) if total_col < len(v4) else None
+                    treasury = num(v5[total_col]) if total_col < len(v5) else None
+                    if issued is None or treasury is None:
+                        facts.append(fact("shareholding_pct", "자사주_정밀계산", None, None, "pct",
+                                           "정밀계산", "확인불가:원문값없음(발행주식수또는자기주식수공란)",
+                                           "I.4.가 주식의 총수",
+                                           "자기주식수(Ⅴ)/발행주식총수(Ⅳ)×100"))
+                    else:
+                        facts.append(fact("shareholding_pct", "자사주_정밀계산", None,
+                                           round(treasury / issued * 100, 4), "pct", "정밀계산", "ok",
+                                           "I.4.가 주식의 총수",
+                                           "자기주식수(Ⅴ)/발행주식총수(Ⅳ)×100"))
     return facts
 
 
@@ -640,6 +759,16 @@ def extract_one(corp_code, rcept_no):
 
     facts, hist = [], []
 
+    # 이 rcept_no 의 회계연도를 한 번만 구해 두 곳에 재사용한다: ① 본문에 '제N기' 기수→
+    # 연도 앵커 문장이 없는 회사에서 infer_period_labels 의 폴백 앵커로, ② 아래 주주·자사주
+    # 같은 시점형 개념의 period_key 채우기로. 예전엔 ②에서만, facts 를 다 만든 뒤에 구했다 —
+    # 지금은 R&D·부문매출 파싱 전에 필요해져서 앞으로 옮겼다(DB 호출은 여전히 1회).
+    fy = report_fiscal_year(rcept_no)
+    fy_int = int(fy) if fy else None
+    if fy_int is None:
+        notes.append("확인불가: rcept_no=%s 의 회계연도를 filings.report_nm 에서 못 구함 — "
+                     "기수→연도 앵커 폴백과 주주·자사주 period_key 채우기 둘 다 이 값에 기댄다" % rcept_no)
+
     if "I. 회사의 개요" in sections:
         hist += parse_history(sections["I. 회사의 개요"])
         facts += parse_treasury(sections["I. 회사의 개요"])
@@ -648,9 +777,9 @@ def extract_one(corp_code, rcept_no):
 
     if "II. 사업의 내용" in sections:
         md = sections["II. 사업의 내용"]
-        facts += parse_rd(md)
-        facts += parse_segment_revenue(md)
-        seg_summary_facts, seg_err = parse_segment_summary(md, corp_code)
+        facts += parse_rd(md, fy_int, notes)
+        facts += parse_segment_revenue(md, fy_int, notes)
+        seg_summary_facts, seg_err = parse_segment_summary(md, corp_code, fy_int, notes)
         if seg_err:
             notes.append("부문 요약재무현황(비중/영업이익/총자산): %s" % seg_err)
         facts += seg_summary_facts
@@ -668,13 +797,11 @@ def extract_one(corp_code, rcept_no):
     # fin_details.period_key 는 NOT NULL 이라, 회계연도를 못 구하면 적재 대신 스킵하고 보고한다.
     missing_pk = [f for f in facts if f["period_key"] is None]
     if missing_pk:
-        fy = report_fiscal_year(rcept_no)
-        if fy:
+        if fy_int:
             for f in missing_pk:
-                f["period_key"] = "%sA" % fy
+                f["period_key"] = "%dA" % fy_int
         else:
-            notes.append("확인불가: rcept_no=%s 의 회계연도를 filings.report_nm 에서 못 구함 — "
-                         "주주·자사주 %d행 스킵(period_key NOT NULL)" % (rcept_no, len(missing_pk)))
+            notes.append("확인불가: 주주·자사주 %d행 스킵(period_key NOT NULL, 회계연도 불명)" % len(missing_pk))
             facts = [f for f in facts if f["period_key"] is not None]
 
     return facts, hist, notes
@@ -775,7 +902,14 @@ def print_coverage(corp_code, rcept_no, facts, hist, held, notes):
 # ══════════════════════════════════════════════════════════ CLI
 
 def run(corps, rcepts_arg, do_load):
+    """회사×회차를 순회하며 추출·적재한다. 한 회차의 예외가 나머지 전체를 막지 않도록
+    회사·회차 단위로 격리한다(2026-08-25 3사 재현시험 실측 — parse_treasury 의 TypeError
+    가 run() 에서 잡히지 않아, 세 회사를 한 명령으로 돌렸을 때 삼양식품에서 죽으면서 뒤에
+    있던 동신건설은 시도조차 되지 않았다). 실패를 삼키지 않고 어느 회사·회차·무슨 예외인지
+    콘솔에 남기고, 마지막에 실패 목록을 모아 반환한다 — 무인 배치에서 이 반환값으로 종료
+    코드를 정할 수 있다(아래 main())."""
     ingest.print_target()
+    failures = []
     for corp_code in corps:
         rcepts = rcepts_arg
         if not rcepts:
@@ -787,11 +921,31 @@ def run(corps, rcepts_arg, do_load):
         for rcept_no in rcepts:
             print("\n=== corp=%s rcept=%s (%s) ===" % (
                 corp_code, rcept_no, "적재" if do_load else "검증만(dry-run)"))
-            facts, hist, notes = extract_one(corp_code, rcept_no)
-            facts, held = apply_gates(corp_code, facts, notes)
-            if do_load:
-                load_scope(corp_code, rcept_no, facts, hist)
-            print_coverage(corp_code, rcept_no, facts, hist, held, notes)
+            try:
+                facts, hist, notes = extract_one(corp_code, rcept_no)
+                facts, held = apply_gates(corp_code, facts, notes)
+                if do_load:
+                    load_scope(corp_code, rcept_no, facts, hist)
+                print_coverage(corp_code, rcept_no, facts, hist, held, notes)
+            except Exception as e:  # noqa: BLE001 — 의도적으로 넓게 잡는다, 아래 참고
+                # 여기서 무엇이든 잡아야 한다: 파서 버그든 네트워크 문제든, 한 회차의 예외가
+                # 2,659개사를 도는 무인 배치 전체를 죽이면 안 된다. 대신 절대 조용히
+                # 삼키지 않는다 — traceback 전체를 찍어 운영자가 다음날 원인을 바로 알 수
+                # 있게 한다.
+                tb = traceback.format_exc()
+                print("!!! corp=%s rcept=%s 처리 중 예외로 이 회차를 건너뜀: %s: %s" %
+                      (corp_code, rcept_no, type(e).__name__, e))
+                print(tb)
+                failures.append({"corp_code": corp_code, "rcept_no": rcept_no,
+                                  "exc_type": type(e).__name__, "exc_msg": str(e)})
+    if failures:
+        print("\n" + "=" * 70)
+        print("실패 요약(%d건) — 아래 회차는 적재되지 않았다, 재실행 또는 조사 필요:" % len(failures))
+        for f in failures:
+            print("  · corp=%s rcept=%s %s: %s" %
+                  (f["corp_code"], f["rcept_no"], f["exc_type"], f["exc_msg"]))
+        print("=" * 70)
+    return failures
 
 
 def main():
@@ -811,7 +965,10 @@ def main():
     args = p.parse_args()
     corps = [c.strip() for c in args.corps.split(",") if c.strip()]
     rcepts = [r.strip() for r in args.rcepts.split(",")] if args.rcepts else None
-    run(corps, rcepts, do_load=(args.cmd == "extract"))
+    failures = run(corps, rcepts, do_load=(args.cmd == "extract"))
+    # 무인 실행(cron/launchd 래퍼)이 "일부 실패"를 알 수 있게 종료 코드로도 신호한다 —
+    # 콘솔 로그만으로는 사람이 매번 스크롤을 다 읽어야 실패를 알아챈다.
+    sys.exit(1 if failures else 0)
 
 
 if __name__ == "__main__":
