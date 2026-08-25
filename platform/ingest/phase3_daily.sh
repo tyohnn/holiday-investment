@@ -64,11 +64,20 @@ start_partitions() {
 }
 
 stop_partitions() {
-  kill -TERM $(pgrep -f "python3 -u platform/ingest/backfill.py run --phase 3") 2>/dev/null
+  # kill -TERM $(pgrep -f ...) 는 pgrep 이 PID 여러 줄을 돌려주면(파티션 4개 기동 시 항상
+  # 이 경우다) 이 쉘 환경에서 통짜 인자 하나로 뭉개져 "illegal pid" 로 실패한다(뒤의
+  # 2>/dev/null 이 조용히 삼켰다) — 2026-08-25 실측: 08-24~08-25 사이 재기동될 때마다
+  # 이전 파티션이 하나도 안 죽고 쌓여 최종 16개가 며칠씩 살아남아 Phase A(섹션분할) 워커와
+  # DB 를 동시에 두들겨 statement timeout 을 유발했다. xargs 는 같은 쉘에서 각 줄을
+  # 별도 인자로 정상 분리했다 — 그것으로 교체한다.
+  pgrep -f "python3 -u platform/ingest/backfill.py run --phase 3" | xargs -r -n1 kill -TERM
   for _ in $(seq 1 40); do
     pgrep -f "python3 -u platform/ingest/backfill.py run --phase 3" >/dev/null || break
     sleep 3
   done
+  # 40회(120초) 대기해도 안 죽는 프로세스는 SIGTERM 을 무시하고 있다는 뜻 — 체크포인트가
+  # ingest_progress 에 이미 있어 강제 종료해도 reclaim_stale_running() 이 복구한다.
+  pgrep -f "python3 -u platform/ingest/backfill.py run --phase 3" | xargs -r -n1 kill -9
   say "파티션 정지 (체크포인트 보존)"
 }
 

@@ -19,17 +19,21 @@ DART API 호출 없음. LLM 호출 없음(extracted_by='rule' 고정 — 이번 
 import argparse
 import datetime as dt
 import gzip
+import io
 import json
 import os
 import re
 import sys
 import traceback
 import urllib.parse
+import zipfile
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _REPO = os.path.abspath(os.path.join(_HERE, "..", "..", "..", ".."))
 sys.path.insert(0, os.path.join(_REPO, "platform", "ingest"))
+sys.path.insert(0, os.path.join(_REPO, "plugin", "skills", "company-analysis", "scripts"))
 import ingest  # noqa: E402  — rest()/upsert()/replace_scope()/storage_download() 재사용, 재발명 금지
+import dart_doc  # noqa: E402  — split_sections(): 사전 분할본이 없을 때 즉석 분할(load_sections)
 # 2026-08-25: llm_fallback.py 를 여기서 import 하지 않는다. 예전엔 --llm-fallback 플래그로
 # 이 모듈이 Anthropic API 를 호출하는 폴백을 inline 으로 끼워 넣었지만, 지금은 llm_fallback.py
 # 자체가 (에이전트가 직접 실행하는) 독립 2단계 CLI(prepare/ingest)로 바뀌어 이 스크립트와
@@ -60,12 +64,23 @@ def norm(s):
 
 
 def num(s):
-    """'1,879,673' / '△301,146' / '11.3%' → 숫자. 파싱 불가·공란('-','—')이면 None."""
+    """'1,879,673' / '△301,146' / '(11,344)' / '11.3%' → 숫자. 파싱 불가·공란이면 None.
+
+    괄호는 회계 관행상 음수다('(11,344)' = -11,344). 2026-08-26 batch06 실측으로 이
+    표기를 못 읽어 부문별매출 일부가 조용히 누락되는 것을 확인해 추가했다 — 그 전에는
+    extract_notes_full.py 가 같은 처리를 num_signed() 래퍼로 따로 갖고 있었다(그 래퍼는
+    괄호를 먼저 벗겨 이 함수를 부르므로 이 변경과 충돌하지 않는다).
+    숫자가 아닌 괄호 문자열('(주1)' 등)은 여전히 float() 에서 걸러져 None 이 된다."""
     if s is None:
         return None
     t = s.strip().replace(",", "").replace("%", "")
-    neg = t.startswith("△") or t.startswith("-")
-    t = t.lstrip("△-")
+    paren_neg = t.startswith("(") and t.endswith(")")
+    if paren_neg:
+        t = t[1:-1].strip()
+    # 한국 공시는 음수를 △·▲ 로 혼용 표기한다(batch35 신세계 실측: ▲ 를 못 읽어
+    # 해당 행이 통째로 파싱 실패했다). 괄호 표기는 위에서 이미 처리했다.
+    neg = paren_neg or t.startswith("△") or t.startswith("▲") or t.startswith("-")
+    t = t.lstrip("△▲-")
     if t in ("", "-", "—", ""):
         return None
     try:
@@ -176,13 +191,70 @@ def parse_period_col(s):
     지정 최소 형태에 없다 — anchor 로도 못 채운다)."""
     s = s.strip()
 
-    m = re.fullmatch(r"제\s*(\d+)\s*기\s*(\d)\s*분기", s)
+    # '제59기(2025년)' — 기수와 연도가 한 칸에 같이 있다. 연도가 직접 적혀 있으므로
+    # 기수 역산보다 신뢰도가 높아 'year' 로 돌려준다(2026-08-26 batch02 실측:
+    # 계룡건설산업 00102432 에서 이 헤더가 None 이 되어 부문별매출이 통째로 0행이었다).
+    # '년' · '년도' · 접미사 없음, 'FY' 접두까지 함께 받는다 — 실측 변형:
+    # 제59기(2025년) / 제40기(2025년도) / 제N기(FY 2025)  (batch02·batch10)
+    # 기수와 연도가 한 칸에 있는 모든 배열을 받는다. 기수 뒤에 '연간'·'당'·'전' 같은
+    # 수식어가 끼는 변형까지 허용한다(batch31: '제46기 연간(2024년도)').
+    # 연도 표기는 '년' · '년도' · '연도' 모두 실측된다.
+    m = re.fullmatch(r"제\s*\d+\s*기\s*(?:연간|당기|전기|전전기)?\s*"
+                     r"[（(]\s*(?:FY\s*)?(\d{4})\s*(?:년도|연도|년)?\s*[)）]",
+                     s, re.IGNORECASE)
+    if m:
+        return ("year", int(m.group(1)), None)
+    # '제70기 당기' / '제69기 전기' — 당기·전기는 상대 표기일 뿐이고 기수가 정보를 담는다.
+    # 이걸 None 으로 떨어뜨리면 그 열이 periods 목록에서 빠지면서 **뒤 열이 그 자리를
+    # 차지해 전 기간 라벨이 한 칸씩 밀린다**(2026-08-26 batch02 실측: 고려산업 00102751 —
+    # 이번엔 부문합 게이트가 3.5% 차이로 우연히 잡았지만, 인접연도 매출차가 1% 미만이면
+    # 잘못된 연도로 조용히 적재된다). '당분기'처럼 분기 번호가 없는 변형은 여전히
+    # 판정 불가(None)로 둔다 — 몇 분기인지 지어내지 않는다.
+    m = re.fullmatch(r"제?\s*(\d+)\s*기\s*(?:당기|전기|전전기)", s)
+    if m:
+        return ("gi", int(m.group(1)), None)
+    # '2025년도(제38기)' — 위와 순서가 뒤집힌 형태(batch29 실측). 연도가 직접 적혀
+    # 있으므로 기수 역산보다 신뢰도가 높아 'year' 로 돌려준다.
+    m = re.fullmatch(r"(\d{4})\s*(?:년도|년)?\s*[（(]\s*제?\s*\d+\s*기\s*[)）]", s)
+    if m:
+        return ("year", int(m.group(1)), None)
+    # '제70기(당)' · '제 70 (당) 기' · '제70기 연간' — 2026-08-26 batch13/batch17 실측.
+    # 괄호 안 '당/전/전전'과 '연간'은 상대·기간종류 표기일 뿐 기수가 정보를 담는다.
+    # 기수 위치가 괄호 앞뒤로 뒤바뀌는 변형('제 70(당) 기')까지 같이 받는다.
+    m = re.fullmatch(r"제?\s*(\d+)\s*기\s*[（(]\s*(?:당|전|전전)(?:기)?(?:말)?\s*[)）]", s)
+    if m:
+        return ("gi", int(m.group(1)), None)
+    m = re.fullmatch(r"제?\s*(\d+)\s*[（(]\s*(?:당|전|전전)(?:기)?(?:말)?\s*[)）]\s*기", s)
+    if m:
+        return ("gi", int(m.group(1)), None)
+    # '제58기 기말' · '제58기말' — 기말은 시점 표기일 뿐 기수가 정보를 담는다(batch32).
+    m = re.fullmatch(r"제?\s*(\d+)\s*기\s*(?:기?말)?", s)
+    if m:
+        return ("gi", int(m.group(1)), None)
+    # '2025년 12월 31일' — 결산일 표기. 그 연도의 연간 열이다(batch32·batch23).
+    m = re.fullmatch(r"(\d{4})\s*년\s*\d{1,2}\s*월\s*\d{1,2}\s*일\s*(?:기준|현재)?", s)
+    if m:
+        return ("year", int(m.group(1)), None)
+    m = re.fullmatch(r"제?\s*(\d+)\s*기\s*연간", s)
+    if m:
+        return ("gi", int(m.group(1)), None)
+    # 'FY2025' — 연도가 그대로 적혀 있다.
+    m = re.fullmatch(r"FY\s*(\d{4})", s, re.IGNORECASE)
+    if m:
+        return ("year", int(m.group(1)), None)
+    # 'YYYY누계' 는 **의도적으로 받지 않는다**. 사업보고서에서는 연간이지만 분기보고서에서는
+    # 해당 분기까지의 누계(YTD)라 이 함수가 가진 정보(헤더 문자열)만으로는 구분이 안 된다.
+    # 연간으로 단정하면 분기보고서에서 분기 누계값이 연간 라벨을 달고 적재된다 — 조용한
+    # 연도 오염이라 게이트도 못 잡는다. 판정 불가(None)로 두는 쪽이 안전하다
+    # (2026-08-26 batch13 대한제강 '2025누계'에서 관측 — 그 결과 전량 스킵됐고, 그게 옳다).
+
+    m = re.fullmatch(r"제?\s*(\d+)\s*기\s*(\d)\s*분기", s)
     if m:
         return ("gi", int(m.group(1)), int(m.group(2)))
-    m = re.fullmatch(r"제\s*(\d+)\s*기\s*반기", s)
+    m = re.fullmatch(r"제?\s*(\d+)\s*기\s*반기", s)
     if m:
         return ("gi", int(m.group(1)), "H1")
-    m = re.fullmatch(r"제\s*(\d+)\s*기", s)
+    m = re.fullmatch(r"제?\s*(\d+)\s*기", s)
     if m:
         return ("gi", int(m.group(1)), None)
 
@@ -201,8 +273,14 @@ def parse_period_col(s):
             return ("year", year, month_quarter[mm])
         return None  # 04/05/07/08/10/11 등은 분기 경계가 아니다 — 확인 불가
 
-    m = re.fullmatch(r"(\d{4})년?", s)
-    if m:
+    # '2025' · '2025년' · '2025년도' · '2025연도' · '2025년 당기' · '2025년(1.1~12.31)'
+    # 연도가 맨 앞에 오고 뒤따르는 것이 **기간 종류 표기**(당기/전기/연간)이거나 그 연도의
+    # 기간 범위 괄호뿐이면, 연도 자체는 확정된 정보다(batch20·batch30·batch31 실측).
+    # 뒤에 '누계'가 붙는 것은 여기 해당하지 않는다 — 아래 주석 참고.
+    m = re.fullmatch(r"(\d{4})\s*(?:년도|연도|년)?\s*"
+                     r"(?:당기|전기|전전기|연간)?\s*"
+                     r"(?:[（(][^)）]*[)）])?", s)
+    if m and m.group(1):
         return ("year", int(m.group(1)), None)
     return None
 
@@ -232,17 +310,38 @@ def infer_period_labels(md_text, table_pos, periods, fallback_year=None):
        period 컬럼에 대응시키고 나머지를 그 기수 차이만큼 역산한다. 본문에 앵커 문장이
        없는 회사에서도 최소 1개 앵커를 확보하기 위한 것이다.
     """
-    anchor = None
-    anchor_source = None
+    text_anchor = None
     for m in re.finditer(r"(\d{4})년\s*\(제\s*(\d+)\s*기\)", md_text[:table_pos]):
-        anchor = (int(m.group(1)), int(m.group(2)))
-    if anchor is not None:
-        anchor_source = "본문앵커문장"
-    elif fallback_year and periods:
+        text_anchor = (int(m.group(1)), int(m.group(2)))
+
+    # 경로 3(회계연도 역산)을 **항상** 계산한다 — 폴백으로만이 아니라 경로 1의 교차 검증에 쓴다.
+    fallback_anchor = None
+    if fallback_year and periods:
         first = parse_period_col(periods[0])
         if first and first[0] == "gi":
-            anchor = (fallback_year, first[1])
-            anchor_source = "report_nm회계연도역산(표첫컬럼=최신회차가정)"
+            fallback_anchor = (fallback_year, first[1])
+
+    # ★ 종속회사 앵커 판별. 표 직전의 앵커 문장이 **당사 것이라는 보장이 없다** — 대형
+    # 그룹사 보고서에는 종속회사 섹션이 섞여 있고, 그 문장은 연도가 같고(둘 다 당해)
+    # 기수만 다르다(본사 제58기 vs 종속 제16기). 그래서 연도 대조로는 못 걸러낸다.
+    # 두 경로가 같은 열에 대해 산출하는 연도를 비교하면 잡힌다: 종속회사 기수를 쓰면
+    # 수십 년이 어긋난다(실측: 대한항공 +3년·삼천당제약 +64년·대원제약 +47년).
+    # 1년 이내 차이는 결산월 차이 등 정상 오차로 보고 본문 앵커를 존중한다.
+    if text_anchor and fallback_anchor:
+        gi0 = fallback_anchor[1]
+        y_text = text_anchor[0] - (text_anchor[1] - gi0)
+        gap = y_text - fallback_anchor[0]
+        if abs(gap) > 1:
+            anchor = fallback_anchor
+            anchor_source = "report_nm회계연도역산(본문앵커가 %+d년 어긋나 폐기 — 종속회사 기수 추정)" % gap
+        else:
+            anchor, anchor_source = text_anchor, "본문앵커문장"
+    elif text_anchor:
+        anchor, anchor_source = text_anchor, "본문앵커문장"
+    elif fallback_anchor:
+        anchor, anchor_source = fallback_anchor, "report_nm회계연도역산(표첫컬럼=최신회차가정)"
+    else:
+        anchor, anchor_source = None, None
 
     out = {}
     used_anchor = used_direct_year = False
@@ -256,7 +355,17 @@ def infer_period_labels(md_text, table_pos, periods, fallback_year=None):
             used_direct_year = True
         elif kind == "gi" and anchor:
             anchor_year, anchor_gi = anchor
-            out[p] = make_period_key(anchor_year - (anchor_gi - val), quarter)
+            year = anchor_year - (anchor_gi - val)
+            # ★ 미래 연도 방어. 정기보고서의 실적 표는 회계연도를 넘는 열을 가질 수 없다 —
+            # 넘었다면 앵커가 이 회사 것이 아니라는 뜻이다. 2026-08-26 batch14 실측:
+            # 대한항공 사업보고서에서 **종속회사(한국공항㈜)의 '2025년(제59기)' 문장**이
+            # 표보다 앞에 있어 본사 기수에 잘못 적용됐고, 부문별매출이 2028A~2030A 로
+            # 적재됐다(15행, 이후 롤백). 대형 그룹사 보고서에는 종속회사 앵커 문장이
+            # 섞여 있어 "표 직전의 가장 가까운 앵커"라는 규칙만으로는 주체를 구분하지
+            # 못한다. 연도를 지어내느니 그 열을 버리는 쪽이 옳다.
+            if fallback_year and year > fallback_year:
+                continue
+            out[p] = make_period_key(year, quarter)
             used_anchor = True
 
     if not out:
@@ -303,8 +412,18 @@ def parse_history(md_text):
         cur_year = None
         for row in t["rows"]:
             col0 = row[0] if row else ""
-            if re.fullmatch(r"20\d\d", col0):
-                cur_year = col0
+            # 연도는 19xx 도 받는다. '20\d\d' 만 매칭하던 시절엔 1999년 이전 설립 회사의
+            # 연도 칸이 "연도가 아님"으로 판정돼 **rowspan 붕괴 분기로 잘못 흘러가고**,
+            # 그 연도 문자열 자체가 content 로 적재됐다(2026-08-26 실측: 00108490 엔피케이
+            # 1987·1989·1990·1995·1998·1999 → event_ym=None + content='1987' 꼴 6행).
+            # 크래시가 아니라 조용한 오염이라 게이트에도 안 걸린다.
+            # 연도 칸은 '1984' · '1984년' · '1984년도' 를 모두 받는다. 접미사를 못 받으면
+            # 그 행이 rowspan 붕괴 분기로 잘못 흘러 cur_year 가 None 인 채 남고,
+            # corp_history.event_ym(NOT NULL) 위반으로 **그 회차 전체가 중단된다**
+            # (2026-08-26 batch33 실측: corp=00135111 에서 RuntimeError).
+            ym = re.fullmatch(r"((?:19|20)\d\d)\s*(?:년도|년)?", col0)
+            if ym:
+                cur_year = ym.group(1)
                 category = None if two_col else (row[1] if len(row) > 1 else None)
                 content = (row[1] if two_col else row[2]) if len(row) > (1 if two_col else 2) else ""
             else:
@@ -334,6 +453,42 @@ RD_LABEL_RULES = [
     (lambda s: "개발비자산화" in s, "개발비_자산화(무형자산)", None),
     (lambda s: "매출액비율" in s, "매출액비중_필자게재", "원문게재_반올림1자리"),
 ]
+
+
+# 긴 표기부터 검사한다 — '십억원'이 '억원'보다, '백만원'이 '원'보다 먼저 와야 한다.
+# '원'을 생략한 표기('단위: 백만, %')도 실측된다(2026-08-26 재적재에서 3행이 이걸로
+# 확인불가 처리됐다) — 각 단위의 '원' 없는 형태도 함께 받는다.
+_UNIT_SCALES = (("십억원", 1_000_000_000), ("십억", 1_000_000_000),
+                 ("백만원", 1_000_000), ("백만", 1_000_000),
+                 ("억원", 100_000_000), ("억", 100_000_000),
+                 ("천원", 1_000), ("천", 1_000),
+                 ("원", 1))
+
+
+def detect_unit_scale(md_text, table_pos, window=2000):
+    """표 앞쪽의 `(단위 : 천원)` 류 표기를 읽어 원(KRW) 환산 배수를 돌려준다.
+    반환: (scale, 원문표기) — 표기를 못 찾으면 (None, None).
+
+    2026-08-26 실측으로 추가했다. 그 전에는 `unit_scale = 1_000_000` 이 **하드코딩**돼
+    있었다(주석: "표 단위: 백만원"). 삼성전자 파일럿 표가 백만원이라 통과했지만 실제로는
+    **대부분의 회사가 천원을 쓴다** — 표본 8개사 중 천원 6 · 백만원 1. 그 결과 R&D 금액이
+    정확히 1000배로 적재됐다: 보령 연구개발비 46.3조원(실제 463억, 회사 매출은 8,596억).
+    전수 검사 결과 **72개사 232행에서 R&D > 매출**이라는 물리적으로 불가능한 값이
+    적재돼 있었다(rnd_total 전체의 42%).
+
+    긴 표기부터 매칭한다('백만원'이 '원'보다 먼저여야 '원'에 조기 매칭되지 않는다).
+    '천원, %' 처럼 뒤에 비율 단위가 붙는 표기도 그대로 잡힌다."""
+    head = md_text[max(0, table_pos - window):table_pos]
+    m = None
+    for mm in re.finditer(r"단위\s*[:：]?\s*([^)\]|\n]{1,16})", head):
+        m = mm  # 표에 가장 가까운(마지막) 표기를 쓴다
+    if not m:
+        return None, None
+    text = m.group(1)
+    for label, scale in _UNIT_SCALES:
+        if label in text:
+            return scale, text.strip()
+    return None, text.strip()
 
 
 def parse_rd(md_text, fallback_year=None, notes=None):
@@ -380,7 +535,16 @@ def parse_rd(md_text, fallback_year=None, notes=None):
         notes.append("R&D: 기간 라벨 획득 경로=%s (%s)" %
                      (label_source, ", ".join("%s→%s" % (p, labels.get(p)) for p in periods)))
 
-        unit_scale = 1_000_000  # 표 단위: 백만원 → KRW
+        # 표 단위는 회사마다 다르다(천원이 다수, 백만원은 소수) — 원문에서 읽는다.
+        # 표기를 못 찾으면 배수를 **지어내지 않고** 금액을 확인불가로 남긴다: 잘못된
+        # 배수로 적재하면 1000배 틀린 값이 조용히 들어가고(게이트가 비율만 막고 금액은
+        # 통과시켰다, 2026-08-26 실측) 사후에 구분할 방법이 없다.
+        unit_scale, unit_text = detect_unit_scale(md_text, t["_pos"])
+        if unit_scale is None:
+            notes.append("R&D: 표 단위 표기를 찾지 못해 금액을 확인불가로 남김"
+                          "(원문 표기=%r) — 비율(%%) 항목은 그대로 적재" % (unit_text,))
+        else:
+            notes.append("R&D: 표 단위=%r → ×%d" % (unit_text, unit_scale))
         for i, pidx in enumerate(period_idx):
             p = periods[i]
             period_key = labels.get(p)  # infer_period_labels 가 이미 조립한 완성 키
@@ -393,8 +557,18 @@ def parse_rd(md_text, fallback_year=None, notes=None):
                 is_ratio = canon == "매출액비중_필자게재"
                 concept = "rnd_revenue_ratio" if is_ratio else "rnd_total"
                 unit = "pct" if is_ratio else "KRW"
-                amount = v if is_ratio or v is None else v * unit_scale
-                status = "ok" if amount is not None else "확인불가:원문값없음(공란)"
+                if is_ratio or v is None:
+                    amount = v
+                elif unit_scale is None:
+                    amount = None  # 배수를 모른 채 적재하지 않는다(위 detect_unit_scale 참고)
+                else:
+                    amount = v * unit_scale
+                if amount is not None:
+                    status = "ok"
+                elif v is not None and not is_ratio and unit_scale is None:
+                    status = "확인불가:표단위표기없음(원문표기=%s)" % (unit_text or "없음")
+                else:
+                    status = "확인불가:원문값없음(공란)"
                 facts.append(fact(concept, canon, period_key, amount, unit, basis, status,
                                    "II.6.나 연구개발활동의 개요 및 연구개발비용", "[연구개발비용]"))
         break
@@ -866,15 +1040,35 @@ def apply_gates(corp_code, facts, notes):
 # ══════════════════════════════════════════════════════════ 추출 파이프라인
 
 def load_sections(corp_code, rcept_no):
+    """섹션 사전을 만든다. 사전 분할본(`docs_storage.py sections` 산출물)이 있으면 그걸 쓰고,
+    없으면 **원문 zip 을 받아 즉석에서 쪼갠다** — 그 회차를 스킵하지 않는다.
+
+    2026-08-25 실측으로 사전 분할이 이 용도에 이득이 없다는 것을 확인했다: 두 경로 모두
+    Storage 왕복이 정확히 1회이고(0.34s vs 0.36s), 차이는 문서당 분할 CPU 0.44초뿐이며,
+    결과 섹션은 제목까지 동일했다. 추출은 한 회차를 **한 번만** 읽으므로 사전 계산이
+    상각되지 않는다 — 40,383건을 미리 쪼개서 368건 × 0.44초를 아끼는 셈이었다.
+    (반대로 웹에서 같은 공시를 반복 조회하는 용도라면 사전 분할이 여전히 옳다 — 그래서
+    docs_storage.py 를 없애지 않고, 있으면 쓰는 폴백 구조로 둔다.)"""
     path = "%s/%s/%s.sections.json.gz" % (ingest.DOCS_PREFIX, corp_code, rcept_no)
     status, data = ingest.storage_download(path)
-    if status != 200:
-        return None, "확인불가:Storage에섹션없음(path=%s,status=%s)" % (path, status)
+    if status == 200:
+        try:
+            sections = json.loads(gzip.decompress(data).decode("utf-8"))
+        except Exception as e:  # noqa: BLE001 — 원문 손상은 스킵 사유로만 쓴다
+            return None, "확인불가:섹션디코드실패(%s)" % e
+        return {s["title"]: s["content"] for s in sections}, None
+
+    zip_path = "%s/%s/%s.zip" % (ingest.DOCS_PREFIX, corp_code, rcept_no)
+    zip_status, raw = ingest.storage_download(zip_path)
+    if zip_status != 200:
+        return None, "확인불가:Storage에원문없음(path=%s,status=%s)" % (zip_path, zip_status)
     try:
-        sections = json.loads(gzip.decompress(data).decode("utf-8"))
+        with zipfile.ZipFile(io.BytesIO(raw)) as z:
+            text = ingest.api.decode_kr(z.read(sorted(z.namelist())[0]))
+        sections = dart_doc.split_sections(text)
     except Exception as e:  # noqa: BLE001 — 원문 손상은 스킵 사유로만 쓴다
-        return None, "확인불가:섹션디코드실패(%s)" % e
-    return {s["title"]: s["content"] for s in sections}, None
+        return None, "확인불가:원문분할실패(%s)" % e
+    return {title: body for title, body in sections}, None
 
 
 def extract_one(corp_code, rcept_no):
@@ -976,14 +1170,26 @@ def to_history_row(corp_code, rcept_no, h):
     }
 
 
-def load_scope(corp_code, rcept_no, facts, hist):
+def load_scope(corp_code, rcept_no, facts, hist, only_concepts=None):
     """스코프 교체: (corp_code × concept × source_rcept_no) 단위로 delete→insert.
     ALL_CONCEPTS 전체를 매번 훑어, 이번 파싱에서 안 나온 concept 은 빈 리스트로
-    replace_scope 를 걸어 스테일 행(이전엔 파싱됐다가 이번엔 안 나오는 사실)을 지운다."""
+    replace_scope 를 걸어 스테일 행(이전엔 파싱됐다가 이번엔 안 나오는 사실)을 지운다.
+
+    only_concepts (--concepts): 주어지면 **그 concept 만** 교체하고 나머지는 손대지 않는다.
+    corp_history 도 건너뛴다(연혁은 concept 축이 아니므로 명시 요청이 아니면 보존).
+
+    ★ 이 옵션이 왜 필요한가 (2026-08-26 실측 사고): 규칙 파서의 R&D 단위 결함을 고치려고
+    161개사에 `extract` 를 재실행했더니, 규칙이 0행으로 내는 블록(연혁·부문별매출·
+    시장점유율)의 **에이전트 폴백 산출물이 빈 리스트로 전부 덮어써졌다**
+    (fin_details -2,819행 · corp_history -3,512행). 위 "스테일 행 제거"는 규칙 단독
+    운영을 전제한 설계인데, 지금은 같은 스코프에 에이전트 산출물이 공존한다.
+    한 concept 만 고치려는 재실행이 다른 concept 을 파괴해서는 안 된다."""
     by_concept = {}
     for f in facts:
         by_concept.setdefault(f["concept"], []).append(to_db_row(corp_code, rcept_no, f))
-    for concept in ALL_CONCEPTS:
+    targets = ALL_CONCEPTS if only_concepts is None else [
+        c for c in ALL_CONCEPTS if c in only_concepts]
+    for concept in targets:
         rows = by_concept.get(concept, [])
         # 자연키 중복 방어(같은 표에서 같은 item_name 이 두 번 잡히는 회귀 방지)
         rows = ingest.dedupe_by(rows, ["corp_code", "period_key", "concept", "item_name",
@@ -995,6 +1201,10 @@ def load_scope(corp_code, rcept_no, facts, hist):
             rows, on_conflict="corp_code,period_key,concept,item_name,source_rcept_no")
         print("  fin_details[%s]: %d행" % (concept, len(rows)))
 
+    if only_concepts is not None:
+        # --concepts 로 특정 concept 만 고치는 재실행 — 연혁은 손대지 않는다(위 docstring).
+        print("  corp_history: 건너뜀(--concepts 지정)")
+        return
     hist_rows = [to_history_row(corp_code, rcept_no, h) for h in hist]
     hist_rows = ingest.dedupe_by(hist_rows, ["corp_code", "source_rcept_no", "event_ym", "content"],
                                   "corp_history")
@@ -1050,7 +1260,7 @@ def print_coverage(corp_code, rcept_no, facts, hist, held, notes):
 
 # ══════════════════════════════════════════════════════════ CLI
 
-def run(corps, rcepts_arg, do_load):
+def run(corps, rcepts_arg, do_load, only_concepts=None):
     """회사×회차를 순회하며 추출·적재한다. 한 회차의 예외가 나머지 전체를 막지 않도록
     회사·회차 단위로 격리한다(2026-08-25 3사 재현시험 실측 — parse_treasury 의 TypeError
     가 run() 에서 잡히지 않아, 세 회사를 한 명령으로 돌렸을 때 삼양식품에서 죽으면서 뒤에
@@ -1075,7 +1285,7 @@ def run(corps, rcepts_arg, do_load):
                 facts, hist, notes = extract_one(corp_code, rcept_no)
                 facts, held = apply_gates(corp_code, facts, notes)
                 if do_load:
-                    load_scope(corp_code, rcept_no, facts, hist)
+                    load_scope(corp_code, rcept_no, facts, hist, only_concepts)
                 print_coverage(corp_code, rcept_no, facts, hist, held, notes)
             except Exception as e:  # noqa: BLE001 — 의도적으로 넓게 잡는다, 아래 참고
                 # 여기서 무엇이든 잡아야 한다: 파서 버그든 네트워크 문제든, 한 회차의 예외가
@@ -1197,6 +1407,10 @@ def main():
 
     def add_common(sp):
         sp.add_argument("--corps", required=True, help="쉼표구분 corp_code 목록 (예: 00126380)")
+        sp.add_argument("--concepts", default=None,
+                        help="이 concept 만 스코프 교체(쉼표구분). 지정하면 나머지 concept 과 "
+                             "corp_history 는 건드리지 않는다 — 규칙으로 못 만드는 블록의 "
+                             "에이전트 산출물을 재실행이 지우는 사고를 막는다.")
         sp.add_argument("--rcepts", default=None,
                          help="쉼표구분 rcept_no 목록 — 생략 시 회사별 최신 사업보고서 1건 자동 선택")
 
@@ -1218,7 +1432,14 @@ def main():
 
     corps = [c.strip() for c in args.corps.split(",") if c.strip()]
     rcepts = [r.strip() for r in args.rcepts.split(",")] if args.rcepts else None
-    failures = run(corps, rcepts, do_load=(args.cmd == "extract"))
+    only = None
+    if getattr(args, "concepts", None):
+        only = {c.strip() for c in args.concepts.split(",") if c.strip()}
+        unknown = only - set(ALL_CONCEPTS)
+        if unknown:
+            print("알 수 없는 concept: %s\n가능: %s" % (sorted(unknown), ALL_CONCEPTS))
+            return 2
+    failures = run(corps, rcepts, do_load=(args.cmd == "extract"), only_concepts=only)
     # 무인 실행(cron/launchd 래퍼)이 "일부 실패"를 알 수 있게 종료 코드로도 신호한다 —
     # 콘솔 로그만으로는 사람이 매번 스크롤을 다 읽어야 실패를 알아챈다.
     sys.exit(1 if failures else 0)
