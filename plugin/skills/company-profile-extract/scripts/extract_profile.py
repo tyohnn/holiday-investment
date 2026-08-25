@@ -115,28 +115,107 @@ def parse_md_tables(md_text):
     return out
 
 
-def parse_period_col(s):
-    """표 헤더 열 하나가 회계기간을 가리키는지 판정한다. 반환: ('gi', N) | ('year', YYYY) | None.
+def make_period_key(year, quarter=None):
+    """(year, quarter) → fin_details/fin_periods 공용 period_key 문자열. 하드코딩된
+    '%sA' % year 를 전부 이 함수로 모았다(2026-08-25 분기·반기 지원 — 감독 지시 §B).
 
-    'YYYY.MM'(예: 2025.12)·'YYYY년'·'YYYY' 처럼 헤더 자체에 연도가 이미 박혀 있으면
-    기수→연도 역산 없이도(앵커 불필요) 바로 연도를 알 수 있다 — 2026-08-25 3사 재현시험이
-    지적한 "표 헤더 자체에 연도·기수가 있는 경우"를 흡수한다."""
+    quarter=None → 연간('2026A'). quarter=1/2/3 → 분기('2026Q1'). quarter='H1' → 반기
+    ('2026H1', fin_periods 에 없는 접미사 — 아래 이유).
+
+    **반기는 fin_periods 의 Q2 에 매핑하지 않는다.** fin_periods 3부(마이그레이션
+    20260806000001) 실측 근거: Q1~Q3 의 amount 는 discrete 3개월 단독값이다(삼성전자
+    2024 CFS 매출 실측: 1Q 71.9조 + 2Q 74.1조 + 3Q 79.1조 = amount_cum 225.1조 — 즉
+    Q2 는 이미 '그 분기만'이지 누적이 아니다). 그런데 사업보고서 원문 표의 '제N기 반기'
+    라벨은 통상 반기(6개월) **누적** 값을 가리킨다(반기보고서 관행 — 3개월 단독 Q2와
+    별개 컬럼). 이 둘을 같은 'Q2' 로 밀어넣으면 값의 성질이 다른데도 같은 period_key
+    아래 섞여 게이트(부문합 대조 등)가 discrete 값과 누적 값을 잘못 비교하게 된다.
+    fin_details.period_key 는 자유 텍스트라(마이그레이션 20260823000001 주석: 시점형은
+    날짜 문자열도 허용) 'H1' 접미사를 새로 만들어도 스키마 위반이 아니다 — 그래서 반기는
+    별도 표기로 남기고, fin_periods 에 대응 타입이 없으니 게이트 비교는 스킵한다
+    (apply_gates/db_revenue 의 period_type_of 참고)."""
+    if quarter is None:
+        return "%dA" % year
+    if quarter == "H1":
+        return "%dH1" % year
+    return "%dQ%d" % (year, quarter)
+
+
+def period_type_of(period_key):
+    """fin_details.period_key 문자열에서 fin_periods.period_type 짝을 뽑는다
+    ('A'|'Q1'~'Q4') — 대응이 없으면(H1 등) None. 게이트가 fin_periods 를 대조할 때
+    쓴다: db_revenue 가 예전엔 period_type='A' 를 하드코딩해 분기 period_key 를 넣어도
+    항상 연간 매출과 비교했다(조용한 오탐/오탈락 원인) — 이제 period_key 자체에서
+    타입을 뽑는다."""
+    if period_key.endswith("A") and re.fullmatch(r"\d{4}A", period_key):
+        return "A"
+    m = re.fullmatch(r"\d{4}(Q[1-4])", period_key)
+    if m:
+        return m.group(1)
+    return None  # H1(반기) 등 fin_periods 에 대응 타입 없음 — 호출부가 게이트 스킵
+
+
+def parse_period_col(s):
+    """표 헤더 열 하나가 회계기간을 가리키는지 판정한다.
+    반환: ('gi', N, quarter) | ('year', YYYY, quarter) | None.
+    quarter 는 1/2/3(분기 단독) | 'H1'(반기) | None(연간) — 호출부는 항상 3-tuple 을
+    받는다(2026-08-25 이전엔 2-tuple 이었다, 아래 확장과 함께 호출부 전체를 맞췄다).
+
+    실측 근거(삼성전자 2026Q1 분기보고서, rcept_no=20260515002181, 'II. 사업의 내용'):
+    이전 정규식은 '제58기 1분기'(원문 12회)·'2026년 1분기'(원문 26회)·'제58기 반기' 를
+    전부 None 으로 떨어뜨렸다 — '제\\s*(\\d+)\\s*기' 가 fullmatch라 뒤에 '1분기'가
+    붙으면 매치 자체가 실패했다. 이 실패는 단순 누락에 그치지 않고 **표 파싱 전체를
+    한 칸씩 밀리게 만들었다**: infer_period_labels 가 이 열 자체를 periods 목록에서
+    빼버려서, 다음 열(예: '제57기' 연간 데이터)이 그 자리를 대신 차지하고 '당분기(Q1)
+    값'이 '전기(연간) 값' 라벨을 달고 적재될 뻔했다(실측: 수정 전 verify 에서 부문합
+    게이트가 2025A/2024A 둘 다 실패 — 2025A 부문합 133.87조는 사실 Q1 값이었다).
+
+    '2026.MM' 은 월에서 분기를 유도한다(03→Q1, 06→반기, 09→Q3, 12→연간) — 06 은 위와
+    같은 이유로 Q2(discrete)가 아니라 H1(반기, 누적)로 취급한다. 그 외 월(04·05·07·08·
+    10·11)은 분기 경계가 아니라 판정 불가로 None 을 돌려준다(지어내지 않는다).
+    '당분기'처럼 그 자체로 연도·기수 정보가 없는 라벨은 이 함수의 책임 밖이다(과제
+    지정 최소 형태에 없다 — anchor 로도 못 채운다)."""
     s = s.strip()
+
+    m = re.fullmatch(r"제\s*(\d+)\s*기\s*(\d)\s*분기", s)
+    if m:
+        return ("gi", int(m.group(1)), int(m.group(2)))
+    m = re.fullmatch(r"제\s*(\d+)\s*기\s*반기", s)
+    if m:
+        return ("gi", int(m.group(1)), "H1")
     m = re.fullmatch(r"제\s*(\d+)\s*기", s)
     if m:
-        return ("gi", int(m.group(1)))
-    m = re.fullmatch(r"(\d{4})\.\d{2}", s)
+        return ("gi", int(m.group(1)), None)
+
+    m = re.fullmatch(r"(\d{4})년\s*(\d)\s*분기", s)
     if m:
-        return ("year", int(m.group(1)))
+        return ("year", int(m.group(1)), int(m.group(2)))
+    m = re.fullmatch(r"(\d{4})년\s*반기", s)
+    if m:
+        return ("year", int(m.group(1)), "H1")
+
+    m = re.fullmatch(r"(\d{4})\.(\d{2})", s)
+    if m:
+        year, mm = int(m.group(1)), m.group(2)
+        month_quarter = {"03": 1, "06": "H1", "09": 3, "12": None}
+        if mm in month_quarter:
+            return ("year", year, month_quarter[mm])
+        return None  # 04/05/07/08/10/11 등은 분기 경계가 아니다 — 확인 불가
+
     m = re.fullmatch(r"(\d{4})년?", s)
     if m:
-        return ("year", int(m.group(1)))
+        return ("year", int(m.group(1)), None)
     return None
 
 
 def infer_period_labels(md_text, table_pos, periods, fallback_year=None):
-    """'제N기' 헤더 라벨을 실제 연도로 매핑한다. 반환: (dict, source|None) — source 는
-    라벨을 어느 경로로 얻었는지(디버깅·신뢰도 판단용, notes 에 그대로 남긴다).
+    """'제N기'/'제N기 M분기'/'제N기 반기' 헤더 라벨을 실제 period_key 로 매핑한다.
+    반환: (dict, source|None) — dict 값은 이미 make_period_key 로 조립된 완성 문자열
+    ('2026A'/'2026Q1'/'2026H1')이다. 예전엔 연도 문자열만 돌려주고 호출부마다
+    '%sA' % year 를 반복했는데(연간 전제 하드코딩), 분기·반기가 섞이면서 그 방식이
+    깨진다 — 그래서 조립까지 여기서 끝내고(감독 지시 §B: "period_key 조립을 한 곳으로")
+    호출부(parse_rd/parse_segment_revenue/parse_segment_summary)는 labels.get(p) 를
+    period_key 로 그대로 쓴다. source 는 라벨을 어느 경로로 얻었는지(디버깅·신뢰도
+    판단용, notes 에 그대로 남긴다).
 
     앵커 우선순위(2026-08-25 3사 재현시험 §B — 삼성 전용이던 앵커 1개를 3개로 넓혔다):
     1. **본문 앵커 문장**: 'YYYY년(제N기) 당사의 …' 형태(회사·항목과 무관하게 같은
@@ -171,13 +250,13 @@ def infer_period_labels(md_text, table_pos, periods, fallback_year=None):
         parsed = parse_period_col(p)
         if not parsed:
             continue
-        kind, val = parsed
+        kind, val, quarter = parsed
         if kind == "year":
-            out[p] = str(val)
+            out[p] = make_period_key(val, quarter)
             used_direct_year = True
         elif kind == "gi" and anchor:
             anchor_year, anchor_gi = anchor
-            out[p] = str(anchor_year - (anchor_gi - val))
+            out[p] = make_period_key(anchor_year - (anchor_gi - val), quarter)
             used_anchor = True
 
     if not out:
@@ -304,10 +383,9 @@ def parse_rd(md_text, fallback_year=None, notes=None):
         unit_scale = 1_000_000  # 표 단위: 백만원 → KRW
         for i, pidx in enumerate(period_idx):
             p = periods[i]
-            year = labels.get(p)
-            if not year:
+            period_key = labels.get(p)  # infer_period_labels 가 이미 조립한 완성 키
+            if not period_key:
                 continue
-            period_key = "%sA" % year
             for canon, (row, shift, basis) in matched.items():
                 idx = pidx + shift
                 raw = row[idx] if idx < len(row) else None
@@ -359,11 +437,11 @@ def parse_segment_revenue(md_text, fallback_year=None, notes=None):
             else:
                 continue  # 열이 밀린 미분류 행 — 규칙 밖, 스킵(사업부문 라벨이 모호)
             for i, p in enumerate(periods):
-                year = labels.get(p)
-                if not year or i >= len(vals):
+                period_key = labels.get(p)
+                if not period_key or i >= len(vals):
                     continue
                 v = num(vals[i])
-                facts.append(fact("segment_revenue", item, "%sA" % year,
+                facts.append(fact("segment_revenue", item, period_key,
                                    v * scale if v is not None else None, "KRW", None,
                                    "ok" if v is not None else "확인불가:원문값없음(공란)",
                                    "II.4.가 매출실적", "부문별 매출실적(억원)"))
@@ -419,13 +497,12 @@ def parse_segment_summary(md_text, corp_code, fallback_year=None, notes=None):
             concept = _METRIC_CONCEPT[metric]
             # 컬럼 배열: [금액,비중] × len(period_idx)
             for i, p in enumerate(periods):
-                year = labels.get(p)
-                if not year:
+                pk = labels.get(p)
+                if not pk:
                     continue
                 amt_s = rest[2 * i] if 2 * i < len(rest) else None
                 pct_s = rest[2 * i + 1] if 2 * i + 1 < len(rest) else None
                 amt, pct = num(amt_s), num(pct_s)
-                pk = "%sA" % year
                 # metric=='매출액' 의 절대금액은 여기서 적재하지 않는다 — parse_segment_revenue
                 # 가 '가. 매출실적' 표에서 이미 같은 (corp_code,period_key,concept='segment_revenue',
                 # item_name,source_rcept_no) 자연키로 뽑는다(실측: 두 표의 DX 부문 금액이 소수점까지
@@ -475,7 +552,8 @@ def parse_market_share(md_text):
                 if not mm:
                     continue
                 v = num(row[c])
-                facts.append(fact("market_share", "%s|%s" % (product, item), "%sA" % mm.group(1),
+                facts.append(fact("market_share", "%s|%s" % (product, item),
+                                   make_period_key(int(mm.group(1))),
                                    v, "pct", None, "ok" if v is not None else "확인불가:원문값없음(공란)",
                                    "II.2 주요 제품 및 서비스", "<%s 시장점유율 추이>" % product))
     return facts
@@ -619,9 +697,18 @@ def db_rows_pg(path, params):
 
 
 def db_revenue(corp_code, period_key):
+    """fin_periods.revenue 대조값. **period_type 을 더는 'A' 로 고정하지 않는다** —
+    예전엔 분기 period_key('2026Q1')를 넘겨도 항상 연간 매출과 비교해, 분기 게이트가
+    (a) 진짜 오류를 통과시키거나 (b) 정상값을 거짓 실패로 몰 수 있었다(2026-08-25
+    분기 지원 확장, 감독 지시 §검증-2: "게이트가 분기에도 동작하는지가 핵심"). H1(반기)
+    처럼 fin_periods 에 대응 period_type 이 없으면(period_type_of 가 None) 애초에
+    질의하지 않고 (None, None) 을 돌려준다 — 호출부(apply_gates)가 스킵 사유를 남긴다."""
+    ptype = period_type_of(period_key)
+    if ptype is None:
+        return None, None
     for fs in ("CFS", "OFS"):
         rows = db_rows_pg("fin_periods", {
-            "select": "revenue", "corp_code": "eq.%s" % corp_code, "period_type": "eq.A",
+            "select": "revenue", "corp_code": "eq.%s" % corp_code, "period_type": "eq.%s" % ptype,
             "period_key": "eq.%s" % period_key, "fs_div": "eq.%s" % fs})
         if rows and rows[0].get("revenue") is not None:
             return rows[0]["revenue"], fs
@@ -629,15 +716,37 @@ def db_revenue(corp_code, period_key):
 
 
 def report_fiscal_year(rcept_no):
-    """이 rcept_no 가 다루는 회계연도. filings.report_nm 이 '사업보고서 (YYYY.MM)' 꼴이라
-    거기서 뽑는다 — 주주현황·자사주처럼 표 자체에 연도 라벨이 없는 '시점형' 개념의
-    period_key 를 채우는 데 쓴다(사업보고서는 그 회계연도 말 기준 스냅숏이므로 rcept_no
-    당 회계연도 하나가 자연스럽게 대응된다)."""
+    """이 rcept_no 가 다루는 회계기간. filings.report_nm 이 '사업보고서 (YYYY.MM)'/
+    '분기보고서 (YYYY.MM)'/'반기보고서 (YYYY.MM)' 꼴이라 거기서 뽑는다.
+
+    반환: (year:int|None, period_key:str|None, report_nm:str|None).
+      - year 는 infer_period_labels 의 기수→연도 앵커 폴백에 쓴다(분기·반기 여부와
+        무관하게 연도만 필요).
+      - period_key 는 주주현황·자사주처럼 표 자체에 기간 라벨이 없는 '시점형' 개념의
+        period_key 를 채우는 데 쓴다 — 사업보고서는 회계연도 말, 분기·반기보고서는 그
+        분기·반기 말 기준 스냅숏이므로 rcept_no 당 기간 하나가 자연스럽게 대응된다.
+        'YYYY.MM' 의 월을 parse_period_col 과 **같은 규칙**(03→Q1,06→H1,09→Q3,12→연간)
+        으로 분기화한다 — 규칙을 두 곳에 따로 두면 어긋날 수 있어 parse_period_col 을
+        그대로 재사용한다.
+
+    섹션 C(감독 지시) — 표 헤더에서 얻은 분기와 report_nm 이 어긋나면 어느 쪽을
+    믿을지: **표 헤더 쪽을 신뢰한다.** report_nm 의 월은 보고서 '종류'를 나타내는
+    거친 신호일 뿐이고, 실제 표는 같은 문서 안에서도 여러 회차(전기·전전기 등)를
+    나란히 보여준다 — infer_period_labels 의 앵커 우선순위에서 report_nm 역산은
+    이미 최하위(③)이고, 이 함수의 period_key 는 표 라벨이 아예 없는 시점형 개념
+    전용 폴백으로만 쓰인다(R&D·부문매출처럼 표 라벨이 있는 개념에는 관여하지 않는다).
+    """
     rows = db_rows_pg("filings", {"select": "report_nm", "rcept_no": "eq.%s" % rcept_no})
     if not rows:
-        return None
-    m = re.search(r"\((\d{4})\.\d{2}\)", rows[0].get("report_nm") or "")
-    return m.group(1) if m else None
+        return None, None, None
+    report_nm = rows[0].get("report_nm") or ""
+    m = re.search(r"\((\d{4})\.(\d{2})\)", report_nm)
+    if not m:
+        return None, None, report_nm
+    year = int(m.group(1))
+    parsed = parse_period_col("%s.%s" % (m.group(1), m.group(2)))
+    quarter = parsed[2] if parsed else None
+    return year, make_period_key(year, quarter), report_nm
 
 
 def apply_gates(corp_code, facts, notes):
@@ -714,6 +823,14 @@ def apply_gates(corp_code, facts, notes):
                          (pk, recomputed, ratio_fact["amount"], diff))
 
     # 게이트 4: 자릿수 sanity — 같은 concept·item_name 의 연속 기간 값이 10배 이상 튀면 보류.
+    # 2026-08-25 분기 지원 실측(삼성 2026Q1 분기보고서, verify 실행): 이 게이트는 "연속
+    # period_key 는 같은 주기(cadence)"를 전제로 짰다 — 예전엔 fin_details 에 연간
+    # period_key 만 있어서 그 전제가 늘 성립했다. 분기를 로드하기 시작하니 같은 표에
+    # '제58기 1분기'(2026Q1)와 '제57기'(2025A)가 나란히 있고, 분기 값은 원래 연간의
+    # 약 1/4~1/3 수준이라 **정상 데이터인데도 ratio<=0.1 로 걸려 실측 3건이 오탐 보류됐다**
+    # (rnd_total/정부보조금, segment_operating_income·_pct/SDC). 기간종류(period_type_of)가
+    # 다른 쌍은 애초에 "몇 배가 정상"이라는 기준 자체가 없으므로 비교하지 않는다 — 같은
+    # 기간종류끼리만(연간↔연간, 같은 Qn↔같은 Qn) 자릿수 점프를 본다.
     by_key = {}
     for f in ok:
         if f["amount"] is None or f["period_key"] is None:
@@ -724,6 +841,8 @@ def apply_gates(corp_code, facts, notes):
     for key, flist in by_key.items():
         flist_sorted = sorted(flist, key=lambda f: f["period_key"])
         for a, b in zip(flist_sorted, flist_sorted[1:]):
+            if period_type_of(a["period_key"]) != period_type_of(b["period_key"]):
+                continue  # 기간종류가 다르면(예: 연간 vs 분기) 자릿수 비교 대상 아님
             if a["amount"] and b["amount"] and a["amount"] != 0:
                 # 절대값 비율을 쓴다 — 부호만 다른 것(흑자↔적자 전환)은 자릿수 오류가
                 # 아니라 실제 실적 변동이다(실측: DS 부문 영업이익이 2023 적자→2024 흑자로
@@ -776,15 +895,23 @@ def extract_one(corp_code, rcept_no):
 
     facts, hist = [], []
 
-    # 이 rcept_no 의 회계연도를 한 번만 구해 두 곳에 재사용한다: ① 본문에 '제N기' 기수→
-    # 연도 앵커 문장이 없는 회사에서 infer_period_labels 의 폴백 앵커로, ② 아래 주주·자사주
-    # 같은 시점형 개념의 period_key 채우기로. 예전엔 ②에서만, facts 를 다 만든 뒤에 구했다 —
-    # 지금은 R&D·부문매출 파싱 전에 필요해져서 앞으로 옮겼다(DB 호출은 여전히 1회).
-    fy = report_fiscal_year(rcept_no)
-    fy_int = int(fy) if fy else None
+    # 이 rcept_no 의 회계기간을 한 번만 구해 두 곳에 재사용한다: ① 본문에 '제N기' 기수→
+    # 연도 앵커 문장이 없는 회사에서 infer_period_labels 의 폴백 앵커로(연도만, 분기 무관),
+    # ② 아래 주주·자사주 같은 시점형 개념의 period_key 채우기로(분기·반기까지 반영한
+    # 완성 키). 예전엔 ②에서만, facts 를 다 만든 뒤에 구했다 — 지금은 R&D·부문매출 파싱
+    # 전에 필요해져서 앞으로 옮겼다(DB 호출은 여전히 1회).
+    fy_int, fy_period_key, fy_report_nm = report_fiscal_year(rcept_no)
     if fy_int is None:
         notes.append("확인불가: rcept_no=%s 의 회계연도를 filings.report_nm 에서 못 구함 — "
                      "기수→연도 앵커 폴백과 주주·자사주 period_key 채우기 둘 다 이 값에 기댄다" % rcept_no)
+    else:
+        # 섹션 C(감독 지시) 판단 기록: report_nm 과 표 헤더 라벨이 어긋나면 표 헤더 쪽을
+        # 신뢰한다 — report_nm 역산은 infer_period_labels 앵커 우선순위에서 이미 최하위(③)
+        # 이고, fy_period_key 는 표 라벨이 아예 없는 시점형 개념(주주·자사주) 전용 폴백일
+        # 뿐 R&D·부문매출처럼 표 자체 라벨이 있는 개념에는 관여하지 않는다.
+        notes.append("회차 기간: report_nm=%r → 시점형 폴백 period_key=%s (R&D·부문매출은 "
+                     "표 헤더/본문앵커가 우선이고 이 값과 어긋나도 표 쪽을 따른다)" %
+                     (fy_report_nm, fy_period_key))
 
     if "I. 회사의 개요" in sections:
         hist += parse_history(sections["I. 회사의 개요"])
@@ -809,16 +936,17 @@ def extract_one(corp_code, rcept_no):
     else:
         notes.append("확인불가: 'VII. 주주에 관한 사항' 섹션 없음 — 주주현황 스킵")
 
-    # 주주·자사주는 표 자체에 연도 라벨이 없는 '시점형' 개념이라 period_key 를 못 채운 채
-    # 반환됐다(parse_shareholders/parse_treasury) — 이 rcept_no 의 회계연도로 채운다.
-    # fin_details.period_key 는 NOT NULL 이라, 회계연도를 못 구하면 적재 대신 스킵하고 보고한다.
+    # 주주·자사주는 표 자체에 기간 라벨이 없는 '시점형' 개념이라 period_key 를 못 채운 채
+    # 반환됐다(parse_shareholders/parse_treasury) — 이 rcept_no 의 회계기간(report_nm 에서
+    # 뽑은 fy_period_key, 분기·반기까지 반영됨)으로 채운다. fin_details.period_key 는
+    # NOT NULL 이라, 못 구하면 적재 대신 스킵하고 보고한다.
     missing_pk = [f for f in facts if f["period_key"] is None]
     if missing_pk:
-        if fy_int:
+        if fy_period_key:
             for f in missing_pk:
-                f["period_key"] = "%dA" % fy_int
+                f["period_key"] = fy_period_key
         else:
-            notes.append("확인불가: 주주·자사주 %d행 스킵(period_key NOT NULL, 회계연도 불명)" % len(missing_pk))
+            notes.append("확인불가: 주주·자사주 %d행 스킵(period_key NOT NULL, 회계기간 불명)" % len(missing_pk))
             facts = [f for f in facts if f["period_key"] is not None]
 
     return facts, hist, notes
