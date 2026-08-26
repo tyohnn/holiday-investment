@@ -408,6 +408,20 @@ def fact(concept, item_name, period_key, amount, unit=None, value_basis=None,
 
 # ══════════════════════════════════════════════════════════ 1. 회사의 연혁 → corp_history
 
+def parse_hist_ym(col0):
+    """연혁 표 첫 칸 → event_ym. '1984'·'1984년'·'1947. 05. 10' 을 받는다.
+    못 읽으면 None — 그 행을 적재하면 NOT NULL 위반으로 회차 전체가 죽는다
+    (2026-08-26 00109037 2010A: content='1947. 05. 10', event_ym=NULL → HTTP 400)."""
+    s = norm(col0)
+    m = re.fullmatch(r"((?:19|20)\d\d)(?:년도|년)?", s)
+    if m:
+        return m.group(1)
+    m = re.fullmatch(r"((?:19|20)\d\d)[.\-년](\d{1,2})(?:[.\-월](\d{1,2})일?)?", s)
+    if m:
+        return "%s.%02d" % (m.group(1), int(m.group(2)))
+    return None
+
+
 def parse_history(md_text):
     """'I. 회사의 개요 > 2. 회사의 연혁' 표. 원표는 (연도,내용) 2열이 표준이나 (연도,구분,
     내용) 3열 변형도 허용한다(파일럿 대상 밖 — 방어적으로만 처리).
@@ -436,16 +450,19 @@ def parse_history(md_text):
             # 그 행이 rowspan 붕괴 분기로 잘못 흘러 cur_year 가 None 인 채 남고,
             # corp_history.event_ym(NOT NULL) 위반으로 **그 회차 전체가 중단된다**
             # (2026-08-26 batch33 실측: corp=00135111 에서 RuntimeError).
-            ym = re.fullmatch(r"((?:19|20)\d\d)\s*(?:년도|년)?", col0)
+            ym = parse_hist_ym(col0)
             if ym:
-                cur_year = ym.group(1)
+                cur_year = ym
                 category = None if two_col else (row[1] if len(row) > 1 else None)
                 content = (row[1] if two_col else row[2]) if len(row) > (1 if two_col else 2) else ""
+                # 첫 칸이 날짜만이고 내용 칸이 비면(1947. 05. 10 | —) 날짜를 내용으로 쓰지 않는다.
+                if not content or content == "—":
+                    content = col0
             else:
                 # rowspan 붕괴: col0 자체가 내용(또는 구분+내용), 마지막 칸은 대개 '—'
                 category = None
                 content = col0
-            if content and content != "—":
+            if content and content != "—" and cur_year:
                 items.append({"event_ym": cur_year, "category": category, "content": content,
                                "source_section": "I. 회사의 개요 > 2. 회사의 연혁"})
         break  # 연혁 표는 섹션당 하나
@@ -1243,7 +1260,7 @@ def load_scope(corp_code, rcept_no, facts, hist, only_concepts=None):
         # --concepts 로 특정 concept 만 고치는 재실행 — 연혁은 손대지 않는다(위 docstring).
         print("  corp_history: 건너뜀(--concepts 지정)")
         return
-    hist_rows = [to_history_row(corp_code, rcept_no, h) for h in hist]
+    hist_rows = [to_history_row(corp_code, rcept_no, h) for h in hist if h.get("event_ym")]
     hist_rows = ingest.dedupe_by(hist_rows, ["corp_code", "source_rcept_no", "event_ym", "content"],
                                   "corp_history")
     ingest.replace_scope(

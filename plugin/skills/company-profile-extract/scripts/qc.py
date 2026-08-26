@@ -74,6 +74,11 @@ NUM_CASES = [
     ("1%미만", None),  # 정성 상한. %를 떼도 '1미만'이라 float 실패 — 1.0으로 읽으면 안 됨
 
 ]
+HIST_YM_CASES = [
+    ("1984", "1984"), ("1984년", "1984"), ("1984년도", "1984"),
+    ("1947. 05. 10", "1947.05"), ("1947.05.10", "1947.05"), ("1947.05", "1947.05"),
+    ("설립", None), ("—", None),
+]
 
 
 def _rows(query, order):
@@ -157,14 +162,19 @@ def cmd_cases(args):
         if got != want:
             bad += 1
             print("   ✗ num(%r) → %s   기대 %s" % (s, got, want))
-    total = len(PERIOD_CASES) + len(NUM_CASES)
+    for s, want in HIST_YM_CASES:
+        got = ep.parse_hist_ym(s)
+        if got != want:
+            bad += 1
+            print("   ✗ parse_hist_ym(%r) → %s   기대 %s" % (s, got, want))
+    total = len(PERIOD_CASES) + len(NUM_CASES) + len(HIST_YM_CASES)
     accept = sum(1 for _, w in PERIOD_CASES if w is not None)
     reject = len(PERIOD_CASES) - accept
     if bad:
         print("✗ 케이스 %d/%d 실패" % (bad, total))
         return 1
-    print("✓ 케이스 전수 통과 %d개 (기간라벨 받을 %d·거부할 %d, 숫자 %d)"
-          % (total, accept, reject, len(NUM_CASES)))
+    print("✓ 케이스 전수 통과 %d개 (기간라벨 받을 %d·거부할 %d, 숫자 %d, 연혁연월 %d)"
+          % (total, accept, reject, len(NUM_CASES), len(HIST_YM_CASES)))
     return 0
 
 
