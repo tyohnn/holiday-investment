@@ -259,7 +259,14 @@ def cmd_integrity(args):
                     or any(a in (i["item_name"] or "") for a in aliases))
                    for i in items)
         )
-        if not has_self:
+        # ③ 지주사·종합제조가 제품별 당사 점유율을 한 표에 나열하면(LG 2019A:
+        #    TV 16.3 + 텔레매틱스 16.5 + 반도체기판 22.9 …) 합이 우연히 ≈100% 가
+        #    된다. 행 이름은 제품이지 고객사가 아니다. 구성비 지문(내수/수출/OEM/
+        #    고객/(주))이 하나라도 있을 때만 결함으로 본다.
+        _MIX_HINTS = ("내수", "수출", "OEM", "고객", "거래처", "(주)", "㈜", "주식회사")
+        looks_mix = any(any(h in (i["item_name"] or "") for h in _MIX_HINTS)
+                        for i in items)
+        if not has_self and looks_mix:
             bad.append({"corp_code": k[0], "name": nm, "period_key": k[1],
                         "axis": k[2], "amount": round(total, 1), "n": len(items)})
     fails += _report("시장점유율에 당사 없음 + 합계≈100% (고객사 구성비 의심)", bad,
