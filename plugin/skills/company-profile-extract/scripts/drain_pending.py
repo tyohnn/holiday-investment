@@ -16,6 +16,7 @@ import argparse
 import datetime as dt
 import json
 import os
+import signal
 import sys
 import traceback
 import urllib.parse
@@ -44,6 +45,25 @@ _SEASON = {
 # limit=200 / offset<4000 이면 창 끝 미적재가 스캔 밖으로 남았다.
 _PAGE = 500
 _SCAN_CAP = 10000
+# 한 회차 추출이 REST 재시도(최대 10×60s)에 묶이면 창이 멈춘다.
+_EXTRACT_SEC = 180
+
+
+class _ExtractTimeout(Exception):
+    pass
+
+
+def _run_extract(corp, rcept):
+    def _on_alarm(_signum, _frame):
+        raise _ExtractTimeout("extract timeout %ss" % _EXTRACT_SEC)
+
+    old = signal.signal(signal.SIGALRM, _on_alarm)
+    signal.alarm(_EXTRACT_SEC)
+    try:
+        return ep.run([corp], [rcept], do_load=True)
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, old)
 
 
 def _pending_window(report_like, gte, lte, n=400, exclude=None):
@@ -128,7 +148,7 @@ def _extract_pairs(pairs, log_path, done):
                   flush=True)
             status, extra = "ok", ""
             try:
-                fails = ep.run([corp], [rcept], do_load=True)
+                fails = _run_extract(corp, rcept)
                 if fails:
                     status = "fail"
                     extra = (fails[0].get("exc_msg") or "")[:200]
@@ -140,8 +160,8 @@ def _extract_pairs(pairs, log_path, done):
             log.write(json.dumps(rec, ensure_ascii=False) + "\n")
             log.flush()
             print("=> %s %s" % (status, extra[:120]), flush=True)
+            done.add((corp, rcept))
             if status == "ok":
-                done.add((corp, rcept))
                 n_ok += 1
             else:
                 n_fail += 1
