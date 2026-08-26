@@ -32,18 +32,22 @@ _SEASON = {
 }
 
 
+_PAGE = 500
+_SCAN_CAP = 10000
+
+
 def _pending_window(report_like, gte, lte, n=80):
     """창 안 ok 원문 중 sections_extracted_at 이 없는 쌍을 최대 n개."""
     out, offset = [], 0
     like = urllib.parse.quote(report_like, safe="")
-    while len(out) < n and offset < 4000:
+    while len(out) < n and offset < _SCAN_CAP:
         q = (
             "filings?select=corp_code,rcept_no,rcept_dt,report_nm"
             "&report_nm=like." + like
             + "&rcept_dt=gte." + gte
             + "&rcept_dt=lte." + lte
             + "&order=rcept_dt.desc,rcept_no.desc"
-            + "&limit=200&offset=" + str(offset)
+            + "&limit=" + str(_PAGE) + "&offset=" + str(offset)
         )
         rows = ingest.rest("GET", q)
         if not rows:
@@ -66,11 +70,11 @@ def _pending_window(report_like, gte, lte, n=80):
                             "storage_path": path})
                 if len(out) >= n:
                     break
-        offset += 200
-        if offset % 400 == 0:
+        offset += _PAGE
+        if offset % 1000 == 0:
             print("  sections scan %s..%s offset=%d found=%d" % (gte, lte, offset, len(out)),
                   flush=True)
-        if len(rows) < 200:
+        if len(rows) < _PAGE:
             break
     return out
 

@@ -117,13 +117,14 @@ def pending_notes(since, until, n, skip, kind="A"):
     like = urllib.parse.quote(KIND[kind][0], safe="")
     out, offset = [], 0
     until_q = ("&rcept_dt=lte." + until) if until else ""
-    while len(out) < n and offset < 8000:
+    page, cap = 500, 10000
+    while len(out) < n and offset < cap:
         rows = ingest.rest("GET",
             "filings?select=corp_code,rcept_no,report_nm"
             "&report_nm=like." + like
             + "&rcept_dt=gte." + since
             + until_q
-            + "&order=rcept_dt.desc&limit=100&offset=" + str(offset))
+            + "&order=rcept_dt.desc&limit=" + str(page) + "&offset=" + str(offset))
         if not rows:
             break
         rcepts = [r["rcept_no"] for r in rows
@@ -140,10 +141,10 @@ def pending_notes(since, until, n, skip, kind="A"):
                     out.append(r)
                     if len(out) >= n:
                         break
-        offset += 100
-        if offset % 500 == 0:
+        offset += page
+        if offset % 1000 == 0:
             print("  notes scan offset=%d found=%d" % (offset, len(out)), flush=True)
-        if len(rows) < 100:
+        if len(rows) < page:
             break
     return out
 
