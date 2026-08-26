@@ -8,6 +8,10 @@ fnlttSinglAcntAll 은 2015부터다. pre-2015 은 이 경로로 못 채운다.
 
     python3 drain_missing_fin.py --kind A --log /tmp/logs/drain-fin-a.jsonl
     python3 drain_missing_fin.py --kind Q --log /tmp/logs/drain-fin-q.jsonl
+    python3 drain_missing_fin.py --kind H --jobs /tmp/missing_fin_h.jsonl --log /tmp/logs/drain-fin-h.jsonl
+
+디스커버는 회계연도별로 접수 창을 나눠 페이지한다. 전역 offset 상한은
+최신 2만 건만 보고 2015 반기·분기를 놓친다.
 """
 import argparse
 import json
@@ -31,6 +35,7 @@ _KIND = {
     "Q": ("*분기보고서 (*", None, True),
 }
 _PAGE = 500
+# 연도 창마다 상한. 예전 전역 20000 은 최신부터 잘라 2015 H/Q 를 통째로 놓쳤다.
 _SCAN_CAP = 20000
 
 
@@ -86,52 +91,62 @@ def _have_periods(pairs):
     return have
 
 
+def _window(kind, fy):
+    """회계연도 fy 의 접수일 창. 지연 공시를 위해 다음 해 상반기까지 본다."""
+    if kind == "A":
+        return "%d0301" % (fy + 1), "%d0630" % (fy + 2)
+    return "%d0101" % fy, "%d0630" % (fy + 1)
+
+
 def _discover(kind, since_year):
     like = _KIND[kind][0]
     enc = __import__("urllib.parse").parse.quote(like, safe="")
-    # 사업보고서는 다음 해 3월 접수, 분기·반기는 해당 연도에 접수.
-    gte = ("%d0301" % (since_year + 1)) if kind == "A" else ("%d0101" % since_year)
     cand, seen = [], set()
-    offset = 0
-    while offset < _SCAN_CAP:
-        rows = ingest.rest("GET",
-            "filings?select=corp_code,rcept_no,report_nm"
-            "&report_nm=like." + enc
-            + "&rcept_dt=gte." + gte
-            + "&order=rcept_dt.desc,rcept_no.desc"
-            + "&limit=%d&offset=%d" % (_PAGE, offset))
-        if not rows:
-            break
-        rcepts = [r["rcept_no"] for r in rows
-                  if "제출기한연장" not in (r.get("report_nm") or "")]
-        ok = set()
-        if rcepts:
-            docs = ingest.rest("GET",
-                "filing_docs?select=rcept_no,status&rcept_no=in.("
-                + ",".join(rcepts) + ")")
-            ok = {d["rcept_no"] for d in (docs or []) if d.get("status") == "ok"}
-        for r in rows:
-            if r["rcept_no"] not in ok:
-                continue
-            year, _mo = _year_month(r.get("report_nm"))
-            if year is None or year < since_year:
-                continue
-            reprt = _reprt_of(kind, r.get("report_nm"))
-            if not reprt:
-                continue
-            key = (r["corp_code"], year, reprt)
-            if key in seen:
-                continue
-            seen.add(key)
-            pkey = _period_key(kind, year, reprt)
-            if not pkey:
-                continue
-            cand.append((r["corp_code"], year, reprt, pkey))
-        offset += _PAGE
-        if offset % 2000 == 0:
-            print("  discover offset=%d cand=%d" % (offset, len(cand)), flush=True)
-        if len(rows) < _PAGE:
-            break
+    this_year = time.gmtime().tm_year
+    for fy in range(this_year, since_year - 1, -1):
+        gte, lte = _window(kind, fy)
+        offset = 0
+        before = len(cand)
+        while offset < _SCAN_CAP:
+            rows = ingest.rest("GET",
+                "filings?select=corp_code,rcept_no,report_nm"
+                "&report_nm=like." + enc
+                + "&rcept_dt=gte." + gte
+                + "&rcept_dt=lte." + lte
+                + "&order=rcept_dt.desc,rcept_no.desc"
+                + "&limit=%d&offset=%d" % (_PAGE, offset))
+            if not rows:
+                break
+            rcepts = [r["rcept_no"] for r in rows
+                      if "제출기한연장" not in (r.get("report_nm") or "")]
+            ok = set()
+            if rcepts:
+                docs = ingest.rest("GET",
+                    "filing_docs?select=rcept_no,status&rcept_no=in.("
+                    + ",".join(rcepts) + ")")
+                ok = {d["rcept_no"] for d in (docs or []) if d.get("status") == "ok"}
+            for r in rows:
+                if r["rcept_no"] not in ok:
+                    continue
+                year, _mo = _year_month(r.get("report_nm"))
+                if year != fy:
+                    continue
+                reprt = _reprt_of(kind, r.get("report_nm"))
+                if not reprt:
+                    continue
+                key = (r["corp_code"], year, reprt)
+                if key in seen:
+                    continue
+                seen.add(key)
+                pkey = _period_key(kind, year, reprt)
+                if not pkey:
+                    continue
+                cand.append((r["corp_code"], year, reprt, pkey))
+            offset += _PAGE
+            if len(rows) < _PAGE:
+                break
+        print("  discover fy=%d +%d total=%d" % (
+            fy, len(cand) - before, len(cand)), flush=True)
     have = _have_periods([(c, k) for (c, _y, _r, k) in cand])
     jobs = [{"corp": c, "year": y, "reprt": r}
             for (c, y, r, k) in cand if (c, k) not in have]
