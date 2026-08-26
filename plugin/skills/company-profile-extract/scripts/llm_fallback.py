@@ -305,6 +305,21 @@ def _write_prepare_file(out_dir, corp_code, rcept_no, block, cut_text, spans, cu
     return fn
 
 
+def _find_section(sections, *needles):
+    """정확 키 우선, 없으면 공백을 지운 제목에 needle 이 들어 있는 첫 섹션.
+    2005년식 'I.회사의 개황'·'II.사업의 내용(제조업)' 을 현행 목차명과 같은 칸으로
+    본다(2026-08-26 배치17 SP삼화: 정확 매칭만 해서 prepare 0파일)."""
+    for n in needles:
+        if n in sections:
+            return n, sections[n]
+    compact_needles = [n.replace(" ", "") for n in needles]
+    for title, body in sections.items():
+        compact = title.replace(" ", "")
+        if any(n in compact for n in compact_needles):
+            return title, body
+    return None, None
+
+
 def prepare_one(corp_code, rcept_no, out_dir, force=False):
     """규칙 파서가 0행으로 남긴 블록의 prepare 파일을 쓴다. 반환: (쓴 파일 경로 목록, notes)."""
     notes = []
@@ -319,23 +334,27 @@ def prepare_one(corp_code, rcept_no, out_dir, force=False):
     def _need(block):
         return force or not existing.get(block)
 
+    overview_title, overview_md = _find_section(
+        sections, "I. 회사의 개요", "회사의 개요", "회사의 개황")
     if _need("corp_history"):
-        if "I. 회사의 개요" in sections:
-            cut, span = cut_heading_block(sections["I. 회사의 개요"], HISTORY_HEADING_RE)
+        if overview_md is not None:
+            cut, span = cut_heading_block(overview_md, HISTORY_HEADING_RE)
             if cut:
                 fn = _write_prepare_file(out_dir, corp_code, rcept_no, "corp_history", cut,
                                           [span], "heading:%s" % HISTORY_HEADING_RE.pattern)
                 written.append(fn)
-                notes.append("연혁: prepare 파일=%s (원문 %d~%d행)" % (fn, span[0], span[1]))
+                notes.append("연혁: prepare 파일=%s (원문 %d~%d행, 섹션=%s)" %
+                             (fn, span[0], span[1], overview_title))
             else:
                 notes.append("연혁: '## N. 회사의 연혁' 헤딩을 못 찾음 — prepare 생략(확인불가 후보)")
         else:
-            notes.append("연혁: 'I. 회사의 개요' 섹션 없음 — prepare 생략")
+            notes.append("연혁: 'I. 회사의 개요/개황' 섹션 없음 — prepare 생략")
     else:
         notes.append("연혁: 이미 corp_history 에 적재된 행 있음 — prepare 스킵(--force 로 재생성)")
 
-    if "II. 사업의 내용" in sections:
-        md = sections["II. 사업의 내용"]
+    biz_title, biz_md = _find_section(sections, "II. 사업의 내용", "사업의 내용")
+    if biz_md is not None:
+        md = biz_md
         if _need("market_share"):
             cut, spans, hit_kw = cut_keyword_windows(md, MARKET_SHARE_KEYWORDS)
             if cut:
@@ -465,6 +484,9 @@ def build_numeric_facts(concept, block_label, items, fy_int, full_section_text,
         if not it.get("item_name") or not it.get("source_table"):
             dropped_no_source += 1
             continue  # 출처 없는 항목은 적재 거부
+        if concept == "segment_revenue" and ep.norm(it.get("item_name") or "") in (
+                "합계", "계", "소계", "총계"):
+            continue
         hdr = it.get("period_header") or ""
         if any(tok in hdr for tok in ("예상", "전망", "계획")):
             continue  # 실적이 아닌 전망 열 (2026-08-26 이구산업 2026A 24% 실측)
@@ -558,7 +580,8 @@ def ingest_one(payload, do_load, notes):
             # prepare 단계에서 이미 이 섹션을 읽어야 절단분을 냈을 것이므로, ingest 시점에
             # 없다면 그 사이 뭔가 바뀐 것 — 조용히 넘어가지 않고 명확히 실패시킨다.
             raise RuntimeError("기간 라벨 해석에 필요한 원문 섹션을 다시 읽지 못함: %s" % err)
-        full_section_text = sections.get("II. 사업의 내용", "")
+        _biz_title, biz_md = _find_section(sections, "II. 사업의 내용", "사업의 내용")
+        full_section_text = biz_md or ""
 
     fy_int, _fy_period_key, _fy_report_nm = ep.report_fiscal_year(rcept_no)
 
