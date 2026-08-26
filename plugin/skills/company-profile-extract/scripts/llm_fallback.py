@@ -476,6 +476,11 @@ def build_numeric_facts(concept, block_label, items, fy_int, full_section_text,
             continue
         raw = it.get("raw_amount")
         v = ep.num(raw)
+        raw_s = "" if raw is None else str(raw)
+        # '1%미만'·'해당없음'은 숫자가 아니다. num()은 None을 내지만, 예전엔
+        # 확인불가 행을 12건씩 남겼다(2026-08-26 이스타코 00134565 실측).
+        if v is None and any(tok in raw_s for tok in ("미만", "이상", "해당없", "산정곤란", "기재생략")):
+            continue
         unit_label = _normalize_unit_label(it.get("unit_label"))
         amount, unit_out, status = None, None, "확인불가:원문값없음(공란)"
         if v is not None:
