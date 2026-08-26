@@ -100,7 +100,7 @@ def upsert_notes(corp, year, rcept, rows, reprt_code="11011"):
 
 def noted_set():
     out, offset = set(), 0
-    while offset < 20000:
+    while True:
         rows = ingest.rest("GET",
             "financial_facts?select=rcept_no&sj_div=eq.NOTE&limit=1000&offset=%d"
             % offset)
@@ -110,12 +110,15 @@ def noted_set():
         if len(rows) < 1000:
             break
         offset += 1000
+        if offset % 10000 == 0:
+            print("  noted_set offset=%d distinct=%d" % (offset, len(out)), flush=True)
     return out
 
 
-def pending_notes(since, until, n, skip, kind="A"):
+def pending_notes(since, until, n, skip, kind="A", noted=None):
     like = urllib.parse.quote(KIND[kind][0], safe="")
     out, offset = [], 0
+    noted = noted or set()
     until_q = ("&rcept_dt=lte." + until) if until else ""
     page, cap = 500, 10000
     while len(out) < n and offset < cap:
@@ -137,6 +140,7 @@ def pending_notes(since, until, n, skip, kind="A"):
             for r in rows:
                 key = (r["corp_code"], r["rcept_no"])
                 if (r["rcept_no"] in have and key not in skip
+                        and r["rcept_no"] not in noted
                         and all(x["rcept_no"] != r["rcept_no"] for x in out)):
                     out.append(r)
                     if len(out) >= n:
@@ -204,9 +208,8 @@ def main():
             if args.empties_from:
                 # 지정 로그만 재처리하고 끝낸다. pending_notes 스캔은 하지 않는다.
                 break
-            pairs = [p for p in pending_notes(args.since, args.until, args.batch, skip,
-                                              kind=args.kind)
-                     if p["rcept_no"] not in noted]
+            pairs = pending_notes(args.since, args.until, args.batch, skip,
+                                 kind=args.kind, noted=noted)
         print("kind=%s pending_notes=%d" % (args.kind, len(pairs)), flush=True)
         if not pairs:
             break

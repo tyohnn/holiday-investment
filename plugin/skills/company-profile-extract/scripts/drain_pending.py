@@ -160,6 +160,8 @@ def main():
                     help="창을 비운 뒤 최근 --recent-days 를 다시 본다 (Phase 3 증분)")
     ap.add_argument("--sleep", type=int, default=90)
     ap.add_argument("--log", required=True)
+    ap.add_argument("--count", action="store_true",
+                    help="창별 pending 만 찍고 추출하지 않는다 (잔량 실측)")
     args = ap.parse_args()
 
     like = _KIND[args.kind]
@@ -201,12 +203,19 @@ def main():
                 print("window %s %s..%s pending=%d" % (tag, gte, lte, len(pairs)), flush=True)
                 if not pairs:
                     break
+                if args.count:
+                    break
                 ok, fail = _extract_pairs(pairs, args.log, done)
                 n_ok += ok
                 n_fail += fail
                 if len(pairs) < args.batch:
                     break
         return n_ok, n_fail
+
+    if args.count:
+        args.batch = max(args.batch, 4000)
+        _run(windows)
+        return 0
 
     total_ok, total_fail = _run(windows)
     while args.loop:
