@@ -159,7 +159,7 @@ python3 plugin/skills/company-profile-extract/scripts/extract_profile.py pending
 호스티드에서 `pending` 전량 페이지는 statement timeout 이 난다. 전회차 소진은
 `drain_pending.py --kind A|H|Q --walk-back` 이 rcept_dt 창만 받아 (corp, rcept)
 1:1 로 `run` 한다. 분기는 `--months 5,8,11`. Phase 3 증분은 `--loop --recent-days`.
-주석은 `drain_notes.py`(섹션 있는 사업보고서 → `sj_div=NOTE`).
+주석은 `drain_notes.py --kind A|H|Q`(섹션 있는 정기보고서 → `sj_div=NOTE`).
 
 ## 여러 회사를 배치로 돌릴 때 (서브에이전트 병렬)
 
@@ -337,7 +337,8 @@ python3 plugin/skills/company-profile-extract/scripts/extract_profile.py verify 
 |---|---|
 | `scripts/extract_profile.py` | 파서 5개 + 게이트 4종 + 적재(`extract`) + 검증만(`verify`) + 일일 진입점(`pending`) |
 | `scripts/drain_pending.py` | ok 원문 중 `fin_details` 없는 회차를 날짜 창으로 계속 `run` (호스티드 `pending` 타임아웃 우회, 연간·반기·분기) |
-| `scripts/drain_notes.py` | 섹션 있는 사업보고서 주석 39종 → `financial_facts(sj_div=NOTE)` 증분 |
+| `scripts/drain_notes.py` | 섹션 있는 정기보고서 주석 39종 → `financial_facts(sj_div=NOTE)` 증분 (`--kind A|H|Q`) |
+| `scripts/measure_coverage.py` | ok 원문 대비 프로필·주석 적재 잔량을 연·종류별로 센다 |
 | `scripts/llm_fallback.py` | 에이전트 폴백 2단계 — 원문 절단+지시문 파일 생성(`prepare`), 에이전트가 채운 JSON 게이트·적재(`ingest`). `extract_profile.py`를 import해 결정론적 함수(`num`/`parse_period_col`/`infer_period_labels`/`fact`/`apply_gates`)를 재사용한다(모델 호출 없음, `ANTHROPIC_API_KEY` 안 읽음). |
 
 두 스크립트 모두 순수 표준 라이브러리 + 레포 내 `platform/ingest/ingest.py`(PostgREST/

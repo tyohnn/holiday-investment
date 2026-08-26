@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""섹션이 있는 사업보고서에서 주석 39종을 financial_facts(sj_div=NOTE)에 계속 적재.
+"""섹션이 있는 정기보고서에서 주석 39종을 financial_facts(sj_div=NOTE)에 계속 적재.
 
 이미 NOTE 가 있는 rcept 와 로그에 찍힌 회차는 건너뛴다. --since 이후 접수분부터
 최신 순으로 창을 넓혀 간다.
@@ -20,6 +20,12 @@ import extract_notes_full as nf  # noqa: E402
 import ingest  # noqa: E402
 
 YEAR_RE = re.compile(r"\((\d{4})\.")
+MONTH_RE = re.compile(r"\((\d{4})\.(\d{2})")
+KIND = {
+    "A": ("*사업보고서 (*", "11011"),
+    "H": ("*반기보고서 (*", "11012"),
+    "Q": ("*분기보고서 (*", None),  # 1Q=11013 · 3Q=11014, report_nm 월로 가름
+}
 NOTE_PREF = (
     "3. 연결재무제표 주석",
     "연결재무제표 주석",
@@ -63,10 +69,25 @@ def load_one(corp, rcept):
     return d[title], title
 
 
-def upsert_notes(corp, year, rcept, rows):
+def reprt_of(kind, report_nm):
+    _like, code = KIND[kind]
+    if code:
+        return code
+    m = MONTH_RE.search(report_nm or "")
+    if not m:
+        return "11013"
+    month = int(m.group(2))
+    if month <= 3:
+        return "11013"
+    if month <= 6:
+        return "11012"
+    return "11014"
+
+
+def upsert_notes(corp, year, rcept, rows, reprt_code="11011"):
     filters = {
         "corp_code": "eq.%s" % corp, "bsns_year": "eq.%s" % year,
-        "reprt_code": "eq.11011", "fs_div": "eq.CFS", "sj_div": "eq.NOTE",
+        "reprt_code": "eq.%s" % reprt_code, "fs_div": "eq.CFS", "sj_div": "eq.NOTE",
     }
     ingest.rest("DELETE", "financial_facts?%s" % urllib.parse.urlencode(filters))
     if not rows:
@@ -92,8 +113,8 @@ def noted_set():
     return out
 
 
-def pending_notes(since, until, n, skip):
-    like = urllib.parse.quote("*사업보고서 (*", safe="")
+def pending_notes(since, until, n, skip, kind="A"):
+    like = urllib.parse.quote(KIND[kind][0], safe="")
     out, offset = [], 0
     until_q = ("&rcept_dt=lte." + until) if until else ""
     while len(out) < n and offset < 8000:
@@ -131,6 +152,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--since", default="20200101")
     ap.add_argument("--until", default=None, help="YYYYMMDD 창 끝. 없으면 since 이후 전부")
+    ap.add_argument("--kind", default="A", choices=("A", "H", "Q"),
+                    help="A=사업 · H=반기 · Q=분기. 기본 사업보고서")
     ap.add_argument("--log", required=True)
     ap.add_argument("--batch", type=int, default=200)
     args = ap.parse_args()
@@ -146,9 +169,10 @@ def main():
     os.makedirs(os.path.dirname(args.log) or ".", exist_ok=True)
 
     while True:
-        pairs = [p for p in pending_notes(args.since, args.until, args.batch, skip)
+        pairs = [p for p in pending_notes(args.since, args.until, args.batch, skip,
+                                          kind=args.kind)
                  if p["rcept_no"] not in noted]
-        print("pending_notes=%d" % len(pairs), flush=True)
+        print("kind=%s pending_notes=%d" % (args.kind, len(pairs)), flush=True)
         if not pairs:
             break
         with open(args.log, "a", encoding="utf-8") as log:
@@ -165,9 +189,11 @@ def main():
                             status, extra = info.split(":", 1)[0], info
                         else:
                             facts, notes = nf.build_facts(corp, rcept, year, md, [])
-                            rows = [nf.fact_row(corp, year, rcept, lab, cur, prev, cap)
+                            code = reprt_of(args.kind, p.get("report_nm"))
+                            rows = [nf.fact_row(corp, year, rcept, lab, cur, prev, cap,
+                                                reprt_code=code)
                                     for (lab, cur, prev, cap) in facts]
-                            n = upsert_notes(corp, year, rcept, rows)
+                            n = upsert_notes(corp, year, rcept, rows, reprt_code=code)
                             extra = "title=%s facts=%d notes=%d" % (info, n, len(notes))
                             if n == 0:
                                 status = "empty"

@@ -198,5 +198,7 @@ fin_details 13,029 / 439사 · corp_history 9,939 / 424사.
 `docs_storage.pending_docs` 는 임베디드 조인 대신 filings→filing_docs 두 단계.
 
 전회차 소진 진입점: `drain_pending.py --kind A|H|Q --walk-back` (날짜 창 REST,
-`pending` 전량 타임아웃 우회). 주석은 `drain_notes.py`. 2026-08-26 16:00 이후
-연간 2022·2017 창과 반기·주석 드레인이 병렬로 돈다.
+`pending` 전량 타임아웃 우회). 주석은 `drain_notes.py --kind A|H|Q`.
+잔량 스냅샷은 `measure_coverage.py`. Phase 3 최근 14일은 `--loop` 워커가 비운 뒤
+다시 본다. 2026-08-26 16:20 이후 연간·반기·분기 빈 해를 창 단위로 채우고,
+반기·분기 주석 드레인을 연간과 같이 돌린다.

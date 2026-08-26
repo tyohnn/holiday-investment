@@ -551,11 +551,12 @@ def _parse_other_income_cost(md_text, notes):
     return rev, cost
 
 
-def fact_row(corp_code, bsns_year, rcept_no, account_nm, amount_mm, amount_prev_mm, caption):
+def fact_row(corp_code, bsns_year, rcept_no, account_nm, amount_mm, amount_prev_mm, caption,
+             reprt_code="11011"):
     def to_krw(mm):
         return None if mm is None else int(round(mm * 1_000_000))
     return {
-        "corp_code": corp_code, "bsns_year": bsns_year, "reprt_code": "11011",
+        "corp_code": corp_code, "bsns_year": bsns_year, "reprt_code": reprt_code,
         "fs_div": "CFS", "sj_div": "NOTE",
         "account_id": ACCOUNT_ID_SENTINEL, "account_nm": account_nm,
         "amount": to_krw(amount_mm), "amount_prev": to_krw(amount_prev_mm),
