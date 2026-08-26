@@ -201,12 +201,12 @@ def main():
             pairs = empty_pairs
             empty_pairs = []
         else:
+            if args.empties_from:
+                # 지정 로그만 재처리하고 끝낸다. pending_notes 스캔은 하지 않는다.
+                break
             pairs = [p for p in pending_notes(args.since, args.until, args.batch, skip,
                                               kind=args.kind)
                      if p["rcept_no"] not in noted]
-            if args.empties_from:
-                # 지정 로그만 재처리하고 끝낸다.
-                break
         print("kind=%s pending_notes=%d" % (args.kind, len(pairs)), flush=True)
         if not pairs:
             break
