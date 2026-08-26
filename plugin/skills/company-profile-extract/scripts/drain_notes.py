@@ -154,6 +154,8 @@ def main():
     ap.add_argument("--until", default=None, help="YYYYMMDD 창 끝. 없으면 since 이후 전부")
     ap.add_argument("--kind", default="A", choices=("A", "H", "Q"),
                     help="A=사업 · H=반기 · Q=분기. 기본 사업보고서")
+    ap.add_argument("--retry-empty", action="store_true",
+                    help="로그에 empty 로 찍힌 회차를 다시 넣는다(파서 개선 후)")
     ap.add_argument("--log", required=True)
     ap.add_argument("--batch", type=int, default=200)
     args = ap.parse_args()
@@ -162,6 +164,8 @@ def main():
     if os.path.exists(args.log):
         for line in open(args.log, encoding="utf-8"):
             rec = json.loads(line)
+            if args.retry_empty and rec.get("status") == "empty":
+                continue
             skip.add((rec["corp"], rec["rcept"]))
     noted = noted_set()
     print("skip_log=%d noted=%d" % (len(skip), len(noted)), flush=True)

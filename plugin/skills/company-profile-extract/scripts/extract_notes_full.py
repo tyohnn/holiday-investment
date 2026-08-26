@@ -97,6 +97,19 @@ CORP_CODE = "00126380"
 SOURCE_PREFIX = "NOTE:"
 
 _CAPTION_RE = re.compile(r"^\| *([^|]+?) *\| *— *\|\s*$", re.MULTILINE)
+# 삼성 주석은 '| 캡션 | — |' + 당기/전기 블록. 다른 회사는 '20. 비용의 성격별 분류'
+# 제목 + '구분|당기|전기' 한 표. 후자를 못 받으면 empty 가 대부분이었다.
+_CAPTION_NEEDLES = {
+    "비용의 성격별 분류 공시": ("비용의 성격별 분류 공시", "비용의 성격별 분류"),
+    "판매비와관리비에 대한 공시": (
+        "판매비와관리비에 대한 공시", "판매비와 관리비의 상세", "판매비와관리비의 상세",
+        "판매비와 관리비의 내역"),
+    "금융수익 및 금융비용": ("금융수익 및 금융비용", "금융수익과 금융비용"),
+    "기타수익 및 기타비용": ("기타수익 및 기타비용", "기타손익"),
+    "영업활동현금흐름": ("영업활동현금흐름", "영업활동으로 인한 현금흐름"),
+}
+_HEADING_END = re.compile(r"(?m)^\d+\.\s+\S")
+_COMBINED_DEP = "감가상각비와 무형자산상각비"
 
 
 # ══════════════════════════════════════════════════════════ 원시 유틸 (파일럿 재사용 + 확장)
@@ -128,19 +141,88 @@ def load_note_section(corp_code, rcept_no, title="3. 연결재무제표 주석")
     return d[title]
 
 
+def _unit_scale_million(window):
+    """표 숫자를 백만원으로 맞춘다. fact_row 가 ×1,000,000 해서 원으로 적재한다.
+    천원 표를 백만원으로 착각하면 1,000배가 되므로 단위 칸을 분명히 읽었을 때만 나눈다."""
+    m = re.search(r"단위\s*[:：]?\s*([^)\n|]{1,16})", window)
+    if not m:
+        return 1.0
+    unit = re.sub(r"\s+", "", m.group(1))
+    if "백만원" in unit:
+        return 1.0
+    if "천원" in unit:
+        return 0.001
+    if unit.endswith("원"):
+        return 0.000001
+    return 1.0
+
+
 def _split_당기_전기(md_text, caption):
-    """캡션 뒤 '당기'/'전기' 두 블록을 다음 같은 레벨 캡션 직전까지 정확히 자른다
-    (extract_notes_pilot.py 의 동명 함수와 동일 — 그대로 복제, 새 파일에서도 독립적으로
-    동작하게 하기 위함이다)."""
+    """캡션 뒤 구간을 다음 같은 레벨 캡션(또는 'N. 제목') 직전까지 자른다.
+
+    삼성형: '| 캡션 | — |' 2열. 다른 회사: '20. 비용의 성격별 분류' 같은 번호 제목.
+    """
     caps = [(m.start(), m.group(1).strip()) for m in _CAPTION_RE.finditer(md_text)]
-    idx = next((i for i, (_, label) in enumerate(caps) if label == caption), None)
-    if idx is None:
+    idx = next((i for i, (_, label) in enumerate(caps) if label == caption
+                or caption in label), None)
+    if idx is not None:
+        start = caps[idx][0]
+        end = caps[idx + 1][0] if idx + 1 < len(caps) else len(md_text)
+        window = md_text[start:end]
+        return window, ep.parse_md_tables(window)
+    needles = _CAPTION_NEEDLES.get(caption, (caption,))
+    best = None
+    for needle in needles:
+        pos = md_text.find(needle)
+        if pos < 0:
+            continue
+        line_start = md_text.rfind("\n", 0, pos) + 1
+        rest = md_text[pos + len(needle):]
+        m2 = _HEADING_END.search(rest)
+        end = pos + len(needle) + m2.start() if m2 else len(md_text)
+        if best is None or line_start < best[0]:
+            best = (line_start, end)
+    if best is None:
         raise RuntimeError("캡션을 찾지 못함: %r" % caption)
-    start = caps[idx][0]
-    end = caps[idx + 1][0] if idx + 1 < len(caps) else len(md_text)
-    window = md_text[start:end]
-    tables = ep.parse_md_tables(window)
-    return window, tables
+    window = md_text[best[0]:best[1]]
+    return window, ep.parse_md_tables(window)
+
+
+def _parse_column_당기전기(tables, scale):
+    """헤더가 '구분 | 당기 | 전기'(또는 당분기/전분기) 인 한 표."""
+    out = {"당기": {}, "전기": {}}
+    col_alias = {"당기": "당기", "전기": "전기", "당분기": "당기", "전분기": "전기",
+                 "당반기": "당기", "전반기": "전기"}
+    for t in tables:
+        header = [ep.norm(c) for c in t["header"]]
+        idxs = {}
+        for i, h in enumerate(header):
+            if h in col_alias and col_alias[h] not in idxs:
+                idxs[col_alias[h]] = i
+        if "당기" not in idxs or "전기" not in idxs:
+            continue
+        for row in t["rows"]:
+            if not row:
+                continue
+            label = (row[0] or "").strip()
+            if not label or label in ("구 분", "구분", "합 계", "합계", "합 계(*)", "합계(*)"):
+                continue
+            if _COMBINED_DEP in label.replace(" ", ""):
+                continue
+            for period, idx in idxs.items():
+                if idx >= len(row):
+                    continue
+                v = num_signed(row[idx])
+                if v is None:
+                    continue
+                out[period][label] = v * scale
+    return out
+
+
+def _apply_scale(items, scale):
+    if scale == 1.0:
+        return items
+    return {p: {k: v * scale for k, v in d.items()} for p, d in items.items()}
 
 
 def _period_marker(cells):
@@ -171,6 +253,7 @@ def parse_block_items(md_text, caption, notes):
     (SKIP 리스트를 여기 두지 않는 이유: 표마다 스킵할 라벨이 다르고, 원시 파서는 최대한
     무판단으로 두는 편이 재사용성이 높다)."""
     window, tables = _split_당기_전기(md_text, caption)
+    scale = _unit_scale_million(window)
     out = {"당기": {}, "전기": {}}
     cur_period = None
     for t in tables:
@@ -198,7 +281,9 @@ def parse_block_items(md_text, caption, notes):
                              (caption, label, cur_period, out[cur_period][label], v))
                 continue
             out[cur_period][label] = v
-    return out
+    if not out["당기"] and not out["전기"]:
+        return _parse_column_당기전기(tables, scale)
+    return _apply_scale(out, scale)
 
 
 def parse_equity_method(md_text, notes):
@@ -460,6 +545,41 @@ def _parse_operating_cf(md_text, notes):
     return adj, wc
 
 
+def _split_rev_cost_columns(tables, scale, rev_mark, cost_mark, relabel):
+    """구분|당기|전기 표에서 '금융수익'/'금융비용' 같은 구간 헤더로 수익·비용을 나눈다."""
+    cols = _parse_column_당기전기(tables, scale)
+    rev = {"당기": {}, "전기": {}}
+    cost = {"당기": {}, "전기": {}}
+    section = "rev"
+    # 열 파서는 구간 헤더 행(금액 없음)을 건너뛰므로, 원 표를 다시 훑어 순서를 본다.
+    order = []
+    for t in tables:
+        header = [ep.norm(c) for c in t["header"]]
+        if "당기" not in header and "당분기" not in header and "당반기" not in header:
+            continue
+        for row in t["rows"]:
+            if not row:
+                continue
+            lab = (row[0] or "").strip()
+            if lab == rev_mark:
+                section = "rev"
+                continue
+            if lab == cost_mark:
+                section = "cost"
+                continue
+            order.append((section, lab))
+    for section, lab in order:
+        store = relabel(section, lab)
+        if store is None:
+            continue
+        bucket = rev if section == "rev" else cost
+        if lab in cols["당기"]:
+            bucket["당기"][store] = cols["당기"][lab]
+        if lab in cols["전기"]:
+            bucket["전기"][store] = cols["전기"][lab]
+    return rev, cost
+
+
 def _parse_financial_income_cost(md_text, notes):
     """'금융수익 및 금융비용' 표 — '외환차이' 라벨이 수익/비용 양쪽에 같은 이름으로
     나와 parse_block_items 의 '한 라벨 한 값' 가정이 깨진다. 그래서 이 표만은 각 기간
@@ -475,6 +595,7 @@ def _parse_financial_income_cost(md_text, notes):
     0행이었다, 채점표 문서의 '일치' 판정은 이 결함이 있기 전 수동 검산 기준이었던 것으로
     보인다). '기타' 재라벨링과 동일한 방식으로 '외환차이'만 섹션별로 재라벨링한다."""
     window, tables = _split_당기_전기(md_text, "금융수익 및 금융비용")
+    scale = _unit_scale_million(window)
     rev = {"당기": {}, "전기": {}}
     cost = {"당기": {}, "전기": {}}
     cur_period = None
@@ -507,6 +628,16 @@ def _parse_financial_income_cost(md_text, notes):
                           (label + "(금융비용)") if section == "cost" and label == "외환차이" else label
             bucket = rev if section == "rev" else cost
             bucket[cur_period][store_label] = v
+    if not rev["당기"] and not rev["전기"] and not cost["당기"] and not cost["전기"]:
+        def _relabel(section, lab):
+            if lab in ("금융수익", "금융비용", "금융수익 합계", "금융비용 합계"):
+                return None
+            if lab == "외환차이":
+                return "외환차이(금융수익)" if section == "rev" else "외환차이(금융비용)"
+            return lab
+        return _split_rev_cost_columns(tables, scale, "금융수익", "금융비용", _relabel)
+    if scale != 1.0:
+        rev, cost = _apply_scale(rev, scale), _apply_scale(cost, scale)
     return rev, cost
 
 
@@ -516,6 +647,7 @@ def _parse_other_income_cost(md_text, notes):
     구분한다(add() 호출부가 이 접미로 골라 쓴다) — account_nm 저장값 자체는 원문
     '기타' 그대로 쓴다(build_facts 의 add 호출에서 저장용 라벨을 별도로 넘긴다)."""
     window, tables = _split_당기_전기(md_text, "기타수익 및 기타비용")
+    scale = _unit_scale_million(window)
     rev = {"당기": {}, "전기": {}}
     cost = {"당기": {}, "전기": {}}
     cur_period = None
@@ -548,6 +680,16 @@ def _parse_other_income_cost(md_text, notes):
                           (label + "(기타비용)") if section == "cost" and label == "기타" else label
             bucket = rev if section == "rev" else cost
             bucket[cur_period][store_label] = v
+    if not rev["당기"] and not rev["전기"] and not cost["당기"] and not cost["전기"]:
+        def _relabel(section, lab):
+            if lab in ("기타수익", "기타비용"):
+                return None
+            if lab == "기타":
+                return "기타(기타수익)" if section == "rev" else "기타(기타비용)"
+            return lab
+        return _split_rev_cost_columns(tables, scale, "기타수익", "기타비용", _relabel)
+    if scale != 1.0:
+        rev, cost = _apply_scale(rev, scale), _apply_scale(cost, scale)
     return rev, cost
 
 

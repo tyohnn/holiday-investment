@@ -161,6 +161,7 @@ python3 plugin/skills/company-profile-extract/scripts/extract_profile.py pending
 1:1 로 `run` 한다. `--months` 를 비우면 시즌 월(A=3·4, H=8·9, Q=5·8·11)을 연다.
 Phase 3 증분은 `--loop --recent-days`.
 주석은 `drain_notes.py --kind A|H|Q`(섹션 있는 정기보고서 → `sj_div=NOTE`).
+파서 개선 뒤에는 `--retry-empty` 로 로그 empty 회차를 다시 넣는다.
 
 ## 여러 회사를 배치로 돌릴 때 (서브에이전트 병렬)
 
