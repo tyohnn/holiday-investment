@@ -113,8 +113,9 @@ def pending_notes(since, until, n, skip):
                 + ",".join(rcepts) + ")")
             have = {d["rcept_no"] for d in (docs or []) if d.get("sections_extracted_at")}
             for r in rows:
-                if (r["rcept_no"] in have
-                        and (r["corp_code"], r["rcept_no"]) not in skip):
+                key = (r["corp_code"], r["rcept_no"])
+                if (r["rcept_no"] in have and key not in skip
+                        and all(x["rcept_no"] != r["rcept_no"] for x in out)):
                     out.append(r)
                     if len(out) >= n:
                         break
