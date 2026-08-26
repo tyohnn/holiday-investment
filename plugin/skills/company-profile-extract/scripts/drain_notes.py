@@ -156,6 +156,8 @@ def main():
                     help="A=사업 · H=반기 · Q=분기. 기본 사업보고서")
     ap.add_argument("--retry-empty", action="store_true",
                     help="로그에 empty 로 찍힌 회차를 다시 넣는다(파서 개선 후)")
+    ap.add_argument("--empties-from", default="",
+                    help="다른 jsonl 들의 empty 회차만 다시 넣는다(쉼표 경로)")
     ap.add_argument("--log", required=True)
     ap.add_argument("--batch", type=int, default=200)
     args = ap.parse_args()
@@ -172,17 +174,45 @@ def main():
     ingest.print_target()
     os.makedirs(os.path.dirname(args.log) or ".", exist_ok=True)
 
+    empty_pairs = []
+    if args.empties_from:
+        seen = set()
+        for path in [p.strip() for p in args.empties_from.split(",") if p.strip()]:
+            if not os.path.exists(path):
+                continue
+            for line in open(path, encoding="utf-8"):
+                rec = json.loads(line)
+                if rec.get("status") != "empty":
+                    continue
+                key = (rec["corp"], rec["rcept"])
+                if key in seen or key in skip or rec["rcept"] in noted:
+                    continue
+                seen.add(key)
+                empty_pairs.append({
+                    "corp_code": rec["corp"], "rcept_no": rec["rcept"],
+                    "report_nm": rec.get("report_nm") or "",
+                    "year": rec.get("year"),
+                })
+        print("empties_from=%d" % len(empty_pairs), flush=True)
+
     while True:
-        pairs = [p for p in pending_notes(args.since, args.until, args.batch, skip,
-                                          kind=args.kind)
-                 if p["rcept_no"] not in noted]
+        if empty_pairs:
+            pairs = empty_pairs
+            empty_pairs = []
+        else:
+            pairs = [p for p in pending_notes(args.since, args.until, args.batch, skip,
+                                              kind=args.kind)
+                     if p["rcept_no"] not in noted]
+            if args.empties_from:
+                # 지정 로그만 재처리하고 끝낸다.
+                break
         print("kind=%s pending_notes=%d" % (args.kind, len(pairs)), flush=True)
         if not pairs:
             break
         with open(args.log, "a", encoding="utf-8") as log:
             for i, p in enumerate(pairs, 1):
                 corp, rcept = p["corp_code"], p["rcept_no"]
-                year = year_of(p.get("report_nm"), rcept)
+                year = p.get("year") or year_of(p.get("report_nm"), rcept)
                 status, extra, n = "ok", "", 0
                 try:
                     if year is None:
