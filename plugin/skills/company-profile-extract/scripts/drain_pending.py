@@ -128,7 +128,11 @@ def _load_done(log_path):
         line = line.strip()
         if not line:
             continue
-        rec = json.loads(line)
+        try:
+            rec = json.loads(line)
+        except json.JSONDecodeError:
+            # usage/tee 헤더가 섞여 있으면 워커가 기동 전에 죽는다
+            continue
         # ok 만이 아니라 fail/exc 도 건너뛴다. 한 회차가 REST 재시도에
         # 몇 분씩 묶이면 창 전체가 멈춘다. 재시도는 로그를 지운 뒤 한다.
         if rec.get("corp") and rec.get("rcept"):
