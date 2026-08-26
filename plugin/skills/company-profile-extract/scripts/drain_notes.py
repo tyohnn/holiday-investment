@@ -119,24 +119,37 @@ def pending_notes(since, until, n, skip, kind="A", noted=None):
     noted = noted or set()
     sql_like = KIND[kind][0].replace("*", "%")
     until = until or "99991231"
-    try:
-        rows = ingest.rest("POST", "rpc/pending_notes_rcepts", {
-            "report_like": sql_like, "dt_gte": since, "dt_lte": until, "n": n,
-            "exclude_rcepts": sorted({r for (_c, r) in skip} | set(noted or [])),
-        }) or []
+    # 큰 exclude 는 RPC 가 타임아웃 → REST 폴백(NOTE 미검사)이 같은 회차를
+    # 다시 줍는다. 최근 400개만 넘기고, RPC 가 skip 만 돌려주면 exclude 를
+    # 늘려 다음 페이지를 묻는다.
+    extra_exclude = set()
+    for _page in range(8):
+        exclude = sorted({r for (_c, r) in skip} | set(noted or []) | extra_exclude)
+        if len(exclude) > 400:
+            exclude = exclude[-400:]
+        try:
+            rows = ingest.rest("POST", "rpc/pending_notes_rcepts", {
+                "report_like": sql_like, "dt_gte": since, "dt_lte": until, "n": n,
+                "exclude_rcepts": exclude,
+            }) or []
+        except Exception as e:  # noqa: BLE001
+            print("  rpc pending_notes_rcepts fallback: %s" % e, flush=True)
+            if not noted:
+                noted = noted_set()
+            break
         out = []
         for r in rows:
             key = (r["corp_code"], r["rcept_no"])
             if key in skip or r["rcept_no"] in noted:
+                extra_exclude.add(r["rcept_no"])
                 continue
             out.append(r)
             if len(out) >= n:
                 break
-        return out
-    except Exception as e:  # noqa: BLE001
-        print("  rpc pending_notes_rcepts fallback: %s" % e, flush=True)
-        if not noted:
-            noted = noted_set()
+        if out or not rows:
+            return out
+    else:
+        return []
     like = urllib.parse.quote(KIND[kind][0], safe="")
     out, offset = [], 0
     until_q = ("&rcept_dt=lte." + until) if until and until != "99991231" else ""
@@ -222,6 +235,7 @@ def main():
                 })
         print("empties_from=%d" % len(empty_pairs), flush=True)
 
+    last_keys = None
     while True:
         if empty_pairs:
             pairs = empty_pairs
@@ -235,6 +249,11 @@ def main():
         print("kind=%s pending_notes=%d" % (args.kind, len(pairs)), flush=True)
         if not pairs:
             break
+        keys = tuple((p["corp_code"], p["rcept_no"]) for p in pairs)
+        if keys == last_keys:
+            print("pending_notes repeat; stop", flush=True)
+            break
+        last_keys = keys
         with open(args.log, "a", encoding="utf-8") as log:
             for i, p in enumerate(pairs, 1):
                 corp, rcept = p["corp_code"], p["rcept_no"]
