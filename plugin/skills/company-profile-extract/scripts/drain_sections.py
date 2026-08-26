@@ -36,8 +36,20 @@ _PAGE = 500
 _SCAN_CAP = 10000
 
 
-def _pending_window(report_like, gte, lte, n=80):
+def _pending_window(report_like, gte, lte, n=80, exclude=None):
     """창 안 ok 원문 중 sections_extracted_at 이 없는 쌍을 최대 n개."""
+    sql_like = report_like.replace("*", "%")
+    exclude_rcepts = sorted({r for (_c, r) in (exclude or set())})
+    try:
+        rows = ingest.rest("POST", "rpc/pending_section_rcepts", {
+            "report_like": sql_like, "dt_gte": gte, "dt_lte": lte, "n": n,
+            "exclude_rcepts": exclude_rcepts,
+        })
+        if rows is not None:
+            return [{"corp_code": r["corp_code"], "rcept_no": r["rcept_no"],
+                     "storage_path": r["storage_path"]} for r in rows]
+    except Exception as e:  # noqa: BLE001
+        print("  rpc pending_section_rcepts fallback: %s" % e, flush=True)
     out, offset = [], 0
     like = urllib.parse.quote(report_like, safe="")
     while len(out) < n and offset < _SCAN_CAP:
@@ -133,7 +145,7 @@ def main():
     with open(args.log, "a", encoding="utf-8") as log:
         for gte, lte, tag in windows:
             while True:
-                pairs = _pending_window(like, gte, lte, args.batch)
+                pairs = _pending_window(like, gte, lte, args.batch, exclude=done)
                 pairs = [p for p in pairs
                          if (p["corp_code"], p["rcept_no"]) not in done]
                 print("window %s %s..%s pending=%d" % (tag, gte, lte, len(pairs)),

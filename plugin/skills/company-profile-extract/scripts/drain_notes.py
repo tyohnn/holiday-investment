@@ -116,10 +116,28 @@ def noted_set():
 
 
 def pending_notes(since, until, n, skip, kind="A", noted=None):
+    noted = noted or set()
+    sql_like = KIND[kind][0].replace("*", "%")
+    until = until or "99991231"
+    try:
+        rows = ingest.rest("POST", "rpc/pending_notes_rcepts", {
+            "report_like": sql_like, "dt_gte": since, "dt_lte": until, "n": n,
+            "exclude_rcepts": sorted({r for (_c, r) in skip} | set(noted or [])),
+        }) or []
+        out = []
+        for r in rows:
+            key = (r["corp_code"], r["rcept_no"])
+            if key in skip or r["rcept_no"] in noted:
+                continue
+            out.append(r)
+            if len(out) >= n:
+                break
+        return out
+    except Exception as e:  # noqa: BLE001
+        print("  rpc pending_notes_rcepts fallback: %s" % e, flush=True)
     like = urllib.parse.quote(KIND[kind][0], safe="")
     out, offset = [], 0
-    noted = noted or set()
-    until_q = ("&rcept_dt=lte." + until) if until else ""
+    until_q = ("&rcept_dt=lte." + until) if until and until != "99991231" else ""
     page, cap = 500, 10000
     while len(out) < n and offset < cap:
         rows = ingest.rest("GET",
