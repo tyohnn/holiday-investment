@@ -216,9 +216,10 @@ BLOCK_INSTRUCTIONS = {
     "market_share": (
         "아래 표에는 '시장점유율'(퍼센트, 대개 '점유율'이라는 이름의 행)과 그 점유율을\n"
         "계산하는 데 쓰인 절대 실적치(예: '영업수익'·'수탁고'·'회사 신기술금융투자실적' 같은\n"
-        "원 단위 숫자 행)가 함께 나올 수 있다. **오직 점유율(퍼센트) 값만 추출하라 — 절대\n"
-        "실적치·산업 전체 수치 행은 추출하지 마라.** 정성적 서술(숫자 없는 경쟁 구도 설명)만\n"
-        "있고 실제 퍼센트 수치가 없으면 이 블록을 아예 비워라(빈 배열)."
+        "원 단위 숫자 행)가 함께 나올 수 있다. **오직 당사(또는 당사 제품)가 어떤 시장에서\n"
+        "차지하는 비중만 추출하라.** 절대 실적치·산업 전체 수치, 자사 매출의 내수/수출 구성비,\n"
+        "고객사별 생산·판매 비율, 제품 포트폴리오 구성비는 넣지 마라. 정성적 서술만 있고\n"
+        "실제 퍼센트 수치가 없으면 이 블록을 아예 비워라(빈 배열)."
     ),
     "segment_revenue": (
         "아래에는 매출(또는 영업수익) 표 말고도 영업이익·순이익·비용 등 다른 지표를 담은\n"
@@ -487,6 +488,14 @@ def build_numeric_facts(concept, block_label, items, fy_int, full_section_text,
         if concept == "segment_revenue" and ep.norm(it.get("item_name") or "") in (
                 "합계", "계", "소계", "총계"):
             continue
+        iname = it.get("item_name") or ""
+        if concept == "market_share":
+            if ep.norm(iname.split("|")[-1]) in ("합계", "계", "소계", "총계"):
+                continue
+            # 점유율이 아닌 구성비 — 2026-08-26 고려아연(내수/수출)·대원산업(OEM 생산비율)
+            if any(tok in iname for tok in (
+                    "내수비중", "수출비중", "생산비율", "판매비율")):
+                continue
         hdr = it.get("period_header") or ""
         if any(tok in hdr for tok in ("예상", "전망", "계획")):
             continue  # 실적이 아닌 전망 열 (2026-08-26 이구산업 2026A 24% 실측)

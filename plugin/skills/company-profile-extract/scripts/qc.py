@@ -176,8 +176,8 @@ def cmd_integrity(args):
     ingest.print_target()
     fails = 0
 
-    fd = _rows("fin_details?select=corp_code,concept,period_key,item_name,amount,status",
-               "corp_code,concept,period_key,item_name")
+    fd = _rows("fin_details?select=corp_code,concept,period_key,item_name,amount,status,source_rcept_no",
+               "corp_code,concept,period_key,item_name,source_rcept_no")
     ch = _rows("corp_history?select=corp_code,event_ym", "corp_code,event_ym")
     fp = _rows("fin_periods?period_type=eq.A&select=corp_code,period_key,fs_div,revenue",
                "corp_code,period_key,fs_div")
@@ -214,19 +214,26 @@ def cmd_integrity(args):
     #    (2026-08-26 실측: 합계 100% 24건 중 국도화학·한화오션 등 대부분이 이 형태였다).
     #    진짜 결함은 대원산업처럼 **당사가 한 행도 없이** 고객사(완성차 OEM) 구성비만
     #    들어간 경우다. 그래서 '합계≈100%' 이면서 '당사/자사명 행이 없을 때'만 잡는다.
+    #    오탐 두 가지를 빼는다: ① 단일 행 100%(무림SP '국내시장' = 독점 점유율)
+    #    ② 지주사 보고서의 영업자회사 브랜드(AK홀딩스→제주항공).
+    _SELF_ALIASES = {
+        "00125080": ("제주항공",),  # AK홀딩스
+    }
     names = {}
     for c in {x["corp_code"] for x in fd if x["concept"] == "market_share"}:
         r = ingest.rest("GET", "companies?corp_code=eq.%s&select=name" % c)
         if r:
             names[c] = r[0]["name"]
-    # 그룹 키에 item_name 의 '|' 앞부분(표/제품 축)을 넣는다. 한 회사가 독립적인 점유율
-    # 표를 여러 개 갖는 경우가 있어(대원산업: '생산비율' + '판매비율'), (회사,기간)으로만
-    # 묶으면 합이 200% 가 되어 범위를 벗어나고 **진짜 결함을 놓친다**(실측으로 확인).
+    # 그룹 키에 item_name 의 '|' 앞부분(표/제품 축)과 source_rcept_no 를 넣는다.
+    # 한 회사가 독립적인 점유율 표를 여러 개 갖는 경우가 있어(대원산업: '생산비율' +
+    # '판매비율'), (회사,기간)으로만 묶으면 합이 200% 가 되어 범위를 벗어나고
+    # **진짜 결함을 놓친다**. 같은 숫자를 여러 회차 zip 에 중복 적재한 경우
+    # (삼성 스마트폰 패널 50.1% × 2 rcept = 100.2%)는 회차별로 나눠야 오탐이 안 난다.
     per = collections.defaultdict(list)
     for x in fd:
         if x["concept"] == "market_share" and x["amount"] and "합계" not in (x["item_name"] or ""):
             axis = (x["item_name"] or "").split("|")[0]
-            per[(x["corp_code"], x["period_key"], axis)].append(x)
+            per[(x["corp_code"], x["period_key"], axis, x.get("source_rcept_no"))].append(x)
     bad = []
     for k, items in per.items():
         total = sum(float(i["amount"]) for i in items)
@@ -234,9 +241,14 @@ def cmd_integrity(args):
             continue
         nm = names.get(k[0], "")
         core = re.sub(r"\(주\)|주식회사|㈜|\s", "", nm)
-        has_self = any(("당사" in (i["item_name"] or "") or "자사" in (i["item_name"] or "")
-                        or (core and core in re.sub(r"\(주\)|㈜|\s", "", i["item_name"] or "")))
-                       for i in items)
+        aliases = _SELF_ALIASES.get(k[0], ())
+        has_self = (
+            len(items) == 1  # 단일 행 100% = 독점 점유율 (무림SP CCP 국내시장)
+            or any(("당사" in (i["item_name"] or "") or "자사" in (i["item_name"] or "")
+                    or (core and core in re.sub(r"\(주\)|㈜|\s", "", i["item_name"] or ""))
+                    or any(a in (i["item_name"] or "") for a in aliases))
+                   for i in items)
+        )
         if not has_self:
             bad.append({"corp_code": k[0], "name": nm, "period_key": k[1],
                         "axis": k[2], "amount": round(total, 1), "n": len(items)})
