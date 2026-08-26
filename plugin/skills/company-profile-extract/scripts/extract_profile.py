@@ -1170,6 +1170,22 @@ def load_sections(corp_code, rcept_no):
     return {title: body for title, body in sections}, None
 
 
+def find_section(sections, *needles):
+    """정확 키 우선, 없으면 공백을 지운 제목에 needle 이 들어 있는 첫 섹션.
+    2005년식 'I.회사의 개황'·'II.사업의 내용(제조업)' 을 현행 목차와 같은 칸으로
+    본다. llm_fallback._find_section 과 같은 규칙 — 규칙 추출만 정확 키를 쓰면
+    구 목차 회차는 5블록 0행으로 남고 pending 만 쌓인다."""
+    for n in needles:
+        if n in sections:
+            return n, sections[n]
+    compact_needles = [n.replace(" ", "") for n in needles]
+    for title, body in sections.items():
+        compact = title.replace(" ", "")
+        if any(n in compact for n in compact_needles):
+            return title, body
+    return None, None
+
+
 def extract_one(corp_code, rcept_no):
     """한 (corp_code, rcept_no) 에서 5블록을 규칙 기반으로 전부 추출한다(항상 규칙만 —
     2026-08-25부터 이 함수는 LLM/에이전트 폴백을 호출하지 않는다). 규칙이 0행으로 남긴
@@ -1187,6 +1203,14 @@ def extract_one(corp_code, rcept_no):
         return [], [], notes
 
     facts, hist = [], []
+    overview_title, overview_md = find_section(
+        sections, "I. 회사의 개요", "회사의 개요", "회사의 개황")
+    biz_title, biz_md = find_section(sections, "II. 사업의 내용", "사업의 내용")
+    share_title, share_md = find_section(
+        sections, "VII. 주주에 관한 사항", "주주에 관한 사항")
+    if overview_md is None and biz_md is None and share_md is None:
+        notes.append("확인불가: I/II/VII(개요·개황·사업·주주) 섹션 없음 — 5블록 0행")
+        return [], [], notes
 
     # 이 rcept_no 의 회계기간을 한 번만 구해 두 곳에 재사용한다: ① 본문에 '제N기' 기수→
     # 연도 앵커 문장이 없는 회사에서 infer_period_labels 의 폴백 앵커로(연도만, 분기 무관),
@@ -1206,14 +1230,16 @@ def extract_one(corp_code, rcept_no):
                      "표 헤더/본문앵커가 우선이고 이 값과 어긋나도 표 쪽을 따른다)" %
                      (fy_report_nm, fy_period_key))
 
-    if "I. 회사의 개요" in sections:
-        hist += parse_history(sections["I. 회사의 개요"])
-        facts += parse_treasury(sections["I. 회사의 개요"])
+    if overview_md is not None:
+        hist += parse_history(overview_md)
+        facts += parse_treasury(overview_md)
+        if overview_title != "I. 회사의 개요":
+            notes.append("개요 섹션 폴백: %r" % overview_title)
     else:
         notes.append("확인불가: 'I. 회사의 개요' 섹션 없음 — 연혁·자사주 스킵")
 
-    if "II. 사업의 내용" in sections:
-        md = sections["II. 사업의 내용"]
+    if biz_md is not None:
+        md = biz_md
         facts += parse_rd(md, fy_int, notes)
         facts += parse_segment_revenue(md, fy_int, notes)
         seg_summary_facts, seg_err = parse_segment_summary(md, corp_code, fy_int, notes)
@@ -1221,11 +1247,15 @@ def extract_one(corp_code, rcept_no):
             notes.append("부문 요약재무현황(비중/영업이익/총자산): %s" % seg_err)
         facts += seg_summary_facts
         facts += parse_market_share(md)
+        if biz_title != "II. 사업의 내용":
+            notes.append("사업 섹션 폴백: %r" % biz_title)
     else:
         notes.append("확인불가: 'II. 사업의 내용' 섹션 없음 — R&D·부문매출·시장점유율 스킵")
 
-    if "VII. 주주에 관한 사항" in sections:
-        facts += parse_shareholders(sections["VII. 주주에 관한 사항"])
+    if share_md is not None:
+        facts += parse_shareholders(share_md)
+        if share_title != "VII. 주주에 관한 사항":
+            notes.append("주주 섹션 폴백: %r" % share_title)
     else:
         notes.append("확인불가: 'VII. 주주에 관한 사항' 섹션 없음 — 주주현황 스킵")
 
@@ -1306,6 +1336,12 @@ def load_scope(corp_code, rcept_no, facts, hist, only_concepts=None):
     (fin_details -2,819행 · corp_history -3,512행). 위 "스테일 행 제거"는 규칙 단독
     운영을 전제한 설계인데, 지금은 같은 스코프에 에이전트 산출물이 공존한다.
     한 concept 만 고치려는 재실행이 다른 concept 을 파괴해서는 안 된다."""
+    if only_concepts is None and not facts and not hist:
+        # 0행인데 ALL_CONCEPTS 마다 replace_scope(DELETE) 를 치면 REST 가
+        # 한 회차에 10번 왕복한다. pending 창의 구 분기·반기는 이 경로가 대부분이라
+        # 표식 한 방만 남긴다. 이 rcept 는 pending 이라 지울 스테일 행이 없다.
+        mark_attempted(corp_code, rcept_no)
+        return
     by_concept = {}
     for f in facts:
         by_concept.setdefault(f["concept"], []).append(to_db_row(corp_code, rcept_no, f))

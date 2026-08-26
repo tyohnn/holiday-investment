@@ -169,7 +169,29 @@ def cmd_cases(args):
         if got != want:
             bad += 1
             print("   ✗ parse_hist_ym(%r) → %s   기대 %s" % (s, got, want))
-    total = len(PERIOD_CASES) + len(NUM_CASES) + len(HIST_YM_CASES)
+    section_cases = [
+        ({"I. 회사의 개요": "x"}, ("I. 회사의 개요", "x")),
+        ({"I.회사의 개황": "y"}, ("I.회사의 개황", "y")),
+        ({"II.사업의 내용(제조업)": "z"}, ("II.사업의 내용(제조업)", "z")),
+        ({"목차": "no"}, None),
+    ]
+    for sections, want in section_cases:
+        if want is None:
+            got = ep.find_section(sections, "I. 회사의 개요", "회사의 개요", "회사의 개황")
+            if got != (None, None):
+                bad += 1
+                print("   ✗ find_section(%r) → %s   기대 (None, None)" % (sections, got))
+        elif "개황" in next(iter(sections)) or "개요" in next(iter(sections)):
+            got = ep.find_section(sections, "I. 회사의 개요", "회사의 개요", "회사의 개황")
+            if got != want:
+                bad += 1
+                print("   ✗ find_section(%r) → %s   기대 %s" % (sections, got, want))
+        else:
+            got = ep.find_section(sections, "II. 사업의 내용", "사업의 내용")
+            if got != want:
+                bad += 1
+                print("   ✗ find_section(%r) → %s   기대 %s" % (sections, got, want))
+    total = len(PERIOD_CASES) + len(NUM_CASES) + len(HIST_YM_CASES) + len(section_cases)
     accept = sum(1 for _, w in PERIOD_CASES if w is not None)
     reject = len(PERIOD_CASES) - accept
     if bad:
