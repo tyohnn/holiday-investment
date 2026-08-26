@@ -1051,6 +1051,28 @@ def apply_gates(corp_code, facts, notes):
             notes.append("게이트 통과(R&D비중 재계산, %s): 재계산=%.4f%% vs 필자게재=%.4f%% (차이 %.4fpt)" %
                          (pk, recomputed, ratio_fact["amount"], diff))
 
+    # 게이트 3b: R&D 금액이 같은 기간 매출보다 크면 단위 결함이다(2026-08-26 전수에서
+    # 72사 232행). qc.py integrity 가 이걸 사후에 잡지만, 적재 게이트에 없으면 드레인이
+    # 같은 행을 다시 넣는다. 매출이 없는 기간은 스킵(지어내지 않음).
+    kept_rnd = []
+    for f in ok:
+        if f["concept"] != "rnd_total" or not f.get("amount") or not f.get("period_key"):
+            kept_rnd.append(f)
+            continue
+        db_rev, fs = db_revenue(corp_code, f["period_key"])
+        if db_rev is None or not db_rev:
+            kept_rnd.append(f)
+            continue
+        if float(f["amount"]) / float(db_rev) > 1:
+            f["status"] = "확인불가:게이트실패(R&D>매출)"
+            notes.append("게이트 실패(R&D>매출, %s, %s): R&D=%s vs DB매출=%s → 적재 보류" %
+                         (f["period_key"], fs, f["amount"], db_rev))
+            f["amount"] = None
+            held.append(f)
+        else:
+            kept_rnd.append(f)
+    ok = kept_rnd
+
     # 게이트 4: 자릿수 sanity — 같은 concept·item_name 의 연속 기간 값이 10배 이상 튀면 보류.
     # 2026-08-25 분기 지원 실측(삼성 2026Q1 분기보고서, verify 실행): 이 게이트는 "연속
     # period_key 는 같은 주기(cadence)"를 전제로 짰다 — 예전엔 fin_details 에 연간
