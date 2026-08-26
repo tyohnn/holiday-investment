@@ -196,3 +196,7 @@ fin_details 13,029 / 439사 · corp_history 9,939 / 424사.
 2026-03 최신 창은 거의 채워졌고, 다음 빈 창은 2025-03 사업보고서.
 분기·반기 프로필 파일럿(150·80)과 주석 200회차를 병렬로 돌린다.
 `docs_storage.pending_docs` 는 임베디드 조인 대신 filings→filing_docs 두 단계.
+
+전회차 소진 진입점: `drain_pending.py --kind A|H|Q --walk-back` (날짜 창 REST,
+`pending` 전량 타임아웃 우회). 주석은 `drain_notes.py`. 2026-08-26 16:00 이후
+연간 2022·2017 창과 반기·주석 드레인이 병렬로 돈다.
