@@ -202,3 +202,11 @@ fin_details 13,029 / 439사 · corp_history 9,939 / 424사.
 잔량 스냅샷은 `measure_coverage.py`. Phase 3 최근 14일은 `--loop` 워커가 비운 뒤
 다시 본다. 2026-08-26 16:20 이후 연간·반기·분기 빈 해를 창 단위로 채우고,
 반기·분기 주석 드레인을 연간과 같이 돌린다.
+
+2026-08-26 16:30 실측 (`qc.py cases` + `integrity`, snap):
+- 케이스 56 통과 · 무결성 5종 전부 0 (R&D>매출 · 이상 period_key · event_ym NULL ·
+  당사없음+합계100% · 비율[0,100]밖)
+- `fin_details` 49,874행 / distinct rcept ~4,006 / 499사 · `corp_history` 11,057
+- NOTE 1,890행 / 222회차 (아직 `reprt_code=11011`만 — 반기·분기는 파서 empty가 대부분)
+- 2026 연간 창: ok 565 · pending 9 · notes 199. 최근 14일 A/H/Q `--loop` pending=0
+- 과거 연 잔량은 아직 수만 건. 목표는 미완료.
