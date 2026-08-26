@@ -99,7 +99,10 @@ def _load_done(log_path):
         line = line.strip()
         if not line:
             continue
-        rec = json.loads(line)
+        try:
+            rec = json.loads(line)
+        except json.JSONDecodeError:
+            continue
         if rec.get("corp") and rec.get("rcept"):
             done.add((rec["corp"], rec["rcept"]))
     return done

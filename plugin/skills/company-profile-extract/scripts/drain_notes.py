@@ -203,10 +203,14 @@ def main():
     skip = set()
     if os.path.exists(args.log):
         for line in open(args.log, encoding="utf-8"):
-            rec = json.loads(line)
+            try:
+                rec = json.loads(line)
+            except json.JSONDecodeError:
+                continue
             if args.retry_empty and rec.get("status") == "empty":
                 continue
-            skip.add((rec["corp"], rec["rcept"]))
+            if rec.get("corp") and rec.get("rcept"):
+                skip.add((rec["corp"], rec["rcept"]))
     # RPC 가 NOTE 행을 NOT EXISTS 로 빼므로 전량 noted_set 페이지는 시작 때 하지 않는다.
     # REST 폴백 스캔에만 그때 모은다.
     noted = set()
@@ -221,7 +225,10 @@ def main():
             if not os.path.exists(path):
                 continue
             for line in open(path, encoding="utf-8"):
-                rec = json.loads(line)
+                try:
+                    rec = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
                 if rec.get("status") != "empty":
                     continue
                 key = (rec["corp"], rec["rcept"])
