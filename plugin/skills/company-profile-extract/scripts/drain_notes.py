@@ -92,14 +92,16 @@ def noted_set():
     return out
 
 
-def pending_notes(since, n, skip):
+def pending_notes(since, until, n, skip):
     like = urllib.parse.quote("*사업보고서 (*", safe="")
     out, offset = [], 0
-    while len(out) < n and offset < 4000:
+    until_q = ("&rcept_dt=lte." + until) if until else ""
+    while len(out) < n and offset < 8000:
         rows = ingest.rest("GET",
             "filings?select=corp_code,rcept_no,report_nm"
             "&report_nm=like." + like
             + "&rcept_dt=gte." + since
+            + until_q
             + "&order=rcept_dt.desc&limit=100&offset=" + str(offset))
         if not rows:
             break
@@ -117,6 +119,8 @@ def pending_notes(since, n, skip):
                     if len(out) >= n:
                         break
         offset += 100
+        if offset % 500 == 0:
+            print("  notes scan offset=%d found=%d" % (offset, len(out)), flush=True)
         if len(rows) < 100:
             break
     return out
@@ -125,6 +129,7 @@ def pending_notes(since, n, skip):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--since", default="20200101")
+    ap.add_argument("--until", default=None, help="YYYYMMDD 창 끝. 없으면 since 이후 전부")
     ap.add_argument("--log", required=True)
     ap.add_argument("--batch", type=int, default=200)
     args = ap.parse_args()
@@ -140,7 +145,7 @@ def main():
     os.makedirs(os.path.dirname(args.log) or ".", exist_ok=True)
 
     while True:
-        pairs = [p for p in pending_notes(args.since, args.batch, skip)
+        pairs = [p for p in pending_notes(args.since, args.until, args.batch, skip)
                  if p["rcept_no"] not in noted]
         print("pending_notes=%d" % len(pairs), flush=True)
         if not pairs:
@@ -177,8 +182,7 @@ def main():
                     noted.add(rcept)
                 print("%d/%d %s %s %s n=%s" % (i, len(pairs), corp, rcept, status, n),
                       flush=True)
-        if len(pairs) < args.batch:
-            break
+        # 짧은 배치라도 skip 이 늘면 다음 페이지에서 더 나온다. 0건일 때만 종료.
     print("drain_notes done", flush=True)
 
 
