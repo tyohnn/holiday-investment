@@ -180,28 +180,60 @@ def cmd_cases(args):
 
 # ──────────────────────────────────────────────────────── integrity
 
+# 2000~2026 밖 period_key. 전표 페이지 대신 접두만 묻는다 (19*·2027+·21*).
+_BAD_PK_OR = (
+    "or=(period_key.like.18*,period_key.like.19*,period_key.like.2027*,"
+    "period_key.like.2028*,period_key.like.2029*,period_key.like.203*,"
+    "period_key.like.204*,period_key.like.205*,period_key.like.206*,"
+    "period_key.like.207*,period_key.like.208*,period_key.like.209*,"
+    "period_key.like.21*)"
+)
+
+
 def cmd_integrity(args):
     """DB 에서 **물리적으로 불가능한 값**을 찾는다. 게이트를 통과한 데이터에서도
-    대형 결함이 나온다 — 이 스캔이 실제로 세 건을 잡았다."""
+    대형 결함이 나온다 — 이 스캔이 실제로 세 건을 잡았다.
+
+    개념별·필터 조회로 받는다. 예전엔 fin_details 전표를 페이지해서 적재 중
+    REST 가 막히면 스캔 자체가 끝나지 않았다.
+    """
     ingest.print_target()
     fails = 0
 
-    fd = _rows("fin_details?select=corp_code,concept,period_key,item_name,amount,status,source_rcept_no",
-               "corp_code,concept,period_key,item_name,source_rcept_no")
-    ch = _rows("corp_history?select=corp_code,event_ym", "corp_code,event_ym")
-    fp = _rows("fin_periods?period_type=eq.A&select=corp_code,period_key,fs_div,revenue",
-               "corp_code,period_key,fs_div")
+    rnd = _rows(
+        "fin_details?concept=eq.rnd_total&status=eq.ok"
+        "&select=corp_code,concept,period_key,item_name,amount,status,source_rcept_no",
+        "corp_code,period_key,source_rcept_no")
+    fp = _rows(
+        "fin_periods?period_type=eq.A&revenue=not.is.null"
+        "&select=corp_code,period_key,fs_div,revenue",
+        "corp_code,period_key,fs_div")
     rev = {}
     for x in fp:
-        if x["revenue"] is None:
-            continue
         k = (x["corp_code"], x["period_key"])
         if k not in rev or x["fs_div"] == "CFS":
             rev[k] = float(x["revenue"])
-    print("  대상: fin_details %d행 · corp_history %d행" % (len(fd), len(ch)))
+    bad_pk = _rows(
+        "fin_details?select=corp_code,period_key,item_name,concept&" + _BAD_PK_OR,
+        "corp_code,period_key")
+    ch_null = _rows(
+        "corp_history?event_ym=is.null&select=corp_code,event_ym",
+        "corp_code")
+    ms = _rows(
+        "fin_details?concept=eq.market_share"
+        "&select=corp_code,concept,period_key,item_name,amount,status,source_rcept_no",
+        "corp_code,period_key,item_name,source_rcept_no")
+    ratios = _rows(
+        "fin_details?concept=in.(market_share,rnd_revenue_ratio,"
+        "segment_revenue_pct,segment_total_assets_pct)"
+        "&select=corp_code,concept,period_key,item_name,amount,status,source_rcept_no",
+        "corp_code,concept,period_key,source_rcept_no")
+    print("  대상: rnd_total %d · 이상period후보 %d · event_ym NULL %d · "
+          "market_share %d · 비율개념 %d" % (
+              len(rnd), len(bad_pk), len(ch_null), len(ms), len(ratios)))
 
     # 1) R&D 가 매출보다 크다 — 단위 스케일 결함의 지문
-    bad = [x for x in fd if x["concept"] == "rnd_total" and x["status"] == "ok" and x["amount"]
+    bad = [x for x in rnd if x["amount"]
            and (x["corp_code"], x["period_key"]) in rev
            and rev[(x["corp_code"], x["period_key"])]
            and float(x["amount"]) / rev[(x["corp_code"], x["period_key"])] > 1]
@@ -209,14 +241,13 @@ def cmd_integrity(args):
         x["corp_code"], x["period_key"], x["amount"]))
 
     # 2) 보고서가 담을 수 없는 연도 — 앵커 오적용의 지문
-    bad = [x for x in fd if x["period_key"] and re.match(r"^\d{4}", x["period_key"])
+    bad = [x for x in bad_pk if x["period_key"] and re.match(r"^\d{4}", x["period_key"])
            and not ("2000" <= x["period_key"][:4] <= "2026")]
     fails += _report("이상 period_key (앵커 오적용)", bad, lambda x: "%s %s %s" % (
         x["corp_code"], x["period_key"], (x["item_name"] or "")[:24]))
 
     # 3) 연혁 연도 결측 — NOT NULL 위반으로 회차 전체를 죽인다
-    bad = [x for x in ch if not x["event_ym"]]
-    fails += _report("corp_history.event_ym NULL", bad, lambda x: x["corp_code"])
+    fails += _report("corp_history.event_ym NULL", ch_null, lambda x: x["corp_code"])
 
     # 4) 시장점유율에 **당사가 없다** — 고객사·경쟁사 구성비만 담긴 표의 지문.
     #    합계 100% 만으로는 오탐이 많다: DART 관행상 '당사 65% · 경쟁사 29% · 기타 3%' 처럼
@@ -230,7 +261,7 @@ def cmd_integrity(args):
         "00125080": ("제주항공",),  # AK홀딩스
     }
     names = {}
-    for c in {x["corp_code"] for x in fd if x["concept"] == "market_share"}:
+    for c in {x["corp_code"] for x in ms}:
         r = ingest.rest("GET", "companies?corp_code=eq.%s&select=name" % c)
         if r:
             names[c] = r[0]["name"]
@@ -240,8 +271,8 @@ def cmd_integrity(args):
     # **진짜 결함을 놓친다**. 같은 숫자를 여러 회차 zip 에 중복 적재한 경우
     # (삼성 스마트폰 패널 50.1% × 2 rcept = 100.2%)는 회차별로 나눠야 오탐이 안 난다.
     per = collections.defaultdict(list)
-    for x in fd:
-        if x["concept"] == "market_share" and x["amount"] and "합계" not in (x["item_name"] or ""):
+    for x in ms:
+        if x["amount"] and "합계" not in (x["item_name"] or ""):
             axis = (x["item_name"] or "").split("|")[0]
             per[(x["corp_code"], x["period_key"], axis, x.get("source_rcept_no"))].append(x)
     bad = []
@@ -275,9 +306,8 @@ def cmd_integrity(args):
                          (x["axis"] or "(축없음)")[:20], x["amount"], x["n"]))
 
     # 5) 비율 개념이 [0,100] 밖 (segment_operating_income_pct 는 정상적으로 벗어난다 — 제외)
-    bad = [x for x in fd if x["concept"] in ("market_share", "rnd_revenue_ratio",
-                                              "segment_revenue_pct", "segment_total_assets_pct")
-           and x["amount"] is not None and not (0 <= float(x["amount"]) <= 100)]
+    bad = [x for x in ratios
+           if x["amount"] is not None and not (0 <= float(x["amount"]) <= 100)]
     fails += _report("비율이 [0,100] 밖", bad, lambda x: "%s %s %s=%s" % (
         x["corp_code"], x["period_key"], x["concept"], x["amount"]))
 
