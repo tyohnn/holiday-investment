@@ -31,6 +31,13 @@ _KIND = {
     "H": "*반기보고서 (*",
     "Q": "*분기보고서 (*",
 }
+# walk-back 에 --months 를 안 주면 접수 시즌 전체를 연다.
+# 반기를 9월만 보면 8월 회차가 통째로 남는다(2014 창이 21건에서 끝난 이유).
+_SEASON = {
+    "A": (3, 4),
+    "H": (8, 9),
+    "Q": (5, 8, 11),
+}
 
 
 def _pending_window(report_like, gte, lte, n=400):
@@ -138,10 +145,10 @@ def main():
     ap.add_argument("--walk-back", action="store_true",
                     help="같은 달 창을 한 해씩 과거로 옮기며 반복")
     ap.add_argument("--months", default="",
-                    help="쉼표 월(예: 5,8,11). walk-back 시 그 달 전체를 해마다 연다")
+                    help="쉼표 월(예: 5,8,11). 비우면 kind 시즌(A=3·4, H=8·9, Q=5·8·11)")
     ap.add_argument("--years", type=int, default=6, help="walk-back 연수")
-    ap.add_argument("--recent-days", type=int, default=40,
-                    help="매 연도 창 앞에 최근 N일 Phase 3 증분을 한 번 훑음. 0 이면 생략")
+    ap.add_argument("--recent-days", type=int, default=0,
+                    help="창 앞에 최근 N일 Phase 3 증분을 한 번 훑음. 0 이면 생략(--loop 가 담당)")
     ap.add_argument("--batch", type=int, default=250)
     ap.add_argument("--loop", action="store_true",
                     help="창을 비운 뒤 최근 --recent-days 를 다시 본다 (Phase 3 증분)")
@@ -162,25 +169,18 @@ def main():
     if args.walk_back:
         end = dt.datetime.strptime(args.from_date, "%Y%m%d")
         months = [int(x) for x in args.months.split(",") if x.strip()]
-        if months:
-            # 분기 5·8·11월처럼 시즌이 여러 달일 때 한 워커가 다 돈다.
-            for y in range(args.years):
-                year = end.year - y
-                for m in months:
-                    s = dt.date(year, m, 1)
-                    if m == 12:
-                        e = dt.date(year, 12, 31)
-                    else:
-                        e = dt.date(year, m + 1, 1) - dt.timedelta(days=1)
-                    windows.append((s.strftime("%Y%m%d"), e.strftime("%Y%m%d"),
-                                    "y%d-m%02d" % (y, m)))
-        else:
-            # walk-back 의 from-date 는 창의 끝(최신). 시작은 같은 달 1일.
-            start = end.replace(day=1)
-            for y in range(args.years):
-                s = _shift_year(start.strftime("%Y%m%d"), -y)
-                e = _shift_year(end.strftime("%Y%m%d"), -y)
-                windows.append((s, e, "y%d" % y))
+        if not months:
+            months = list(_SEASON[args.kind])
+        for y in range(args.years):
+            year = end.year - y
+            for m in months:
+                s = dt.date(year, m, 1)
+                if m == 12:
+                    e = dt.date(year, 12, 31)
+                else:
+                    e = dt.date(year, m + 1, 1) - dt.timedelta(days=1)
+                windows.append((s.strftime("%Y%m%d"), e.strftime("%Y%m%d"),
+                                "y%d-m%02d" % (y, m)))
     else:
         gte = args.from_date
         lte = args.to_date or args.from_date

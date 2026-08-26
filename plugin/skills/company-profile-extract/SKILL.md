@@ -158,7 +158,8 @@ python3 plugin/skills/company-profile-extract/scripts/extract_profile.py pending
 
 호스티드에서 `pending` 전량 페이지는 statement timeout 이 난다. 전회차 소진은
 `drain_pending.py --kind A|H|Q --walk-back` 이 rcept_dt 창만 받아 (corp, rcept)
-1:1 로 `run` 한다. 분기는 `--months 5,8,11`. Phase 3 증분은 `--loop --recent-days`.
+1:1 로 `run` 한다. `--months` 를 비우면 시즌 월(A=3·4, H=8·9, Q=5·8·11)을 연다.
+Phase 3 증분은 `--loop --recent-days`.
 주석은 `drain_notes.py --kind A|H|Q`(섹션 있는 정기보고서 → `sj_div=NOTE`).
 
 ## 여러 회사를 배치로 돌릴 때 (서브에이전트 병렬)
