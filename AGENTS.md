@@ -10,6 +10,21 @@ serves `교재/` as a book — run from repo root with `pnpm install` / `pnpm de
 packages can go in `packages/*`. The knowledge-base Markdown remains the core
 deliverable; the site is a viewer over it.
 
+### Runtime Secrets → `.env.local` (세션 시작)
+
+Cloud Agent Secrets 탭의 **Runtime Secret** 은 부팅 때 환경변수로 주입된다.
+`scripts/sync-runtime-env.sh` 가 그걸 gitignored `.env.local` 두 곳(루트 ·
+`apps/web/`)에 옮긴다. environment `start` 에 아래 한 줄을 둔다.
+
+```bash
+bash /workspace/scripts/sync-runtime-env.sh
+```
+
+넣을 이름: `DART_API_KEYS`(10개 쉼표) 또는 `DART_API_KEY_1`…`_10`,
+`SUPABASE_REST_URL`, `SUPABASE_SERVICE_KEY`, `TOSS_INVESTMENT_API_KEY`,
+`TOSS_INVESTMENT_API_SECRET`. 새 시크릿은 **에이전트 재시작** 뒤에야 붙는다.
+값은 채팅·툴 결과에 `[REDACTED]` 로 가려지고, 스크립트도 값을 출력하지 않는다.
+
 ### Web app + platform (apps/web + Supabase) — the runnable application
 `pnpm install` (root) then `pnpm dev` serves the site at http://localhost:3000 (Next.js 16
 + Turbopack). `predev` runs `scripts/sync-content.mjs` which regenerates the gitignored
