@@ -139,6 +139,7 @@ def _discover(kind, since_year):
 
 
 def _load_done(path):
+    """ok·empty 만 건너뛴다. URLError 등 exc 는 재시도 대상."""
     done = set()
     if not os.path.exists(path):
         return done
@@ -147,6 +148,8 @@ def _load_done(path):
         if not line:
             continue
         rec = json.loads(line)
+        if rec.get("status") not in ("ok", "empty"):
+            continue
         if rec.get("corp") and rec.get("year") and rec.get("reprt"):
             done.add((rec["corp"], rec["year"], rec["reprt"]))
     return done
@@ -189,25 +192,40 @@ def main():
             key = keys[ki % len(keys)]
             ki += 1
             status, extra, n = "ok", "", 0
-            try:
-                rows, fs = None, None
-                for attempt in range(5):
-                    try:
-                        rows, fs = api.finstate_all(key, corp, year, reprt=reprt)
-                        break
-                    except urllib.error.URLError as e:
-                        extra = "URLError: %s" % e
-                        time.sleep(min(2 ** attempt, 16))
-                if rows is None and extra.startswith("URLError"):
-                    status = "exc"
-                elif not rows:
-                    status, extra = "empty", "no_dart"
-                else:
-                    n = ingest.write_fin_scope(corp, year, reprt, fs, rows)
-                    extra = "fs=%s n=%d" % (fs, n)
-            except Exception as e:  # noqa: BLE001
-                status, extra = "exc", "%s: %s" % (type(e).__name__, e)
-                traceback.print_exc()
+            for job_round in range(4):
+                try:
+                    rows, fs = None, None
+                    extra = ""
+                    for attempt in range(5):
+                        try:
+                            rows, fs = api.finstate_all(key, corp, year, reprt=reprt)
+                            break
+                        except urllib.error.URLError as e:
+                            extra = "URLError: %s" % e
+                            time.sleep(min(2 ** attempt, 16))
+                    if rows is None and extra.startswith("URLError"):
+                        print("  DNS pause 60s (round %d) %s %s" % (
+                            job_round + 1, corp, year), flush=True)
+                        time.sleep(60)
+                        continue
+                    if not rows:
+                        status, extra = "empty", "no_dart"
+                    else:
+                        n = ingest.write_fin_scope(corp, year, reprt, fs, rows)
+                        extra = "fs=%s n=%d" % (fs, n)
+                    break
+                except urllib.error.URLError as e:
+                    extra = "URLError: %s" % e
+                    print("  DNS pause 60s (write round %d) %s %s" % (
+                        job_round + 1, corp, year), flush=True)
+                    time.sleep(60)
+                    continue
+                except Exception as e:  # noqa: BLE001
+                    status, extra = "exc", "%s: %s" % (type(e).__name__, e)
+                    traceback.print_exc()
+                    break
+            else:
+                status = "exc"
             rec = {"corp": corp, "year": year, "reprt": reprt,
                    "status": status, "n": n, "extra": extra[:200]}
             log.write(json.dumps(rec, ensure_ascii=False) + "\n")
