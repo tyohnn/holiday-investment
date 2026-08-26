@@ -1300,11 +1300,18 @@ def to_history_row(corp_code, rcept_no, h):
 
 
 def mark_attempted(corp_code, rcept_no):
-    """5블록 0행이어도 source_rcept_no 를 남겨 pending 에서 빠지게 한다."""
+    """5블록 0행이어도 source_rcept_no 를 남겨 pending 에서 빠지게 한다.
+
+    period_key 는 qc 의 2000~2026 창 안에만 둔다. 1999 사업(2000-03 접수)에
+    1999A 표식을 남기면 이상 period_key 로 잡힌다(실측 5행, 2026-08-26).
+    표식은 사실이 아니므로 창 밖 연도는 NA 로 둔다.
+    """
     _fy, pk, _nm = report_fiscal_year(rcept_no)
+    if _fy is None or not plausible_fiscal_year(_fy):
+        pk = "NA"
     row = {
         "corp_code": corp_code,
-        "period_key": pk or "0000A",
+        "period_key": pk or "NA",
         "concept": MARK_CONCEPT,
         "item_name": "(추출시도)",
         "amount": None,
