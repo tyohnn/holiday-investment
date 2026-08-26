@@ -1257,7 +1257,8 @@ def load_scope(corp_code, rcept_no, facts, hist, only_concepts=None):
 def latest_annual_rcept(corp_code):
     rows = db_rows_pg("filings", {
         "select": "rcept_no,rcept_dt,report_nm", "corp_code": "eq.%s" % corp_code,
-        "report_nm": "like.사업보고서*", "order": "rcept_dt.desc", "limit": "1"})
+        # pending 과 동일: 제출기한연장신고서를 최신 사업보고서로 고르지 않는다.
+        "report_nm": "like.*사업보고서 (*", "order": "rcept_dt.desc", "limit": "1"})
     return rows[0]["rcept_no"] if rows else None
 
 
@@ -1353,7 +1354,10 @@ def run(corps, rcepts_arg, do_load, only_concepts=None):
 # 미검증). latest_annual_rcept() 가 이미 쓰는 필터와 동일하게 사업보고서만 대상으로 좁힌다
 # — 스코프를 넓히려면(분기·반기 포함) 먼저 그 보고서 유형에서 5블록 파서가 실제로 뭘
 # 뽑아내는지 검증해야 한다(이번 작업 범위 밖).
-_REPORT_NM_FILTER = "like.사업보고서*"
+# '사업보고서*' 는 '사업보고서제출기한연장신고서'까지 잡는다 — 원문이 있어도 5블록
+# 섹션이 없어 추출이 실패하거나 쓰레기 행만 남는다. 실제 사업보고서(정정·첨부추가 포함)
+# 만 대상으로 좁힌다.
+_REPORT_NM_FILTER = "like.*사업보고서 (*"
 
 
 def _paginate_rest(path, params, page_size=1000):
@@ -1417,8 +1421,11 @@ def pending_rcepts(corps=None, limit=None):
         if rcept_no in done:
             continue
         f = row.get("filings") or {}
+        nm = f.get("report_nm") or ""
+        if "제출기한연장" in nm:
+            continue
         out.append({"corp_code": f.get("corp_code"), "rcept_no": rcept_no,
-                     "report_nm": f.get("report_nm"), "rcept_dt": f.get("rcept_dt")})
+                     "report_nm": nm, "rcept_dt": f.get("rcept_dt")})
     out.sort(key=lambda r: (r["rcept_dt"] or "", r["rcept_no"]))
     total = len(out)
     if limit:
