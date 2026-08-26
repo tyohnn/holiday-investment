@@ -371,21 +371,28 @@ def cmd_prepare(args):
     ep.ingest.print_target()
     corps = [c.strip() for c in args.corps.split(",") if c.strip()]
     rcepts_arg = [r.strip() for r in args.rcepts.split(",")] if args.rcepts else None
-    total_written = 0
-    for corp_code in corps:
-        rcepts = rcepts_arg
-        if not rcepts:
+    if rcepts_arg and len(rcepts_arg) != len(corps):
+        print("prepare: --rcepts 개수(%d)와 --corps 개수(%d)가 다르다. "
+              "1:1로 짝을 맞춰라 (카티전곱은 무효 쌍을 만든다)."
+              % (len(rcepts_arg), len(corps)))
+        return 2
+    pairs = []
+    if rcepts_arg:
+        pairs = list(zip(corps, rcepts_arg))
+    else:
+        for corp_code in corps:
             r = ep.latest_annual_rcept(corp_code)
             if not r:
                 print("[%s] 사업보고서 filings 행을 찾지 못함 — 스킵" % corp_code)
                 continue
-            rcepts = [r]
-        for rcept_no in rcepts:
-            print("\n=== prepare corp=%s rcept=%s ===" % (corp_code, rcept_no))
-            written, notes = prepare_one(corp_code, rcept_no, args.out_dir, force=args.force)
-            for n in notes:
-                print("  · %s" % n)
-            total_written += len(written)
+            pairs.append((corp_code, r))
+    total_written = 0
+    for corp_code, rcept_no in pairs:
+        print("\n=== prepare corp=%s rcept=%s ===" % (corp_code, rcept_no))
+        written, notes = prepare_one(corp_code, rcept_no, args.out_dir, force=args.force)
+        for n in notes:
+            print("  · %s" % n)
+        total_written += len(written)
     print("\n총 %d개 prepare 파일 생성 (out_dir=%s)" % (total_written, args.out_dir))
     print("에이전트는 이 파일들을 읽고, corp_code·rcept_no당 JSON 하나로 채운 뒤")
     print("`llm_fallback.py ingest --json <path>` 를 실행한다 (출력 계약은 각 파일 끝에 있다).")
