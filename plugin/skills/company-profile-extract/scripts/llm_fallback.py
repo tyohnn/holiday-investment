@@ -407,7 +407,7 @@ def resolve_periods(period_headers, fallback_year, full_section_text):
         if p in RELATIVE_PERIOD_MAP:
             used_relative = True
             if fallback_year:
-                out[ph] = str(fallback_year + RELATIVE_PERIOD_MAP[p])
+                out[ph] = ep.make_period_key(fallback_year + RELATIVE_PERIOD_MAP[p])
             continue
         remaining.append(ph)
 
@@ -458,8 +458,13 @@ def build_numeric_facts(concept, block_label, items, fy_int, full_section_text,
         if not it.get("item_name") or not it.get("source_table"):
             dropped_no_source += 1
             continue  # 출처 없는 항목은 적재 거부
-        year = year_map.get(it.get("period_header"))
-        if not year:
+        # year_map 값은 이미 ep.make_period_key()로 조립된 완성 period_key다
+        # ('2025A'/'2025Q1' 등) — infer_period_labels()도 resolve_periods()의
+        # RELATIVE_PERIOD_MAP 분기도 둘 다 완성형을 낸다. 여기서 다시 '%sA'를
+        # 덧붙이면 '2025AA'처럼 이중 접미사가 붙는다(2026-08-26 batch03 적재 중
+        # 실측 — period_key 불변식 위반으로 fin_periods 대조 게이트가 전부 스킵됐다).
+        period_key = year_map.get(it.get("period_header"))
+        if not period_key:
             skipped_no_year += 1
             continue
         raw = it.get("raw_amount")
@@ -475,7 +480,7 @@ def build_numeric_facts(concept, block_label, items, fy_int, full_section_text,
                     amount, unit_out, status = v * scale, "KRW", "ok"
             else:
                 amount, unit_out, status = v, "pct", "ok"
-        facts.append(ep.fact(concept, it["item_name"], "%sA" % year, amount, unit_out,
+        facts.append(ep.fact(concept, it["item_name"], period_key, amount, unit_out,
                               it.get("value_basis"), status,
                               "II. 사업의 내용(에이전트 폴백, %s)" % block_label, it["source_table"],
                               extracted_by=EXTRACTED_BY_AGENT))
@@ -540,8 +545,7 @@ def ingest_one(payload, do_load, notes):
             raise RuntimeError("기간 라벨 해석에 필요한 원문 섹션을 다시 읽지 못함: %s" % err)
         full_section_text = sections.get("II. 사업의 내용", "")
 
-    fy = ep.report_fiscal_year(rcept_no)
-    fy_int = int(fy) if fy else None
+    fy_int, _fy_period_key, _fy_report_nm = ep.report_fiscal_year(rcept_no)
 
     if "market_share" in payload:
         concepts_present.add("market_share")

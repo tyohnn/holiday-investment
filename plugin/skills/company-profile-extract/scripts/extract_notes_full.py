@@ -25,10 +25,16 @@
    고른다. 이 스크립트는 이 성질에 기대어 두 표 모두 리터럴 라벨 그대로 적재하고,
    fin_periods_refresh 이후 회귀값을 실측으로 재확인한다(감독 지시 §fin_periods 회귀).
 
-3. **'기타' 라벨 중복.** 판관비·기타수익·기타비용·CF조정·CF운전자본 다섯 표 모두 세부
-   항목에 '기타'가 있고 표마다 값이 다르다. account_detail 은 감독 지시로 'NOTE:rule'
-   고정이라 표 출처를 못 담는다 — account_nm='기타' 인 행이 같은 (연도,보고서) 스코프에
-   여러 개 남는다(자연키는 amount 가 달라 충돌하지 않는다). 알려진 한계로 보고한다.
+3. **'기타' 라벨 중복 — 2026-08-26 해소.** 판관비·기타수익·기타비용·CF조정·CF운전자본
+   다섯 표 모두 세부 항목에 '기타'가 있고 표마다 값이 다르다. 예전엔 account_detail 이
+   'NOTE:rule' 고정이라 표 출처를 못 담아, account_nm='기타' 인 행이 같은 (연도,보고서)
+   스코프에 여러 개 남고(자연키는 amount 가 달라 우연히 충돌을 면했을 뿐) 어느 표에서
+   왔는지 구분이 안 됐다. 지금은 `build_facts()`가 그룹마다 출처 캡션을 facts 튜플에
+   실어 `fact_row()`가 `account_detail='NOTE:<캡션>'`으로 적재한다(예: CF조정의 '기타'는
+   'NOTE:영업활동현금흐름(조정내역)', CF운전자본의 '기타'는 'NOTE:영업활동현금흐름
+   (운전자본변동)') — natural_key 에 캡션이 실려 표 출처로 구분된다. 판관비·기타수익·
+   기타비용 표의 '기타'는 label 자체를 이미 다르게 저장해(기타판매비와관리비/
+   기타(기타수익)/기타(기타비용)) 애초에 충돌이 없었다 — 실제로 겹치는 건 CF 두 표뿐.
 
 사용법:
     python3 extract_notes_full.py --corp 00126380 --rcept 20260310002820 [--dry-run]
@@ -47,9 +53,48 @@ sys.path.insert(0, _HERE)
 import ingest  # noqa: E402
 import extract_profile as ep  # noqa: E402
 
+# 2026-08-26 (감독 재지시 — "개념은 닫고, 라벨만 연다"): 이 파일이 찾는 39/52개 계정 라벨은
+# 삼성전자 원문 표기로 하드코딩돼 있다("급여"·"감가상각비" 등). 다른 회사가 같은 개념을
+# 다른 문자열로 표기하면(예: "종업원급여") 아래 for-label 루프가 그 라벨을 몰라 조용히
+# 건너뛴다 — `notes_agent.py`가 원문에서 그 별칭을 실제로 찾아 검증한 뒤 이 로컬 JSON에
+# 추가해 두면, 다음 실행부터는 **이 규칙 파서가** 그 별칭도 함께 찾는다(계정 개념 자체를
+# 늘리는 게 아니라 같은 개념의 표기 변이를 흡수하는 것). `account_concepts`(DB, fin_periods
+# 파생의 입력) 와는 별개의 로컬 파일이다 — 거긴 감독 승인 없이 절대 쓰지 않는다.
+_LABEL_ALIASES_PATH = os.path.join(_HERE, "..", "references", "주석-라벨별칭.json")
+
+
+def _load_label_aliases():
+    """canonical_label -> [원문에서 검증되어 발견된 대체 표기...]. 파일이 없거나
+    깨졌으면 빈 사전 — 규칙은 원래 하드코딩된 canonical_label 만 찾는 이전 동작으로
+    안전하게 되돌아간다(회귀 없음)."""
+    try:
+        with open(_LABEL_ALIASES_PATH, encoding="utf-8") as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return {}
+
+
+LABEL_ALIASES = _load_label_aliases()
+
+
+def _lookup_label(period_dict, canonical_label):
+    """canonical_label 라벨로 못 찾으면 등록된 별칭으로도 찾는다. 값을 찾은 순서는
+    canonical → 별칭 등록 순서이며, 반환은 (값|None, 실제 매치된 라벨|None)."""
+    if canonical_label in period_dict:
+        return period_dict[canonical_label], canonical_label
+    for alt in LABEL_ALIASES.get(canonical_label, []):
+        if alt in period_dict:
+            return period_dict[alt], alt
+    return None, None
+
 ACCOUNT_ID_SENTINEL = "-표준계정코드 미사용-"
-SOURCE_TAG = "NOTE:rule"
 CORP_CODE = "00126380"
+# 2026-08-26 (감독 지시 A): account_detail 고정 문자열 'NOTE:rule' 을 폐지하고 실제 출처
+# 표 캡션을 담는다 — 어떤 표에서 왔는지가 natural_key 에 실려야 '기타'류 라벨 재사용을
+# 같은 스코프 안에서 구분할 수 있다(모듈 docstring 3번 참고). 접두 'NOTE:' 는 유지해
+# 기존 스코프 삭제 쿼리(sj_div=eq.NOTE)와 문자열 성격을 맞춘다. 캡션이 값 자체를
+# 바꾸지 않으므로 rebuild 조인(account_nm 기준)에는 영향 없다(§7 회귀로 재확인 예정).
+SOURCE_PREFIX = "NOTE:"
 
 _CAPTION_RE = re.compile(r"^\| *([^|]+?) *\| *— *\|\s*$", re.MULTILINE)
 
@@ -221,25 +266,58 @@ def parse_nature_of_expense(md_text, notes):
 
 
 def build_facts(corp_code, rcept_no, bsns_year, md_text, notes):
-    """모든 그룹을 파싱해 (당기,전기) 쌍 facts 리스트로 만든다. 반환: [(account_nm, cur, prev), ...]"""
-    facts = []  # (label, cur_mm, prev_mm)
+    """모든 그룹을 파싱해 (당기,전기,출처캡션) 쌍 facts 리스트로 만든다.
+    반환: [(account_nm, cur, prev, source_caption), ...]
 
-    def add(label, items_dict):
-        cur = items_dict.get("당기", {}).get(label)
-        prev = items_dict.get("전기", {}).get(label)
+    2026-08-26 (감독 지시 A): 각 그룹의 출처 표 캡션을 facts 튜플에 실어 account_detail
+    까지 배선한다(fact_row 가 'NOTE:<caption>' 으로 조립) — '기타' 같은 라벨이 여러 표에
+    같은 값으로 등장해도(값까지 우연히 같으면) 캡션이 달라 natural_key 가 갈린다.
+
+    2026-08-26 (감독 지시 D 실행 가능성): 각 그룹 파서 호출을 개별로 try/except 한다.
+    이 스크립트는 삼성전자 1개사에서만 검증됐고, 캡션 문자열이 회사마다 다르면
+    `_split_당기_전기`가 RuntimeError로 즉시 죽는다(수정 전에는 main() 까지 예외가
+    전파돼 **한 그룹만 캡션이 달라도 전체 실행이 중단**됐다 — 다른 회사 재현시험 중
+    실측). 그룹 단위로 격리하면 캡션이 안 맞는 그룹은 확인불가로 남기고 나머지는
+    계속 진행한다(다른 회사 시험이 가능해진다 — extract_profile.py의 회사·회차 단위
+    예외 격리와 같은 설계 원칙)."""
+    facts = []  # (label, cur_mm, prev_mm, caption)
+
+    def add(label, items_dict, caption):
+        # _lookup_label 이 canonical_label 로 먼저 찾고, 없으면 LABEL_ALIASES(로컬 파일,
+        # notes_agent.py 가 원문 검증 후 축적)에 등록된 별칭으로도 찾는다. 저장은 항상
+        # canonical_label(label)로 한다 — account_nm 이 회사마다 흔들리면
+        # internal.fin_periods_rebuild()의 개념 매칭(account_concepts.name_alts 기준)이
+        # 깨진다. 실제 원문에 쓰인 표기가 무엇이었는지는 매칭 로그로만 남긴다.
+        cur, cur_hit = _lookup_label(items_dict.get("당기", {}), label)
+        prev, prev_hit = _lookup_label(items_dict.get("전기", {}), label)
         if cur is None and prev is None:
             return
-        facts.append((label, cur, prev))
+        if (cur_hit and cur_hit != label) or (prev_hit and prev_hit != label):
+            notes.append("별칭 매치: '%s' ← 당기표기=%s 전기표기=%s" % (label, cur_hit, prev_hit))
+        facts.append((label, cur, prev, caption))
+
+    def _empty2():
+        return {"당기": {}, "전기": {}}
 
     # 1) 비용의 성격별 분류 공시 — 감가상각비·무형자산상각비 (파일럿 소스, ★)
-    noe = parse_nature_of_expense(md_text, notes)
-    add("감가상각비", noe)
-    add("무형자산상각비", noe)
+    CAP_NOE = "비용의 성격별 분류 공시"
+    try:
+        noe = parse_nature_of_expense(md_text, notes)
+    except RuntimeError as e:
+        notes.append("%s: 파싱 실패 — %s (그룹 스킵, 나머지는 계속 진행)" % (CAP_NOE, e))
+        noe = _empty2()
+    add("감가상각비", noe, CAP_NOE)
+    add("무형자산상각비", noe, CAP_NOE)
 
     # 2) 판매비와관리비에 대한 공시 — 급여·퇴직급여·지급수수료·감가상각비·무형자산상각비·
     #    광고선전비·판매촉진비·운반비·서비스비·기타판매비와관리비·경상연구개발비
     #    (감가상각비/무형자산상각비 재등장 — ★안전성 근거는 모듈 docstring 2번 참고)
-    sga = parse_block_items(md_text, "판매비와관리비에 대한 공시", notes)
+    CAP_SGA = "판매비와관리비에 대한 공시"
+    try:
+        sga = parse_block_items(md_text, CAP_SGA, notes)
+    except RuntimeError as e:
+        notes.append("%s: 파싱 실패 — %s (그룹 스킵, 나머지는 계속 진행)" % (CAP_SGA, e))
+        sga = _empty2()
     for p in ("당기", "전기"):
         for k in list(sga[p].keys()):
             if k in SKIP_SGA:
@@ -247,7 +325,7 @@ def build_facts(corp_code, rcept_no, bsns_year, md_text, notes):
     for label in ("급여", "퇴직급여", "지급수수료", "감가상각비", "무형자산상각비",
                   "광고선전비", "판매촉진비", "운반비", "서비스비", "기타판매비와관리비",
                   "경상연구개발비-연구개발 총지출액"):
-        add(label, sga)
+        add(label, sga, CAP_SGA)
     # SG&A 세부 게이트(공짜 검증) — 여기서 즉시 계산해 notes 에 남긴다(그룹 게이트는
     # main() 이 다시 총계 대조로 한번 더 한다).
     for p, label_yr in (("당기", "2025"), ("전기", "2024")):
@@ -259,63 +337,83 @@ def build_facts(corp_code, rcept_no, bsns_year, md_text, notes):
     #    ★ '외환차이' 라벨이 수익측·비용측에 동시 등장(값 다름) — parse_block_items 는
     #    한 (period,label) 에 값이 다르면 첫 값을 지키므로, 비용측 외환차이가 조용히
     #    버려진다. 그래서 이 표만은 수익 섹션/비용 섹션을 별도로 잘라 처리한다.
-    fin_rev, fin_cost = _parse_financial_income_cost(md_text, notes)
-    add("이자수익(금융수익)", fin_rev)
-    add("외환차이(금융수익)", fin_rev)
-    add("파생상품관련이익", fin_rev)
-    add("이자비용(금융원가)", fin_cost)
-    add("외환차이(금융비용)", fin_cost)
-    add("파생상품관련손실", fin_cost)
+    CAP_FIN_REV, CAP_FIN_COST = "금융수익 및 금융비용(수익)", "금융수익 및 금융비용(비용)"
+    try:
+        fin_rev, fin_cost = _parse_financial_income_cost(md_text, notes)
+    except RuntimeError as e:
+        notes.append("금융수익 및 금융비용: 파싱 실패 — %s (그룹 스킵, 나머지는 계속 진행)" % e)
+        fin_rev, fin_cost = _empty2(), _empty2()
+    add("이자수익(금융수익)", fin_rev, CAP_FIN_REV)
+    add("외환차이(금융수익)", fin_rev, CAP_FIN_REV)
+    add("파생상품관련이익", fin_rev, CAP_FIN_REV)
+    add("이자비용(금융원가)", fin_cost, CAP_FIN_COST)
+    add("외환차이(금융비용)", fin_cost, CAP_FIN_COST)
+    add("파생상품관련손실", fin_cost, CAP_FIN_COST)
 
     # 4) 기타수익 및 기타비용 — 배당금수익·임대료수익·유형자산처분이익·기타(수익) /
     #    유형자산처분손실·기부금·기타(비용)
     #    ★ '기타'가 수익측·비용측 둘 다 있다(값 다름) — 같은 이유로 섹션 분리 파싱.
-    oth_rev, oth_cost = _parse_other_income_cost(md_text, notes)
-    add("배당금수익", oth_rev)
-    add("임대료수익", oth_rev)
-    add("유형자산처분이익", oth_rev)
-    add("기타(기타수익)", oth_rev)
-    add("유형자산처분손실", oth_cost)
-    add("기부금", oth_cost)
-    add("기타(기타비용)", oth_cost)
+    CAP_OTH_REV, CAP_OTH_COST = "기타수익 및 기타비용(수익)", "기타수익 및 기타비용(비용)"
+    try:
+        oth_rev, oth_cost = _parse_other_income_cost(md_text, notes)
+    except RuntimeError as e:
+        notes.append("기타수익 및 기타비용: 파싱 실패 — %s (그룹 스킵, 나머지는 계속 진행)" % e)
+        oth_rev, oth_cost = _empty2(), _empty2()
+    add("배당금수익", oth_rev, CAP_OTH_REV)
+    add("임대료수익", oth_rev, CAP_OTH_REV)
+    add("유형자산처분이익", oth_rev, CAP_OTH_REV)
+    add("기타(기타수익)", oth_rev, CAP_OTH_REV)
+    add("유형자산처분손실", oth_cost, CAP_OTH_COST)
+    add("기부금", oth_cost, CAP_OTH_COST)
+    add("기타(기타비용)", oth_cost, CAP_OTH_COST)
 
-    # 5) 지분법평가내역 — '계' 행의 지분법손익 컬럼
+    # 5) 지분법평가내역 — '계' 행의 지분법손익 컬럼 (parse_equity_method 는 이미
+    #    자체적으로 앵커 탐색 실패를 흡수해 {} 를 돌려준다 — try/except 불필요)
+    CAP_EQ = "지분법평가내역"
     eq = parse_equity_method(md_text, notes)
     if eq:
-        facts.append(("지분법손익", eq.get("당기"), eq.get("전기")))
+        facts.append(("지분법손익", eq.get("당기"), eq.get("전기"), CAP_EQ))
 
     # 6) 영업활동현금흐름 — 조정내역(가산/차감 통합) + 운전자본 세부
     #    ★ '기타'가 조정내역·운전자본 두 섹션에 각각 있다(값 다름, 실측: 433,159 vs
     #    -1,110,778) — parse_block_items 로는 첫 값만 남고 두번째가 버려진다(dry-run
     #    으로 실제 관측). 이자수익/기타수익 표와 같은 이유로 섹션 분리 파서를 쓴다.
-    cf_adj, cf_wc = _parse_operating_cf(md_text, notes)
+    #    캡션을 조정/운전자본 두 갈래로 나눠 담는다 — 같은 '기타' 라벨이 두 표 모두에서
+    #    나오므로(값 다름) account_detail 로 구분되지 않으면 자연키가 충돌할 수 있다.
+    CAP_CF_ADJ, CAP_CF_WC = "영업활동현금흐름(조정내역)", "영업활동현금흐름(운전자본변동)"
+    try:
+        cf_adj, cf_wc = _parse_operating_cf(md_text, notes)
+    except RuntimeError as e:
+        notes.append("영업활동현금흐름: 파싱 실패 — %s (그룹 스킵, 나머지는 계속 진행)" % e)
+        cf_adj, cf_wc = _empty2(), _empty2()
     for label in ("법인세비용", "금융수익", "금융비용", "퇴직급여", "대손상각비(환입)",
                   "배당금수익", "지분법이익", "유형자산처분이익", "유형자산처분손실",
                   "재고자산평가손실", "재고자산평가손실환입", "기타"):
-        add(label, cf_adj)
+        add(label, cf_adj, CAP_CF_ADJ)
     for label in ("매출채권의 감소(증가)", "미수금의 감소(증가)", "장단기선급비용의 감소(증가)",
                   "재고자산의 감소(증가)", "매입채무의 증가(감소)", "장단기미지급금의 증가(감소)",
                   "선수금의 증가(감소)", "예수금의 증가(감소)", "미지급비용의 증가(감소)",
                   "장단기충당부채의 증가(감소)", "퇴직금의 지급", "사외적립자산의 감소(증가)",
                   "기타"):
-        add(label, cf_wc)
+        add(label, cf_wc, CAP_CF_WC)
 
     # natural_key 는 (corp,year,reprt,fs_div,sj_div,account_id,account_nm,account_detail,
-    # ord,amount,amount_prev,...) 전 컬럼 해시다 — 같은 (label,cur,prev) 가 두 번 나오면
-    # (실측: '유형자산처분손실'이 기타비용표·CF조정표 양쪽에서 같은 값 57,404/124,018로
-    # 나온다) INSERT 배치 안에서 같은 natural_key 행이 두 번 생겨 PostgREST 가 21000
-    # ("ON CONFLICT DO UPDATE command cannot affect row a second time")으로 배치 전체를
-    # 실패시킨다(실측 확인). 여기서 (label,cur,prev) 완전 동일 건만 하나로 접는다 — 값이
-    # 다르면(예: '기타', '외환차이' 등 표마다 다른 값) 그대로 둔다.
+    # ord,amount,amount_prev,...) 전 컬럼 해시다 — account_detail 이 이제 캡션을 담으므로
+    # (label,cur,prev,caption) 완전 동일 건만 하나로 접는다(캡션까지 같아야 진짜 중복).
+    # 값은 같아도 캡션이 다르면(예: '유형자산처분손실'이 기타비용표·CF조정표 양쪽에서 같은
+    # 값 57,404/124,018 로 나오는 경우) 더 이상 접지 않고 두 행 모두 남긴다 — 서로 다른
+    # 출처 표가 같은 사실을 반복 보고했다는 정보 자체가 유실되지 않는다(account_detail
+    # 이 다르므로 natural_key 도 달라 ON CONFLICT 충돌 위험은 없다).
     seen = set()
     deduped = []
-    for label, cur, prev in facts:
-        key = (label, cur, prev)
+    for label, cur, prev, caption in facts:
+        key = (label, cur, prev, caption)
         if key in seen:
-            notes.append("build_facts: '%s'(당기=%s,전기=%s) 중복 — 한 행으로 접음" % (label, cur, prev))
+            notes.append("build_facts: '%s'(당기=%s,전기=%s,출처=%s) 중복 — 한 행으로 접음" %
+                         (label, cur, prev, caption))
             continue
         seen.add(key)
-        deduped.append((label, cur, prev))
+        deduped.append((label, cur, prev, caption))
 
     return deduped, notes
 
@@ -365,7 +463,17 @@ def _parse_operating_cf(md_text, notes):
 def _parse_financial_income_cost(md_text, notes):
     """'금융수익 및 금융비용' 표 — '외환차이' 라벨이 수익/비용 양쪽에 같은 이름으로
     나와 parse_block_items 의 '한 라벨 한 값' 가정이 깨진다. 그래서 이 표만은 각 기간
-    블록을 '금융비용 합계' 행 위치로 다시 수익/비용 두 구간으로 쪼갠다."""
+    블록을 '금융비용 합계' 행 위치로 다시 수익/비용 두 구간으로 쪼갠다.
+
+    2026-08-26 버그 수정(실측): '이자수익'·'이자비용' 등은 원문 라벨 자체에 이미
+    '(금융수익)'/'(금융원가)' 괄호가 붙어 있어 build_facts()의 add("이자수익(금융수익)",
+    ...) 가 그대로 맞는다. 그런데 '외환차이'만은 원문에 괄호 구분이 없어 수익/비용 양쪽
+    다 리터럴 '외환차이'로 들어온다 — _parse_other_income_cost 의 '기타'는 이미
+    section 별로 재라벨링하는데 이 함수는 그 처리가 없었다. 그 결과 add("외환차이(금융수익)",
+    rev)/add("외환차이(금융비용)", cost) 가 항상 빈 검색이 되어(dict 키가 '외환차이'뿐이라)
+    당기·전기 둘 다 확인불가로 조용히 빠졌다(에러 없이 결측 — 실측: 재적재 후 DB에 두 라벨이
+    0행이었다, 채점표 문서의 '일치' 판정은 이 결함이 있기 전 수동 검산 기준이었던 것으로
+    보인다). '기타' 재라벨링과 동일한 방식으로 '외환차이'만 섹션별로 재라벨링한다."""
     window, tables = _split_당기_전기(md_text, "금융수익 및 금융비용")
     rev = {"당기": {}, "전기": {}}
     cost = {"당기": {}, "전기": {}}
@@ -395,8 +503,10 @@ def _parse_financial_income_cost(md_text, notes):
             v = num_signed(amt_s)
             if v is None:
                 continue
+            store_label = (label + "(금융수익)") if section == "rev" and label == "외환차이" else \
+                          (label + "(금융비용)") if section == "cost" and label == "외환차이" else label
             bucket = rev if section == "rev" else cost
-            bucket[cur_period][label] = v
+            bucket[cur_period][store_label] = v
     return rev, cost
 
 
@@ -441,7 +551,7 @@ def _parse_other_income_cost(md_text, notes):
     return rev, cost
 
 
-def fact_row(corp_code, bsns_year, rcept_no, account_nm, amount_mm, amount_prev_mm):
+def fact_row(corp_code, bsns_year, rcept_no, account_nm, amount_mm, amount_prev_mm, caption):
     def to_krw(mm):
         return None if mm is None else int(round(mm * 1_000_000))
     return {
@@ -450,7 +560,7 @@ def fact_row(corp_code, bsns_year, rcept_no, account_nm, amount_mm, amount_prev_
         "account_id": ACCOUNT_ID_SENTINEL, "account_nm": account_nm,
         "amount": to_krw(amount_mm), "amount_prev": to_krw(amount_prev_mm),
         "amount_prev2": None, "ord": None, "currency": "KRW",
-        "rcept_no": rcept_no, "account_detail": SOURCE_TAG,
+        "rcept_no": rcept_no, "account_detail": SOURCE_PREFIX + caption,
     }
 
 
@@ -467,12 +577,12 @@ def main():
     notes = []
     facts, notes = build_facts(args.corp, args.rcept, args.bsns_year, md_text, notes)
 
-    rows = [fact_row(args.corp, args.bsns_year, args.rcept, label, cur, prev)
-            for (label, cur, prev) in facts]
+    rows = [fact_row(args.corp, args.bsns_year, args.rcept, label, cur, prev, caption)
+            for (label, cur, prev, caption) in facts]
 
     print("--- 적재 대상 행 (%d) ---" % len(rows))
     for r in rows:
-        print(" %-28s 당기=%s 전기=%s" % (r["account_nm"], r["amount"], r["amount_prev"]))
+        print(" %-28s 당기=%s 전기=%s  [%s]" % (r["account_nm"], r["amount"], r["amount_prev"], r["account_detail"]))
     print("--- notes (%d) ---" % len(notes))
     for n in notes:
         print(" ·", n)
