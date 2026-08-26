@@ -53,6 +53,9 @@ ALL_CONCEPTS = [
     "market_share",
     "shareholding_pct",
 ]
+# 5블록이 0행인 회차도 fin_details.source_rcept_no 를 남겨 pending 스캔에서
+# 빠지게 한다. ALL_CONCEPTS 밖이라 replace_scope 가 실데이터를 지우지 않는다.
+MARK_CONCEPT = "_extract_attempted"
 
 
 # ══════════════════════════════════════════════════════════ 공용 유틸
@@ -1247,6 +1250,29 @@ def to_history_row(corp_code, rcept_no, h):
     }
 
 
+def mark_attempted(corp_code, rcept_no):
+    """5블록 0행이어도 source_rcept_no 를 남겨 pending 에서 빠지게 한다."""
+    _fy, pk, _nm = report_fiscal_year(rcept_no)
+    row = {
+        "corp_code": corp_code,
+        "period_key": pk or "0000A",
+        "concept": MARK_CONCEPT,
+        "item_name": "(추출시도)",
+        "amount": None,
+        "unit": None,
+        "value_basis": None,
+        "status": "확인불가:5블록0행",
+        "source_rcept_no": rcept_no,
+        "source_section": None,
+        "source_table": None,
+        "extracted_by": EXTRACTED_BY,
+    }
+    ingest.rest("POST",
+                "fin_details?on_conflict=corp_code,period_key,concept,item_name,source_rcept_no",
+                [row], prefer="resolution=merge-duplicates")
+    print("  fin_details[%s]: 1행 (0블록 표식)" % MARK_CONCEPT)
+
+
 def load_scope(corp_code, rcept_no, facts, hist, only_concepts=None):
     """스코프 교체: (corp_code × concept × source_rcept_no) 단위로 delete→insert.
     ALL_CONCEPTS 전체를 매번 훑어, 이번 파싱에서 안 나온 concept 은 빈 리스트로
@@ -1289,6 +1315,12 @@ def load_scope(corp_code, rcept_no, facts, hist, only_concepts=None):
         "corp_history", {"corp_code": "eq.%s" % corp_code, "source_rcept_no": "eq.%s" % rcept_no},
         hist_rows, on_conflict="corp_code,source_rcept_no,event_ym,content")
     print("  corp_history: %d행" % len(hist_rows))
+    if facts or hist_rows:
+        ingest.rest("DELETE",
+                    "fin_details?corp_code=eq.%s&concept=eq.%s&source_rcept_no=eq.%s"
+                    % (corp_code, MARK_CONCEPT, rcept_no))
+    elif only_concepts is None:
+        mark_attempted(corp_code, rcept_no)
 
 
 # ══════════════════════════════════════════════════════════ 대상 회차 결정
