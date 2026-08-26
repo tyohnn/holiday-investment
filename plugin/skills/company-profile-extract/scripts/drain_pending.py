@@ -67,6 +67,9 @@ def _pending_window(report_like, gte, lte, n=400):
                 if len(out) >= n:
                     break
         offset += 200
+        if offset % 400 == 0:
+            print("  pending scan %s..%s offset=%d found=%d" % (gte, lte, offset, len(out)),
+                  flush=True)
         if len(rows) < 200:
             break
     return out
