@@ -13,7 +13,9 @@ import argparse
 import json
 import os
 import sys
+import time
 import traceback
+import urllib.error
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _REPO = os.path.dirname(os.path.dirname(_HERE))
@@ -188,8 +190,17 @@ def main():
             ki += 1
             status, extra, n = "ok", "", 0
             try:
-                rows, fs = api.finstate_all(key, corp, year, reprt=reprt)
-                if not rows:
+                rows, fs = None, None
+                for attempt in range(5):
+                    try:
+                        rows, fs = api.finstate_all(key, corp, year, reprt=reprt)
+                        break
+                    except urllib.error.URLError as e:
+                        extra = "URLError: %s" % e
+                        time.sleep(min(2 ** attempt, 16))
+                if rows is None and extra.startswith("URLError"):
+                    status = "exc"
+                elif not rows:
                     status, extra = "empty", "no_dart"
                 else:
                     n = ingest.write_fin_scope(corp, year, reprt, fs, rows)
