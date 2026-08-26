@@ -1345,10 +1345,21 @@ def load_scope(corp_code, rcept_no, facts, hist, only_concepts=None):
     by_concept = {}
     for f in facts:
         by_concept.setdefault(f["concept"], []).append(to_db_row(corp_code, rcept_no, f))
+    # pending 첫 적재면 빈 concept DELETE 는 지울 행이 없다. 한 번 물어
+    # 비어 있으면 나온 concept 만 POST 한다(실측: rnd 3행인 회차도 DELETE 9번).
+    first_load = False
+    if only_concepts is None:
+        existing = ingest.rest(
+            "GET",
+            "fin_details?select=concept&source_rcept_no=eq.%s&limit=1" % rcept_no)
+        first_load = not existing
     targets = ALL_CONCEPTS if only_concepts is None else [
         c for c in ALL_CONCEPTS if c in only_concepts]
     for concept in targets:
         rows = by_concept.get(concept, [])
+        if first_load and not rows:
+            print("  fin_details[%s]: 0행 (첫적재 skip)" % concept)
+            continue
         # 자연키 중복 방어(같은 표에서 같은 item_name 이 두 번 잡히는 회귀 방지)
         rows = ingest.dedupe_by(rows, ["corp_code", "period_key", "concept", "item_name",
                                         "source_rcept_no"], "fin_details:%s" % concept)
@@ -1366,14 +1377,18 @@ def load_scope(corp_code, rcept_no, facts, hist, only_concepts=None):
     hist_rows = [to_history_row(corp_code, rcept_no, h) for h in hist if h.get("event_ym")]
     hist_rows = ingest.dedupe_by(hist_rows, ["corp_code", "source_rcept_no", "event_ym", "content"],
                                   "corp_history")
-    ingest.replace_scope(
-        "corp_history", {"corp_code": "eq.%s" % corp_code, "source_rcept_no": "eq.%s" % rcept_no},
-        hist_rows, on_conflict="corp_code,source_rcept_no,event_ym,content")
-    print("  corp_history: %d행" % len(hist_rows))
+    if first_load and not hist_rows:
+        print("  corp_history: 0행 (첫적재 skip)")
+    else:
+        ingest.replace_scope(
+            "corp_history", {"corp_code": "eq.%s" % corp_code, "source_rcept_no": "eq.%s" % rcept_no},
+            hist_rows, on_conflict="corp_code,source_rcept_no,event_ym,content")
+        print("  corp_history: %d행" % len(hist_rows))
     if facts or hist_rows:
-        ingest.rest("DELETE",
-                    "fin_details?corp_code=eq.%s&concept=eq.%s&source_rcept_no=eq.%s"
-                    % (corp_code, MARK_CONCEPT, rcept_no))
+        if not first_load:
+            ingest.rest("DELETE",
+                        "fin_details?corp_code=eq.%s&concept=eq.%s&source_rcept_no=eq.%s"
+                        % (corp_code, MARK_CONCEPT, rcept_no))
     elif only_concepts is None:
         mark_attempted(corp_code, rcept_no)
 
