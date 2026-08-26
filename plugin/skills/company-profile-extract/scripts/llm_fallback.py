@@ -465,6 +465,9 @@ def build_numeric_facts(concept, block_label, items, fy_int, full_section_text,
         if not it.get("item_name") or not it.get("source_table"):
             dropped_no_source += 1
             continue  # 출처 없는 항목은 적재 거부
+        hdr = it.get("period_header") or ""
+        if any(tok in hdr for tok in ("예상", "전망", "계획")):
+            continue  # 실적이 아닌 전망 열 (2026-08-26 이구산업 2026A 24% 실측)
         # year_map 값은 이미 ep.make_period_key()로 조립된 완성 period_key다
         # ('2025A'/'2025Q1' 등) — infer_period_labels()도 resolve_periods()의
         # RELATIVE_PERIOD_MAP 분기도 둘 다 완성형을 낸다. 여기서 다시 '%sA'를
