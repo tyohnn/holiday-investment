@@ -109,7 +109,9 @@ def _load_done(log_path):
         if not line:
             continue
         rec = json.loads(line)
-        if rec.get("status") == "ok":
+        # ok 만이 아니라 fail/exc 도 건너뛴다. 한 회차가 REST 재시도에
+        # 몇 분씩 묶이면 창 전체가 멈춘다. 재시도는 로그를 지운 뒤 한다.
+        if rec.get("corp") and rec.get("rcept"):
             done.add((rec["corp"], rec["rcept"]))
     return done
 

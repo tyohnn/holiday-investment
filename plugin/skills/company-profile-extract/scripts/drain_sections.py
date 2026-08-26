@@ -100,7 +100,7 @@ def _load_done(log_path):
         if not line:
             continue
         rec = json.loads(line)
-        if rec.get("status") == "ok":
+        if rec.get("corp") and rec.get("rcept"):
             done.add((rec["corp"], rec["rcept"]))
     return done
 
