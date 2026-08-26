@@ -554,6 +554,15 @@ def parse_rd(md_text, fallback_year=None, notes=None):
         # 표기를 못 찾으면 배수를 **지어내지 않고** 금액을 확인불가로 남긴다: 잘못된
         # 배수로 적재하면 1000배 틀린 값이 조용히 들어가고(게이트가 비율만 막고 금액은
         # 통과시켰다, 2026-08-26 실측) 사후에 구분할 방법이 없다.
+        # 지주사 보고서는 당사 절에 '해당사항 없습니다'를 두고 바로 뒤에
+        # '[주요 종속회사 - …]' 연구개발비 표를 나열한다. 첫 과목표를 집어가면
+        # 경보제약 숫자를 종근당홀딩스 행으로 적재한다
+        # (2026-08-26 00149354: 14.58조 > 당사 매출 0.88조).
+        pre = md_text[max(0, t["_pos"] - 2000):t["_pos"]]
+        markers = list(re.finditer(r"\[\s*주요\s*(종속회사|자회사|관계회사)[^\]]*\]", pre))
+        if markers:
+            notes.append("R&D: 직전 제목이 %s — 당사 표가 아니라 스킵" % markers[-1].group(0))
+            continue
         unit_scale, unit_text = detect_unit_scale(md_text, t["_pos"])
         if unit_scale is None:
             notes.append("R&D: 표 단위 표기를 찾지 못해 금액을 확인불가로 남김"
@@ -612,7 +621,16 @@ def parse_segment_revenue(md_text, fallback_year=None, notes=None):
             continue
         notes.append("부문별 매출: 기간 라벨 획득 경로=%s (%s)" %
                      (label_source, ", ".join("%s→%s" % (p, labels.get(p)) for p in periods)))
-        scale = 100_000_000  # 억원 → KRW
+        # 표 단위는 회사마다 다르다. 예전엔 `scale = 1e8`(억원) 이 하드코딩돼 있어
+        # 백만원 표(다수)에서 부문합이 정확히 100배가 됐다 — 게이트가 9900% 차이로
+        # 막아 적재는 안 됐지만, 규칙 파서 경로가 사실상 죽었다
+        # (2026-08-26 코오롱글로벌 00152880 · 삼성물산 00149655).
+        unit_scale, unit_text = detect_unit_scale(md_text, t["_pos"])
+        if unit_scale is None:
+            notes.append("부문별 매출: 표 단위 표기를 찾지 못해 금액을 확인불가로 남김"
+                         "(원문 표기=%r)" % (unit_text,))
+        else:
+            notes.append("부문별 매출: 표 단위=%r → ×%d" % (unit_text, unit_scale))
         for row in t["rows"]:
             if not row:
                 continue
@@ -630,10 +648,15 @@ def parse_segment_revenue(md_text, fallback_year=None, notes=None):
                 if not period_key or i >= len(vals):
                     continue
                 v = num(vals[i])
+                if v is None:
+                    amount, status = None, "확인불가:원문값없음(공란)"
+                elif unit_scale is None:
+                    amount, status = None, "확인불가:표단위미확인(%s)" % (unit_text,)
+                else:
+                    amount, status = v * unit_scale, "ok"
                 facts.append(fact("segment_revenue", item, period_key,
-                                   v * scale if v is not None else None, "KRW", None,
-                                   "ok" if v is not None else "확인불가:원문값없음(공란)",
-                                   "II.4.가 매출실적", "부문별 매출실적(억원)"))
+                                   amount, "KRW", None, status,
+                                   "II.4.가 매출실적", "부문별 매출실적"))
         break
     return facts
 
