@@ -191,3 +191,8 @@ fin_details 13,029 / 439사 · corp_history 9,939 / 424사.
 `pending`/`latest_annual_rcept` 는 `*사업보고서 (*` 만 본다 — 제출기한연장신고서 제외.
 회사별 최신 ok 미적재 42사와 Phase 3 가 새로 올린 정정·원문을 `--rcepts` 1:1 로 넣고,
 섹션이 있는 회차부터 주석(`extract_notes_full`)을 이어서 적재한다.
+
+2026-08-26 15:40 재측정: 연간 pending 14,719 / 반기 12,547 / 분기 25,946.
+2026-03 최신 창은 거의 채워졌고, 다음 빈 창은 2025-03 사업보고서.
+분기·반기 프로필 파일럿(150·80)과 주석 200회차를 병렬로 돌린다.
+`docs_storage.pending_docs` 는 임베디드 조인 대신 filings→filing_docs 두 단계.
