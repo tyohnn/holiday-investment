@@ -135,6 +135,8 @@ def pending_notes(since, until, n, skip, kind="A", noted=None):
         return out
     except Exception as e:  # noqa: BLE001
         print("  rpc pending_notes_rcepts fallback: %s" % e, flush=True)
+        if not noted:
+            noted = noted_set()
     like = urllib.parse.quote(KIND[kind][0], safe="")
     out, offset = [], 0
     until_q = ("&rcept_dt=lte." + until) if until and until != "99991231" else ""
@@ -192,8 +194,10 @@ def main():
             if args.retry_empty and rec.get("status") == "empty":
                 continue
             skip.add((rec["corp"], rec["rcept"]))
-    noted = noted_set()
-    print("skip_log=%d noted=%d" % (len(skip), len(noted)), flush=True)
+    # RPC 가 NOTE 행을 NOT EXISTS 로 빼므로 전량 noted_set 페이지는 시작 때 하지 않는다.
+    # REST 폴백 스캔에만 그때 모은다.
+    noted = set()
+    print("skip_log=%d noted=lazy-rpc" % len(skip), flush=True)
     ingest.print_target()
     os.makedirs(os.path.dirname(args.log) or ".", exist_ok=True)
 
