@@ -66,6 +66,8 @@ PERIOD_CASES = [
     ("당기", None), ("소계", None), ("합계", None),
     ("2025.01~2025.09", None),          # 9개월 YTD
     ("제46기 기말 (2024년 9월말)", None),  # 12월이 아니면 연간이 아니다
+    ("1702", None),                      # 4자리여도 2000~2026 밖 — 1702A 오염
+    ("1984", None),                      # 연혁 연도와 실적 헤더를 혼동
 ]
 NUM_CASES = [
     ("1,879,673", 1879673.0), ("△301,146", -301146.0), ("▲1,234", -1234.0),
@@ -180,13 +182,16 @@ def cmd_cases(args):
 
 # ──────────────────────────────────────────────────────── integrity
 
-# 2000~2026 밖 period_key. 전표 페이지 대신 접두만 묻는다 (19*·2027+·21*).
+# 2000~2026 밖 period_key. 전표 페이지 대신 접두만 묻는다.
+# 17* 를 빼면 성문전자 1702A/1703A 가 조용히 남는다. 10*~16* 도 같은 지문.
 _BAD_PK_OR = (
-    "or=(period_key.like.18*,period_key.like.19*,period_key.like.2027*,"
-    "period_key.like.2028*,period_key.like.2029*,period_key.like.203*,"
-    "period_key.like.204*,period_key.like.205*,period_key.like.206*,"
-    "period_key.like.207*,period_key.like.208*,period_key.like.209*,"
-    "period_key.like.21*)"
+    "or=(period_key.like.10*,period_key.like.11*,period_key.like.12*,"
+    "period_key.like.13*,period_key.like.14*,period_key.like.15*,"
+    "period_key.like.16*,period_key.like.17*,period_key.like.18*,"
+    "period_key.like.19*,period_key.like.2027*,period_key.like.2028*,"
+    "period_key.like.2029*,period_key.like.203*,period_key.like.204*,"
+    "period_key.like.205*,period_key.like.206*,period_key.like.207*,"
+    "period_key.like.208*,period_key.like.209*,period_key.like.21*)"
 )
 
 
@@ -204,15 +209,25 @@ def cmd_integrity(args):
         "fin_details?concept=eq.rnd_total&status=eq.ok"
         "&select=corp_code,concept,period_key,item_name,amount,status,source_rcept_no",
         "corp_code,period_key,source_rcept_no")
-    fp = _rows(
-        "fin_periods?period_type=eq.A&revenue=not.is.null"
-        "&select=corp_code,period_key,fs_div,revenue",
-        "corp_code,period_key,fs_div")
+    # 매출은 rnd 가 있는 (corp, period_key) 만 받는다. period_type=A 만 보면
+    # 분기 R&D>매출(삼아제약 2024Q2 등)이 0으로 위장된다.
+    needed = sorted({(x["corp_code"], x["period_key"]) for x in rnd if x.get("period_key")})
     rev = {}
-    for x in fp:
-        k = (x["corp_code"], x["period_key"])
-        if k not in rev or x["fs_div"] == "CFS":
-            rev[k] = float(x["revenue"])
+    for i in range(0, len(needed), 80):
+        chunk = needed[i:i + 80]
+        corps = ",".join(sorted({c for c, _k in chunk}))
+        keys = ",".join(sorted({k for _c, k in chunk}))
+        fp = ingest.rest(
+            "GET",
+            "fin_periods?period_type=in.(A,Q1,Q2,Q3,Q4)&revenue=not.is.null"
+            "&corp_code=in.(%s)&period_key=in.(%s)"
+            "&select=corp_code,period_key,fs_div,revenue" % (corps, keys))
+        for x in (fp or []):
+            k = (x["corp_code"], x["period_key"])
+            if k not in needed:
+                continue
+            if k not in rev or x["fs_div"] == "CFS":
+                rev[k] = float(x["revenue"])
     bad_pk = _rows(
         "fin_details?select=corp_code,period_key,item_name,concept&" + _BAD_PK_OR,
         "corp_code,period_key")

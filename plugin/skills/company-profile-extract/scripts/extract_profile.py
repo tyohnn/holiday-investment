@@ -133,6 +133,12 @@ def parse_md_tables(md_text):
     return out
 
 
+def plausible_fiscal_year(year):
+    """정기보고서 실적 열이 담을 수 있는 회계연도. 2000~2026 밖은 앵커 오적용·
+    4자리 숫자 오탐(실측: 성문전자 2015A 헤더 '1702' → 1702A)이다."""
+    return isinstance(year, int) and 2000 <= year <= 2026
+
+
 def make_period_key(year, quarter=None):
     """(year, quarter) → fin_details/fin_periods 공용 period_key 문자열. 하드코딩된
     '%sA' % year 를 전부 이 함수로 모았다(2026-08-25 분기·반기 지원 — 감독 지시 §B).
@@ -206,13 +212,15 @@ def parse_period_col(s):
                      r"[（(]\s*(?:FY\s*)?(\d{4})\s*(?:년도|연도|년)?\s*(?:말)?\s*[)）]",
                      s, re.IGNORECASE)
     if m:
-        return ("year", int(m.group(1)), None)
+        y = int(m.group(1))
+        return ("year", y, None) if plausible_fiscal_year(y) else None
     # '제46기 기말 (2024년 12월말)' — 12월말만 연간. 다른 월은 YTD라 거부
     # (2026-08-26 batch03 애경산업 00139454).
     m = re.fullmatch(r"제\s*\d+\s*기\s*기말\s*[（(]\s*(\d{4})\s*년\s*(\d{1,2})\s*월\s*말\s*[)）]", s)
     if m:
         if int(m.group(2)) == 12:
-            return ("year", int(m.group(1)), None)
+            y = int(m.group(1))
+            return ("year", y, None) if plausible_fiscal_year(y) else None
         return None
     # '제70기 당기' / '제69기 전기' — 당기·전기는 상대 표기일 뿐이고 기수가 정보를 담는다.
     # 이걸 None 으로 떨어뜨리면 그 열이 periods 목록에서 빠지면서 **뒤 열이 그 자리를
@@ -227,7 +235,8 @@ def parse_period_col(s):
     # 있으므로 기수 역산보다 신뢰도가 높아 'year' 로 돌려준다.
     m = re.fullmatch(r"(\d{4})\s*(?:년도|년)?\s*[（(]\s*제?\s*\d+\s*기\s*[)）]", s)
     if m:
-        return ("year", int(m.group(1)), None)
+        y = int(m.group(1))
+        return ("year", y, None) if plausible_fiscal_year(y) else None
     # '제70기(당)' · '제 70 (당) 기' · '제70기 연간' — 2026-08-26 batch13/batch17 실측.
     # 괄호 안 '당/전/전전'과 '연간'은 상대·기간종류 표기일 뿐 기수가 정보를 담는다.
     # 기수 위치가 괄호 앞뒤로 뒤바뀌는 변형('제 70(당) 기')까지 같이 받는다.
@@ -244,14 +253,16 @@ def parse_period_col(s):
     # '2025년 12월 31일' — 결산일 표기. 그 연도의 연간 열이다(batch32·batch23).
     m = re.fullmatch(r"(\d{4})\s*년\s*\d{1,2}\s*월\s*\d{1,2}\s*일\s*(?:기준|현재)?", s)
     if m:
-        return ("year", int(m.group(1)), None)
+        y = int(m.group(1))
+        return ("year", y, None) if plausible_fiscal_year(y) else None
     m = re.fullmatch(r"제?\s*(\d+)\s*기\s*연간", s)
     if m:
         return ("gi", int(m.group(1)), None)
     # 'FY2025' — 연도가 그대로 적혀 있다.
     m = re.fullmatch(r"FY\s*(\d{4})", s, re.IGNORECASE)
     if m:
-        return ("year", int(m.group(1)), None)
+        y = int(m.group(1))
+        return ("year", y, None) if plausible_fiscal_year(y) else None
     # 'YYYY누계' 는 **의도적으로 받지 않는다**. 사업보고서에서는 연간이지만 분기보고서에서는
     # 해당 분기까지의 누계(YTD)라 이 함수가 가진 정보(헤더 문자열)만으로는 구분이 안 된다.
     # 연간으로 단정하면 분기보고서에서 분기 누계값이 연간 라벨을 달고 적재된다 — 조용한
@@ -270,16 +281,18 @@ def parse_period_col(s):
 
     m = re.fullmatch(r"(\d{4})년\s*(\d)\s*분기", s)
     if m:
-        return ("year", int(m.group(1)), int(m.group(2)))
+        y = int(m.group(1))
+        return ("year", y, int(m.group(2))) if plausible_fiscal_year(y) else None
     m = re.fullmatch(r"(\d{4})년\s*반기", s)
     if m:
-        return ("year", int(m.group(1)), "H1")
+        y = int(m.group(1))
+        return ("year", y, "H1") if plausible_fiscal_year(y) else None
 
     m = re.fullmatch(r"(\d{4})\.(\d{2})", s)
     if m:
         year, mm = int(m.group(1)), m.group(2)
         month_quarter = {"03": 1, "06": "H1", "09": 3, "12": None}
-        if mm in month_quarter:
+        if mm in month_quarter and plausible_fiscal_year(year):
             return ("year", year, month_quarter[mm])
         return None  # 04/05/07/08/10/11 등은 분기 경계가 아니다 — 확인 불가
 
@@ -287,7 +300,8 @@ def parse_period_col(s):
     # (2026-08-26 batch02 현대차증권 00137997).
     m = re.fullmatch(r"(\d{4})\.01\s*[-~～]\s*(\d{4})\.12", s)
     if m and m.group(1) == m.group(2):
-        return ("year", int(m.group(1)), None)
+        y = int(m.group(1))
+        return ("year", y, None) if plausible_fiscal_year(y) else None
 
     # '2025' · '2025년' · '2025년도' · '2025연도' · '2025년 당기' · '2025년(1.1~12.31)'
     # · '2025년 말' · '2025년말' · '2025년 기말'
@@ -299,7 +313,8 @@ def parse_period_col(s):
                      r"(?:당기|전기|전전기|연간|기말|말)?\s*"
                      r"(?:[（(][^)）]*[)）])?", s)
     if m and m.group(1):
-        return ("year", int(m.group(1)), None)
+        y = int(m.group(1))
+        return ("year", y, None) if plausible_fiscal_year(y) else None
     return None
 
 
@@ -369,11 +384,15 @@ def infer_period_labels(md_text, table_pos, periods, fallback_year=None):
             continue
         kind, val, quarter = parsed
         if kind == "year":
+            if not plausible_fiscal_year(val):
+                continue
             out[p] = make_period_key(val, quarter)
             used_direct_year = True
         elif kind == "gi" and anchor:
             anchor_year, anchor_gi = anchor
             year = anchor_year - (anchor_gi - val)
+            if not plausible_fiscal_year(year):
+                continue
             # ★ 미래 연도 방어. 정기보고서의 실적 표는 회계연도를 넘는 열을 가질 수 없다 —
             # 넘었다면 앵커가 이 회사 것이 아니라는 뜻이다. 2026-08-26 batch14 실측:
             # 대한항공 사업보고서에서 **종속회사(한국공항㈜)의 '2025년(제59기)' 문장**이
