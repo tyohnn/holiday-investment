@@ -140,6 +140,9 @@ def main():
     ap.add_argument("--recent-days", type=int, default=40,
                     help="매 연도 창 앞에 최근 N일 Phase 3 증분을 한 번 훑음. 0 이면 생략")
     ap.add_argument("--batch", type=int, default=250)
+    ap.add_argument("--loop", action="store_true",
+                    help="창을 비운 뒤 최근 --recent-days 를 다시 본다 (Phase 3 증분)")
+    ap.add_argument("--sleep", type=int, default=90)
     ap.add_argument("--log", required=True)
     args = ap.parse_args()
 
@@ -180,19 +183,34 @@ def main():
         lte = args.to_date or args.from_date
         windows.append((gte, lte, "one"))
 
-    total_ok = total_fail = 0
-    for gte, lte, tag in windows:
-        while True:
-            pairs = _pending_window(like, gte, lte, args.batch)
-            pairs = [p for p in pairs if (p["corp_code"], p["rcept_no"]) not in done]
-            print("window %s %s..%s pending=%d" % (tag, gte, lte, len(pairs)), flush=True)
-            if not pairs:
-                break
-            ok, fail = _extract_pairs(pairs, args.log, done)
-            total_ok += ok
-            total_fail += fail
-            if len(pairs) < args.batch:
-                break
+    def _run(wins):
+        n_ok = n_fail = 0
+        for gte, lte, tag in wins:
+            while True:
+                pairs = _pending_window(like, gte, lte, args.batch)
+                pairs = [p for p in pairs if (p["corp_code"], p["rcept_no"]) not in done]
+                print("window %s %s..%s pending=%d" % (tag, gte, lte, len(pairs)), flush=True)
+                if not pairs:
+                    break
+                ok, fail = _extract_pairs(pairs, args.log, done)
+                n_ok += ok
+                n_fail += fail
+                if len(pairs) < args.batch:
+                    break
+        return n_ok, n_fail
+
+    total_ok, total_fail = _run(windows)
+    while args.loop:
+        print("loop sleep %ds then recent %dd" % (args.sleep, args.recent_days or 20),
+              flush=True)
+        import time
+        time.sleep(args.sleep)
+        today = dt.date.today()
+        start = today - dt.timedelta(days=args.recent_days or 20)
+        extra_ok, extra_fail = _run([(
+            start.strftime("%Y%m%d"), today.strftime("%Y%m%d"), "recent-loop")])
+        total_ok += extra_ok
+        total_fail += extra_fail
     print("drain done ok=%d fail=%d" % (total_ok, total_fail), flush=True)
     return 0 if total_fail == 0 else 1
 
