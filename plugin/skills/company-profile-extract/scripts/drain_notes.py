@@ -6,6 +6,7 @@
 최신 순으로 창을 넓혀 간다.
 """
 import argparse
+import datetime as dt
 import json
 import os
 import re
@@ -115,22 +116,37 @@ def noted_set():
     return out
 
 
+def _day_before(yyyymmdd):
+    d = dt.datetime.strptime(yyyymmdd, "%Y%m%d") - dt.timedelta(days=1)
+    return d.strftime("%Y%m%d")
+
+
+def _rcept_dt_key(rcept_no):
+    """DART rcept_no 앞 8자 = 접수일. PostgREST 1000행 상한을 날짜로 넘길 때 쓴다."""
+    if rcept_no and len(rcept_no) >= 8 and rcept_no[:8].isdigit():
+        return rcept_no[:8]
+    return None
+
+
 def pending_notes(since, until, n, skip, kind="A", noted=None):
     noted = noted or set()
     sql_like = KIND[kind][0].replace("*", "%")
     until = until or "99991231"
-    # 큰 exclude 는 RPC 가 타임아웃 → REST 폴백(NOTE 미검사)이 같은 회차를
-    # 다시 줍는다. 최근 400개만 넘기고, RPC 가 skip 만 돌려주면 exclude 를
-    # 늘려 다음 페이지를 묻는다.
-    extra_exclude = set()
-    for _page in range(8):
-        exclude = sorted({r for (_c, r) in skip} | set(noted or []) | extra_exclude)
-        if len(exclude) > 400:
-            exclude = exclude[-400:]
+    # PostgREST max-rows=1000 이라 RPC n=4000 도 최신 1000건만 온다.
+    # empty/no_note_title 은 NOTE 행이 없어 계속 pending 이다. exclude 를
+    # 400으로 자르면 같은 최신 1000이 반복되고 창은 pending_notes=0 으로 죽는다.
+    # 한 페이지가 전부 skip 이면 rcept_no 접수일 커서로 dt_lte 를 하루 당긴다.
+    skipped = {r for (_c, r) in skip} | set(noted or [])
+    cursor = until
+    page_n = min(max(int(n or 200), 1), 1000)
+    for _page in range(80):
+        if cursor < since:
+            return []
+        exclude = sorted(skipped)[-1000:]
         try:
             rows = ingest.rest("POST", "rpc/pending_notes_rcepts", {
-                "report_like": sql_like, "dt_gte": since, "dt_lte": until, "n": n,
-                "exclude_rcepts": exclude,
+                "report_like": sql_like, "dt_gte": since, "dt_lte": cursor,
+                "n": page_n, "exclude_rcepts": exclude,
             }) or []
         except Exception as e:  # noqa: BLE001
             print("  rpc pending_notes_rcepts fallback: %s" % e, flush=True)
@@ -141,13 +157,26 @@ def pending_notes(since, until, n, skip, kind="A", noted=None):
         for r in rows:
             key = (r["corp_code"], r["rcept_no"])
             if key in skip or r["rcept_no"] in noted:
-                extra_exclude.add(r["rcept_no"])
+                skipped.add(r["rcept_no"])
                 continue
             out.append(r)
             if len(out) >= n:
                 break
-        if out or not rows:
+        if out:
             return out
+        if not rows:
+            return []
+        dates = [_rcept_dt_key(r.get("rcept_no")) for r in rows]
+        dates = [d for d in dates if d]
+        if not dates:
+            return []
+        nxt = _day_before(min(dates))
+        skipped.update(r["rcept_no"] for r in rows if r.get("rcept_no"))
+        if nxt >= cursor or nxt < since:
+            return []
+        cursor = nxt
+        print("  notes cursor %s..%s (page all skipped n=%d)" % (
+            since, cursor, len(rows)), flush=True)
     else:
         return []
     like = urllib.parse.quote(KIND[kind][0], safe="")
@@ -198,6 +227,8 @@ def main():
                     help="다른 jsonl 들의 empty 회차만 다시 넣는다(쉼표 경로)")
     ap.add_argument("--log", required=True)
     ap.add_argument("--batch", type=int, default=200)
+    ap.add_argument("--year-windows", action="store_true",
+                    help="since~until 을 접수연 단위로 나눠 각각 소진한다(PostgREST 1000행 우회)")
     args = ap.parse_args()
 
     skip = set()
@@ -242,60 +273,79 @@ def main():
                 })
         print("empties_from=%d" % len(empty_pairs), flush=True)
 
-    last_keys = None
-    while True:
-        if empty_pairs:
-            pairs = empty_pairs
-            empty_pairs = []
-        else:
-            if args.empties_from:
-                # 지정 로그만 재처리하고 끝낸다. pending_notes 스캔은 하지 않는다.
+    def _year_spans(since, until):
+        until = until or "99991231"
+        y0 = int(since[:4])
+        y1 = min(int(until[:4]), 2026)
+        spans = []
+        for y in range(y0, y1 + 1):
+            s = max(since, "%d0101" % y)
+            e = min(until, "%d1231" % y)
+            if s <= e:
+                spans.append((s, e))
+        return spans
+
+    windows = (_year_spans(args.since, args.until) if args.year_windows
+               else [(args.since, args.until)])
+
+    for win_since, win_until in windows:
+        print("window %s..%s kind=%s" % (win_since, win_until or "+", args.kind),
+              flush=True)
+        last_keys = None
+        while True:
+            if empty_pairs:
+                pairs = empty_pairs
+                empty_pairs = []
+            else:
+                if args.empties_from:
+                    # 지정 로그만 재처리하고 끝낸다. pending_notes 스캔은 하지 않는다.
+                    break
+                pairs = pending_notes(win_since, win_until, args.batch, skip,
+                                     kind=args.kind, noted=noted)
+            print("kind=%s %s..%s pending_notes=%d" % (
+                args.kind, win_since, win_until or "+", len(pairs)), flush=True)
+            if not pairs:
                 break
-            pairs = pending_notes(args.since, args.until, args.batch, skip,
-                                 kind=args.kind, noted=noted)
-        print("kind=%s pending_notes=%d" % (args.kind, len(pairs)), flush=True)
-        if not pairs:
-            break
-        keys = tuple((p["corp_code"], p["rcept_no"]) for p in pairs)
-        if keys == last_keys:
-            print("pending_notes repeat; stop", flush=True)
-            break
-        last_keys = keys
-        with open(args.log, "a", encoding="utf-8") as log:
-            for i, p in enumerate(pairs, 1):
-                corp, rcept = p["corp_code"], p["rcept_no"]
-                year = p.get("year") or year_of(p.get("report_nm"), rcept)
-                status, extra, n = "ok", "", 0
-                try:
-                    if year is None:
-                        status, extra = "no_year", ""
-                    else:
-                        md, info = load_one(corp, rcept)
-                        if md is None:
-                            status, extra = info.split(":", 1)[0], info
+            keys = tuple((p["corp_code"], p["rcept_no"]) for p in pairs)
+            if keys == last_keys:
+                print("pending_notes repeat; stop", flush=True)
+                break
+            last_keys = keys
+            with open(args.log, "a", encoding="utf-8") as log:
+                for i, p in enumerate(pairs, 1):
+                    corp, rcept = p["corp_code"], p["rcept_no"]
+                    year = p.get("year") or year_of(p.get("report_nm"), rcept)
+                    status, extra, n = "ok", "", 0
+                    try:
+                        if year is None:
+                            status, extra = "no_year", ""
                         else:
-                            facts, notes = nf.build_facts(corp, rcept, year, md, [])
-                            code = reprt_of(args.kind, p.get("report_nm"))
-                            rows = [nf.fact_row(corp, year, rcept, lab, cur, prev, cap,
-                                                reprt_code=code)
-                                    for (lab, cur, prev, cap) in facts]
-                            n = upsert_notes(corp, year, rcept, rows, reprt_code=code)
-                            extra = "title=%s facts=%d notes=%d" % (info, n, len(notes))
-                            if n == 0:
-                                status = "empty"
-                except Exception as e:  # noqa: BLE001
-                    status, extra = "exc", "%s: %s" % (type(e).__name__, e)
-                    traceback.print_exc()
-                rec = {"corp": corp, "rcept": rcept, "year": year,
-                       "status": status, "n": n, "extra": extra[:240]}
-                log.write(json.dumps(rec, ensure_ascii=False) + "\n")
-                log.flush()
-                skip.add((corp, rcept))
-                if status == "ok":
-                    noted.add(rcept)
-                print("%d/%d %s %s %s n=%s" % (i, len(pairs), corp, rcept, status, n),
-                      flush=True)
-        # 짧은 배치라도 skip 이 늘면 다음 페이지에서 더 나온다. 0건일 때만 종료.
+                            md, info = load_one(corp, rcept)
+                            if md is None:
+                                status, extra = info.split(":", 1)[0], info
+                            else:
+                                facts, notes = nf.build_facts(corp, rcept, year, md, [])
+                                code = reprt_of(args.kind, p.get("report_nm"))
+                                rows = [nf.fact_row(corp, year, rcept, lab, cur, prev, cap,
+                                                    reprt_code=code)
+                                        for (lab, cur, prev, cap) in facts]
+                                n = upsert_notes(corp, year, rcept, rows, reprt_code=code)
+                                extra = "title=%s facts=%d notes=%d" % (info, n, len(notes))
+                                if n == 0:
+                                    status = "empty"
+                    except Exception as e:  # noqa: BLE001
+                        status, extra = "exc", "%s: %s" % (type(e).__name__, e)
+                        traceback.print_exc()
+                    rec = {"corp": corp, "rcept": rcept, "year": year,
+                           "status": status, "n": n, "extra": extra[:240]}
+                    log.write(json.dumps(rec, ensure_ascii=False) + "\n")
+                    log.flush()
+                    skip.add((corp, rcept))
+                    if status == "ok":
+                        noted.add(rcept)
+                    print("%d/%d %s %s %s n=%s" % (i, len(pairs), corp, rcept, status, n),
+                          flush=True)
+            # 짧은 배치라도 skip 이 늘면 다음 페이지에서 더 나온다. 0건일 때만 종료.
     print("drain_notes done", flush=True)
 
 
