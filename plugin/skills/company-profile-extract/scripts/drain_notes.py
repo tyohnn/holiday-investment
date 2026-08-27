@@ -86,9 +86,12 @@ def reprt_of(kind, report_nm):
 
 
 def upsert_notes(corp, year, rcept, rows, reprt_code="11011"):
+    # rcept_no 를 빼면 같은 (corp, year, reprt) 의 원본·정정 회차가
+    # 서로의 NOTE 를 지운다. leftover 는 rcept 단위라 적재해도 잔여가 안 줄어든다.
     filters = {
         "corp_code": "eq.%s" % corp, "bsns_year": "eq.%s" % year,
         "reprt_code": "eq.%s" % reprt_code, "fs_div": "eq.CFS", "sj_div": "eq.NOTE",
+        "rcept_no": "eq.%s" % rcept,
     }
     ingest.rest("DELETE", "financial_facts?%s" % urllib.parse.urlencode(filters))
     if not rows:
