@@ -109,9 +109,11 @@ The pipeline shells out to these CLI tools (no code-level packages exist):
   plugin bundled for all three tools' own native plugin systems: `.claude-plugin/`,
   `.cursor-plugin/`, `.codex-plugin/` each hold a manifest pointing at the shared `skills/`
   folder (no per-tool file copies, no dependency on `교재/`). No `commands/` — Claude Code
-  autotriggers skills by description, Cursor invokes them directly (`/company-analysis`), and
+  autotriggers skills by description, Cursor invokes them directly (`/company-analysis`, `/industry-map`), and
   Codex's plugin manifest doesn't support commands anyway. Its reports go to `리서치/`. See
   `plugin/README.md` for each tool's native install steps. Platform-wide plan lives in `로드맵.md`.
+- **산업지도** (원리→수요→중간재 공급→병목→전이, 교재 없이 주석·재무·뉴스)는
+  `plugin/skills/industry-map/SKILL.md`. 채점·적정가는 그 스킬 밖이다.
 - `*.sh.superseded` files are deprecated and not part of the active pipeline.
 
 ## 기업 분석 연습 — 감독/서브에이전트 프로토콜
