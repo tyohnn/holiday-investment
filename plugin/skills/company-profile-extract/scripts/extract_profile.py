@@ -1396,7 +1396,10 @@ def load_scope(corp_code, rcept_no, facts, hist, only_concepts=None):
             "corp_history", {"corp_code": "eq.%s" % corp_code, "source_rcept_no": "eq.%s" % rcept_no},
             hist_rows, on_conflict="corp_code,source_rcept_no,event_ym,content")
         print("  corp_history: %d행" % len(hist_rows))
-    if facts or hist_rows:
+    # pending 판정은 fin_details.source_rcept_no 만 본다. 연혁만 나온 회차
+    # (facts=[], hist_rows>0)에 표식을 안 남기면 같은 회차가 무한 재추출된다
+    # (실측: 기아 00106641 2002–05 8건 + 1건, 2026-08-27).
+    if facts:
         if not first_load:
             ingest.rest("DELETE",
                         "fin_details?corp_code=eq.%s&concept=eq.%s&source_rcept_no=eq.%s"
