@@ -39,7 +39,6 @@ import io
 import json
 import os
 import sys
-import urllib.parse
 import zipfile
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -51,12 +50,9 @@ import dart_doc     # noqa: E402  split_sections()·is_note_section()·is_biz_se
 
 # 정기보고서만 대상으로 잡는다 — DART report_nm 에 이 중 하나를 포함하는 공시만
 # (예: "사업보고서 (2025.12)", "분기보고서 (2026.03)", "[기재정정]반기보고서 (2025.06)").
+# DB 쿼리(or=... ilike 임베디드 필터)로 거르면 statement timeout 이 나서(아래 pending_docs
+# 참고) Python 쪽에서 거른다 — urllib.parse 는 더 이상 이 필터 조립에 쓰이지 않는다.
 _REGULAR_REPORT_TERMS = ("사업보고서", "분기보고서", "반기보고서")
-# 임베디드 리소스(filings)에 or 를 걸 때는 파라미터 이름 자체를 "filings.or"로 한정해야
-# 한다(PostgREST 규칙 — top-level or=(filings.report_nm.ilike…) 형태는 PGRST100 파싱
-# 에러다: "or=(...)" 안의 항목은 테이블 접두사 없이 컬럼명만 받는다). 실측으로 확인했다.
-_REPORT_NM_OR = "filings.or=(%s)" % ",".join(
-    "report_nm.ilike.*%s*" % urllib.parse.quote(term) for term in _REGULAR_REPORT_TERMS)
 
 
 def _iso_now():
@@ -72,21 +68,25 @@ def pending_docs(corp_code, force):
     모두 거른다. corp_code 필터는 ingest.load_docs() 가 filing_docs 기존행을 거를 때 쓰는 것과
     같은 패턴이고, 호스티드에서 실측 확인했다
     (filing_docs?select=...,filings!inner(corp_code)&filings.corp_code=eq.<code> → HTTP 200).
-    report_nm 필터(_REPORT_NM_OR)는 같은 !inner 임베딩 위에 or=(filings.report_nm.ilike...) 로
-    얹는다 — PostgREST 는 embedded 리소스 컬럼도 or 필터 안에서 테이블-한정 표기로 받는다."""
+    report_nm 필터는 DB 쿼리에 얹지 않고(_REPORT_NM_OR, 아래) **Python 쪽에서 거른다** — 2026-08-25
+    실측: embedded 조인 위에 or=(filings.report_nm.ilike...) 를 얹으면 회사에 따라 간헐적으로
+    PostgREST statement timeout(57014)이 난다(368개사 병렬 배치 중 8워커 중 5개가 이 필터 때문에
+    죽었다). corp_code+status+sections_extracted_at 만으로 거른 동등비교 쿼리는 안정적이었다 —
+    회사당 결과가 수백 건 규모라 클라이언트 필터링 비용은 무시할 만하다."""
     force_filter = "" if force else "&sections_extracted_at=is.null"
     rows, offset = [], 0
     while True:
         page = ingest.rest("GET",
             "filing_docs?select=rcept_no,storage_path,status,filings!inner(corp_code,report_nm)"
-            "&filings.corp_code=eq.%s&status=eq.ok&storage_path=not.is.null&%s%s"
+            "&filings.corp_code=eq.%s&status=eq.ok&storage_path=not.is.null%s"
             "&order=rcept_no&limit=1000&offset=%d"
-            % (corp_code, _REPORT_NM_OR, force_filter, offset))
+            % (corp_code, force_filter, offset))
         rows.extend(page)
         if len(page) < 1000:
             break
         offset += 1000
-    return rows
+    return [r for r in rows if any(term in (r.get("filings") or {}).get("report_nm", "")
+                                    for term in _REGULAR_REPORT_TERMS)]
 
 
 # ─────────────────────────────────────────────── 추출
@@ -143,7 +143,15 @@ def cmd_sections(args):
     ok = failed = 0
     total_sections = 0
     for i, cc in enumerate(corps, 1):
-        rows = pending_docs(cc, args.force)
+        try:
+            rows = pending_docs(cc, args.force)
+        except Exception as e:  # 회사 하나의 조회 실패(예: PostgREST statement timeout)로
+            # 워커 전체가 죽어 남은 회사를 통째로 잃는 것을 막는다 — 2026-08-25 실측
+            # (368개사 병렬 배치 중 8워커 중 5개가 이걸로 죽었다). 기록하고 다음 회사로.
+            failed += 1
+            print("  [%d/%d] %s 대상 조회 실패, 건너뜀: %s" % (i, len(corps), cc, str(e)[:200]),
+                  flush=True)
+            continue
         print("  [%d/%d] %s 대상 %d건" % (i, len(corps), cc, len(rows)), flush=True)
         for j, row in enumerate(rows, 1):
             try:

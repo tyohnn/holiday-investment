@@ -2,6 +2,26 @@
 
 강의 강의 155편을 내려받아 전사하고 노트·교재로 가공한 파이프라인이다. 모두 macOS 기준이며 `yt-dlp`, `ffmpeg`, `whisper.cpp`(`whisper-cli`)에 의존한다.
 
+## Cloud Agent 시작 — Runtime Secrets → `.env.local`
+
+`sync-runtime-env.py` / `sync-runtime-env.sh` 는 세션 시작 때 Cursor Runtime Secrets
+(환경변수)를 gitignored `.env.local` 두 곳에 쓴다. 값은 출력하지 않는다.
+
+```bash
+# Cloud Agent environment start 에 이 한 줄을 넣는다
+bash /workspace/scripts/sync-runtime-env.sh
+```
+
+| Cursor Secret 이름 (Runtime Secret) | `.env.local` 키 |
+|---|---|
+| `DART_API_KEYS` (10개를 쉼표로) 또는 `DART_API_KEY_1`…`_10` | `DART_API_KEYS` + `DART_API_KEY`(첫 키) |
+| `SUPABASE_REST_URL` | `SUPABASE_REST_URL` · `NEXT_PUBLIC_SUPABASE_URL`(호스트 유도) |
+| `SUPABASE_SERVICE_KEY` | 그대로 |
+| `TOSS_INVESTMENT_API_KEY` / `TOSS_INVESTMENT_API_SECRET` | 그대로 |
+
+대상 파일: 레포 루트 `.env.local`(ingest/backfill) · `apps/web/.env.local`(웹·런북).
+권한 600. 기존 다른 키는 보존한다.
+
 ## 폴더 구성
 
 | 폴더 | 내용 |
