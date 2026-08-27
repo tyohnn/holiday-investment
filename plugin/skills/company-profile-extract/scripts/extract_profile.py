@@ -932,6 +932,11 @@ def parse_treasury(md_text):
                                            "정밀계산", "확인불가:원문값없음(발행주식수또는자기주식수공란)",
                                            "I.4.가 주식의 총수",
                                            "자기주식수(Ⅴ)/발행주식총수(Ⅳ)×100"))
+                    elif issued == 0:
+                        facts.append(fact("shareholding_pct", "자사주_정밀계산", None, None, "pct",
+                                           "정밀계산", "확인불가:발행주식수0(비율계산불가)",
+                                           "I.4.가 주식의 총수",
+                                           "자기주식수(Ⅴ)/발행주식총수(Ⅳ)×100"))
                     else:
                         facts.append(fact("shareholding_pct", "자사주_정밀계산", None,
                                            round(treasury / issued * 100, 4), "pct", "정밀계산", "ok",
@@ -1057,7 +1062,7 @@ def apply_gates(corp_code, facts, notes):
     for pk, ratio_fact in rnd_ratio.items():
         pretax = rnd_pretax.get(pk)
         db_rev, fs = db_revenue(corp_code, pk)
-        if pretax is None or db_rev is None or ratio_fact["amount"] is None:
+        if pretax is None or db_rev is None or not db_rev or ratio_fact["amount"] is None:
             notes.append("게이트 스킵(R&D비중 재계산, %s): 입력값 부족" % pk)
             continue
         recomputed = pretax / db_rev * 100
