@@ -62,9 +62,11 @@ export type GuideColumnPreset =
   | 'ratio-a'
   | 'ratio-q'
   | 'invest'
+  | 'invest-price'
   | 'cons-actual'
   | 'cons-ts'
   | 'sector'
+  | 'snap-sector'
   | 'peers'
   | 'staff';
 

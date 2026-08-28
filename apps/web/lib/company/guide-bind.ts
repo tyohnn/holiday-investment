@@ -121,12 +121,36 @@ function resolveColumns(
         { id: 'yoy', label: '전년동기대비(%)', kind: 'yoy-q', quarter: latestQ },
       ];
     case 'fin-bs':
-    case 'highlight':
       return [
         yearCol('y0', years3[0], '연간'),
         yearCol('y1', years3[1], '연간-1'),
         yearCol('y2', years3[2], '연간-2'),
         { id: 'q', label: latestQ?.periodKey ?? '최근분기', kind: 'quarter', quarter: latestQ },
+      ];
+    case 'highlight': {
+      const nq = takeQuarters(ctx.quarters, 3);
+      return [
+        yearCol('y0', years3[0], '연간'),
+        yearCol('y1', years3[1], '연간-1'),
+        yearCol('y2', years3[2], '연간-2'),
+        { id: 'yE', label: years3[0] !== null ? `${years3[0] + 1}E` : '연간E', kind: 'slot' },
+        { id: 'nq0', label: nq[0]?.periodKey ?? 'NQ', kind: 'quarter', quarter: nq[0] },
+        { id: 'nq1', label: nq[1]?.periodKey ?? 'NQ-1', kind: 'quarter', quarter: nq[1] },
+        { id: 'nq2', label: nq[2]?.periodKey ?? 'NQ-2', kind: 'quarter', quarter: nq[2] },
+        { id: 'nqE', label: 'NQE', kind: 'slot' },
+      ];
+    }
+    case 'invest-price':
+      return years4.flatMap((year, i) => [
+        { id: `y${i}-hi`, label: year === null ? `연간-${i} 최고` : `${fiscalLabel(year, month)} 최고`, kind: 'slot' as const },
+        { id: `y${i}-lo`, label: year === null ? `연간-${i} 최저` : `${fiscalLabel(year, month)} 최저`, kind: 'slot' as const },
+      ]);
+    case 'snap-sector':
+      return [
+        { id: 'self', label: ctx.company.name, kind: 'peer-self', year: years3[0] },
+        { id: 'wi26', label: 'WI26 —', kind: 'peer-other' },
+        { id: 'ind', label: '업종 —', kind: 'peer-other' },
+        { id: 'mkt', label: ctx.company.market ?? '시장', kind: 'peer-other' },
       ];
     case 'ratio-a':
     case 'invest':
@@ -351,6 +375,9 @@ function bindRecords(
   }
   if (section.id === 'own-class') {
     return SHAREHOLDER_GROUPS.map((group) => [group.label, '—', '—', '—', '—']);
+  }
+  if (section.id === 'snap-holder-class') {
+    return SHAREHOLDER_GROUPS.map((group) => [group.label, '—', '—', '—']);
   }
   const width = section.columns.length;
   const n = section.emptyRows ?? 3;
