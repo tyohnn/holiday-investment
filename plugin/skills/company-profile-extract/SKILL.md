@@ -20,7 +20,7 @@ Storage에 이미 백필된 사업보고서 섹션(`docs/<corp_code>/<rcept_no>.
 마크다운 표 파서로 읽어 5블록을 규칙 기반으로 추출하고, 게이트를 통과한 사실만
 `fin_details`(수치, long 테이블) / `corp_history`(연혁, 비수치)에 적재한다. 삼성전자
 사업보고서 2건(20260310002820=2025 회계연도, 20250311001085=2024 회계연도) 파일럿으로
-검증했다 — 근거 전문은 이 스킬의 `references/` (`fnguide-추출-계획.md`·`pilot-samsung-report.md`·`report-items-파생-설계.md`).
+검증했다 — 근거 전문은 이 스킬의 `references/` (`fnguide-기업정보-페이지-위계.md`·`fnguide-추출-계획.md`·`pilot-samsung-report.md`·`report-items-파생-설계.md`).
 
 ## 언제 규칙, 언제 LLM/확인불가인가 (파일럿이 확정한 경계)
 
