@@ -55,15 +55,31 @@ PERIOD_CASES = [
     ("2025년 당기", ("year", 2025, None)), ("2025년(1.1~12.31)", ("year", 2025, None)),
     ("2025년 12월 31일", ("year", 2025, None)), ("FY2025", ("year", 2025, None)),
     ("2025.12", ("year", 2025, None)),
+    ("제38기(2025년말)", ("year", 2025, None)),
+    ("제46기 기말 (2024년 12월말)", ("year", 2024, None)),
+    ("2025년 말", ("year", 2025, None)), ("2025년말", ("year", 2025, None)),
+    ("2025년 기말", ("year", 2025, None)),
+    ("2024.01~2024.12", ("year", 2024, None)),
     # ↓ 반드시 거부돼야 하는 것들
     ("2025누계", None),      # 사업보고서=연간 / 분기보고서=YTD — 헤더만으로 구분 불가
     ("제58기 당분기", None),  # 분기 번호가 없다
     ("당기", None), ("소계", None), ("합계", None),
+    ("2025.01~2025.09", None),          # 9개월 YTD
+    ("제46기 기말 (2024년 9월말)", None),  # 12월이 아니면 연간이 아니다
+    ("1702", None),                      # 4자리여도 2000~2026 밖 — 1702A 오염
+    ("1984", None),                      # 연혁 연도와 실적 헤더를 혼동
 ]
 NUM_CASES = [
     ("1,879,673", 1879673.0), ("△301,146", -301146.0), ("▲1,234", -1234.0),
     ("(11,344)", -11344.0), ("-5,000", -5000.0), ("11.3%", 11.3),
     ("(주1)", None), ("-", None), ("—", None), ("", None),
+    ("1%미만", None),  # 정성 상한. %를 떼도 '1미만'이라 float 실패 — 1.0으로 읽으면 안 됨
+
+]
+HIST_YM_CASES = [
+    ("1984", "1984"), ("1984년", "1984"), ("1984년도", "1984"),
+    ("1947. 05. 10", "1947.05"), ("1947.05.10", "1947.05"), ("1947.05", "1947.05"),
+    ("설립", None), ("—", None),
 ]
 
 
@@ -148,41 +164,113 @@ def cmd_cases(args):
         if got != want:
             bad += 1
             print("   ✗ num(%r) → %s   기대 %s" % (s, got, want))
-    total = len(PERIOD_CASES) + len(NUM_CASES)
+    for s, want in HIST_YM_CASES:
+        got = ep.parse_hist_ym(s)
+        if got != want:
+            bad += 1
+            print("   ✗ parse_hist_ym(%r) → %s   기대 %s" % (s, got, want))
+    section_cases = [
+        ({"I. 회사의 개요": "x"}, ("I. 회사의 개요", "x")),
+        ({"I.회사의 개황": "y"}, ("I.회사의 개황", "y")),
+        ({"II.사업의 내용(제조업)": "z"}, ("II.사업의 내용(제조업)", "z")),
+        ({"목차": "no"}, None),
+    ]
+    for sections, want in section_cases:
+        if want is None:
+            got = ep.find_section(sections, "I. 회사의 개요", "회사의 개요", "회사의 개황")
+            if got != (None, None):
+                bad += 1
+                print("   ✗ find_section(%r) → %s   기대 (None, None)" % (sections, got))
+        elif "개황" in next(iter(sections)) or "개요" in next(iter(sections)):
+            got = ep.find_section(sections, "I. 회사의 개요", "회사의 개요", "회사의 개황")
+            if got != want:
+                bad += 1
+                print("   ✗ find_section(%r) → %s   기대 %s" % (sections, got, want))
+        else:
+            got = ep.find_section(sections, "II. 사업의 내용", "사업의 내용")
+            if got != want:
+                bad += 1
+                print("   ✗ find_section(%r) → %s   기대 %s" % (sections, got, want))
+    total = len(PERIOD_CASES) + len(NUM_CASES) + len(HIST_YM_CASES) + len(section_cases)
     accept = sum(1 for _, w in PERIOD_CASES if w is not None)
     reject = len(PERIOD_CASES) - accept
     if bad:
         print("✗ 케이스 %d/%d 실패" % (bad, total))
         return 1
-    print("✓ 케이스 전수 통과 %d개 (기간라벨 받을 %d·거부할 %d, 숫자 %d)"
-          % (total, accept, reject, len(NUM_CASES)))
+    print("✓ 케이스 전수 통과 %d개 (기간라벨 받을 %d·거부할 %d, 숫자 %d, 연혁연월 %d)"
+          % (total, accept, reject, len(NUM_CASES), len(HIST_YM_CASES)))
     return 0
 
 
 # ──────────────────────────────────────────────────────── integrity
 
+# 2000~2026 밖 period_key. 전표 페이지 대신 접두만 묻는다.
+# 17* 를 빼면 성문전자 1702A/1703A 가 조용히 남는다. 10*~16* 도 같은 지문.
+_BAD_PK_OR = (
+    "or=(period_key.like.10*,period_key.like.11*,period_key.like.12*,"
+    "period_key.like.13*,period_key.like.14*,period_key.like.15*,"
+    "period_key.like.16*,period_key.like.17*,period_key.like.18*,"
+    "period_key.like.19*,period_key.like.2027*,period_key.like.2028*,"
+    "period_key.like.2029*,period_key.like.203*,period_key.like.204*,"
+    "period_key.like.205*,period_key.like.206*,period_key.like.207*,"
+    "period_key.like.208*,period_key.like.209*,period_key.like.21*)"
+)
+
+
 def cmd_integrity(args):
     """DB 에서 **물리적으로 불가능한 값**을 찾는다. 게이트를 통과한 데이터에서도
-    대형 결함이 나온다 — 이 스캔이 실제로 세 건을 잡았다."""
+    대형 결함이 나온다 — 이 스캔이 실제로 세 건을 잡았다.
+
+    개념별·필터 조회로 받는다. 예전엔 fin_details 전표를 페이지해서 적재 중
+    REST 가 막히면 스캔 자체가 끝나지 않았다.
+    """
     ingest.print_target()
     fails = 0
 
-    fd = _rows("fin_details?select=corp_code,concept,period_key,item_name,amount,status",
-               "corp_code,concept,period_key,item_name")
-    ch = _rows("corp_history?select=corp_code,event_ym", "corp_code,event_ym")
-    fp = _rows("fin_periods?period_type=eq.A&select=corp_code,period_key,fs_div,revenue",
-               "corp_code,period_key,fs_div")
+    rnd = _rows(
+        "fin_details?concept=eq.rnd_total&status=eq.ok"
+        "&select=corp_code,concept,period_key,item_name,amount,status,source_rcept_no",
+        "corp_code,period_key,source_rcept_no")
+    # 매출은 rnd 가 있는 (corp, period_key) 만 받는다. period_type=A 만 보면
+    # 분기 R&D>매출(삼아제약 2024Q2 등)이 0으로 위장된다.
+    needed = sorted({(x["corp_code"], x["period_key"]) for x in rnd if x.get("period_key")})
     rev = {}
-    for x in fp:
-        if x["revenue"] is None:
-            continue
-        k = (x["corp_code"], x["period_key"])
-        if k not in rev or x["fs_div"] == "CFS":
-            rev[k] = float(x["revenue"])
-    print("  대상: fin_details %d행 · corp_history %d행" % (len(fd), len(ch)))
+    for i in range(0, len(needed), 80):
+        chunk = needed[i:i + 80]
+        corps = ",".join(sorted({c for c, _k in chunk}))
+        keys = ",".join(sorted({k for _c, k in chunk}))
+        fp = ingest.rest(
+            "GET",
+            "fin_periods?period_type=in.(A,Q1,Q2,Q3,Q4)&revenue=not.is.null"
+            "&corp_code=in.(%s)&period_key=in.(%s)"
+            "&select=corp_code,period_key,fs_div,revenue" % (corps, keys))
+        for x in (fp or []):
+            k = (x["corp_code"], x["period_key"])
+            if k not in needed:
+                continue
+            if k not in rev or x["fs_div"] == "CFS":
+                rev[k] = float(x["revenue"])
+    bad_pk = _rows(
+        "fin_details?select=corp_code,period_key,item_name,concept&" + _BAD_PK_OR,
+        "corp_code,period_key")
+    ch_null = _rows(
+        "corp_history?event_ym=is.null&select=corp_code,event_ym",
+        "corp_code")
+    ms = _rows(
+        "fin_details?concept=eq.market_share"
+        "&select=corp_code,concept,period_key,item_name,amount,status,source_rcept_no",
+        "corp_code,period_key,item_name,source_rcept_no")
+    ratios = _rows(
+        "fin_details?concept=in.(market_share,rnd_revenue_ratio,"
+        "segment_revenue_pct,segment_total_assets_pct)"
+        "&select=corp_code,concept,period_key,item_name,amount,status,source_rcept_no",
+        "corp_code,concept,period_key,source_rcept_no")
+    print("  대상: rnd_total %d · 이상period후보 %d · event_ym NULL %d · "
+          "market_share %d · 비율개념 %d" % (
+              len(rnd), len(bad_pk), len(ch_null), len(ms), len(ratios)))
 
     # 1) R&D 가 매출보다 크다 — 단위 스케일 결함의 지문
-    bad = [x for x in fd if x["concept"] == "rnd_total" and x["status"] == "ok" and x["amount"]
+    bad = [x for x in rnd if x["amount"]
            and (x["corp_code"], x["period_key"]) in rev
            and rev[(x["corp_code"], x["period_key"])]
            and float(x["amount"]) / rev[(x["corp_code"], x["period_key"])] > 1]
@@ -190,14 +278,13 @@ def cmd_integrity(args):
         x["corp_code"], x["period_key"], x["amount"]))
 
     # 2) 보고서가 담을 수 없는 연도 — 앵커 오적용의 지문
-    bad = [x for x in fd if x["period_key"] and re.match(r"^\d{4}", x["period_key"])
+    bad = [x for x in bad_pk if x["period_key"] and re.match(r"^\d{4}", x["period_key"])
            and not ("2000" <= x["period_key"][:4] <= "2026")]
     fails += _report("이상 period_key (앵커 오적용)", bad, lambda x: "%s %s %s" % (
         x["corp_code"], x["period_key"], (x["item_name"] or "")[:24]))
 
     # 3) 연혁 연도 결측 — NOT NULL 위반으로 회차 전체를 죽인다
-    bad = [x for x in ch if not x["event_ym"]]
-    fails += _report("corp_history.event_ym NULL", bad, lambda x: x["corp_code"])
+    fails += _report("corp_history.event_ym NULL", ch_null, lambda x: x["corp_code"])
 
     # 4) 시장점유율에 **당사가 없다** — 고객사·경쟁사 구성비만 담긴 표의 지문.
     #    합계 100% 만으로는 오탐이 많다: DART 관행상 '당사 65% · 경쟁사 29% · 기타 3%' 처럼
@@ -205,19 +292,26 @@ def cmd_integrity(args):
     #    (2026-08-26 실측: 합계 100% 24건 중 국도화학·한화오션 등 대부분이 이 형태였다).
     #    진짜 결함은 대원산업처럼 **당사가 한 행도 없이** 고객사(완성차 OEM) 구성비만
     #    들어간 경우다. 그래서 '합계≈100%' 이면서 '당사/자사명 행이 없을 때'만 잡는다.
+    #    오탐 두 가지를 빼는다: ① 단일 행 100%(무림SP '국내시장' = 독점 점유율)
+    #    ② 지주사 보고서의 영업자회사 브랜드(AK홀딩스→제주항공).
+    _SELF_ALIASES = {
+        "00125080": ("제주항공",),  # AK홀딩스
+    }
     names = {}
-    for c in {x["corp_code"] for x in fd if x["concept"] == "market_share"}:
+    for c in {x["corp_code"] for x in ms}:
         r = ingest.rest("GET", "companies?corp_code=eq.%s&select=name" % c)
         if r:
             names[c] = r[0]["name"]
-    # 그룹 키에 item_name 의 '|' 앞부분(표/제품 축)을 넣는다. 한 회사가 독립적인 점유율
-    # 표를 여러 개 갖는 경우가 있어(대원산업: '생산비율' + '판매비율'), (회사,기간)으로만
-    # 묶으면 합이 200% 가 되어 범위를 벗어나고 **진짜 결함을 놓친다**(실측으로 확인).
+    # 그룹 키에 item_name 의 '|' 앞부분(표/제품 축)과 source_rcept_no 를 넣는다.
+    # 한 회사가 독립적인 점유율 표를 여러 개 갖는 경우가 있어(대원산업: '생산비율' +
+    # '판매비율'), (회사,기간)으로만 묶으면 합이 200% 가 되어 범위를 벗어나고
+    # **진짜 결함을 놓친다**. 같은 숫자를 여러 회차 zip 에 중복 적재한 경우
+    # (삼성 스마트폰 패널 50.1% × 2 rcept = 100.2%)는 회차별로 나눠야 오탐이 안 난다.
     per = collections.defaultdict(list)
-    for x in fd:
-        if x["concept"] == "market_share" and x["amount"] and "합계" not in (x["item_name"] or ""):
+    for x in ms:
+        if x["amount"] and "합계" not in (x["item_name"] or ""):
             axis = (x["item_name"] or "").split("|")[0]
-            per[(x["corp_code"], x["period_key"], axis)].append(x)
+            per[(x["corp_code"], x["period_key"], axis, x.get("source_rcept_no"))].append(x)
     bad = []
     for k, items in per.items():
         total = sum(float(i["amount"]) for i in items)
@@ -225,10 +319,22 @@ def cmd_integrity(args):
             continue
         nm = names.get(k[0], "")
         core = re.sub(r"\(주\)|주식회사|㈜|\s", "", nm)
-        has_self = any(("당사" in (i["item_name"] or "") or "자사" in (i["item_name"] or "")
-                        or (core and core in re.sub(r"\(주\)|㈜|\s", "", i["item_name"] or "")))
-                       for i in items)
-        if not has_self:
+        aliases = _SELF_ALIASES.get(k[0], ())
+        has_self = (
+            len(items) == 1  # 단일 행 100% = 독점 점유율 (무림SP CCP 국내시장)
+            or any(("당사" in (i["item_name"] or "") or "자사" in (i["item_name"] or "")
+                    or (core and core in re.sub(r"\(주\)|㈜|\s", "", i["item_name"] or ""))
+                    or any(a in (i["item_name"] or "") for a in aliases))
+                   for i in items)
+        )
+        # ③ 지주사·종합제조가 제품별 당사 점유율을 한 표에 나열하면(LG 2019A:
+        #    TV 16.3 + 텔레매틱스 16.5 + 반도체기판 22.9 …) 합이 우연히 ≈100% 가
+        #    된다. 행 이름은 제품이지 고객사가 아니다. 구성비 지문(내수/수출/OEM/
+        #    고객/(주))이 하나라도 있을 때만 결함으로 본다.
+        _MIX_HINTS = ("내수", "수출", "OEM", "고객", "거래처", "(주)", "㈜", "주식회사")
+        looks_mix = any(any(h in (i["item_name"] or "") for h in _MIX_HINTS)
+                        for i in items)
+        if not has_self and looks_mix:
             bad.append({"corp_code": k[0], "name": nm, "period_key": k[1],
                         "axis": k[2], "amount": round(total, 1), "n": len(items)})
     fails += _report("시장점유율에 당사 없음 + 합계≈100% (고객사 구성비 의심)", bad,
@@ -237,9 +343,8 @@ def cmd_integrity(args):
                          (x["axis"] or "(축없음)")[:20], x["amount"], x["n"]))
 
     # 5) 비율 개념이 [0,100] 밖 (segment_operating_income_pct 는 정상적으로 벗어난다 — 제외)
-    bad = [x for x in fd if x["concept"] in ("market_share", "rnd_revenue_ratio",
-                                              "segment_revenue_pct", "segment_total_assets_pct")
-           and x["amount"] is not None and not (0 <= float(x["amount"]) <= 100)]
+    bad = [x for x in ratios
+           if x["amount"] is not None and not (0 <= float(x["amount"]) <= 100)]
     fails += _report("비율이 [0,100] 밖", bad, lambda x: "%s %s %s=%s" % (
         x["corp_code"], x["period_key"], x["concept"], x["amount"]))
 

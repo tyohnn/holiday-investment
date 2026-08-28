@@ -63,30 +63,45 @@ def _iso_now():
 
 def pending_docs(corp_code, force):
     """이 회사의 filing_docs 중 Storage 원문이 있는(=Phase 3 로 이미 올라간) **정기보고서**
-    행만 corp_code 로 걸러 받는다. filing_docs 자체에는 corp_code·report_nm 컬럼이 없다
-    (rcept_no 로만 filings 를 참조) — filings 를 통해 PostgREST 임베딩으로 조인해 두 조건을
-    모두 거른다. corp_code 필터는 ingest.load_docs() 가 filing_docs 기존행을 거를 때 쓰는 것과
-    같은 패턴이고, 호스티드에서 실측 확인했다
-    (filing_docs?select=...,filings!inner(corp_code)&filings.corp_code=eq.<code> → HTTP 200).
-    report_nm 필터는 DB 쿼리에 얹지 않고(_REPORT_NM_OR, 아래) **Python 쪽에서 거른다** — 2026-08-25
-    실측: embedded 조인 위에 or=(filings.report_nm.ilike...) 를 얹으면 회사에 따라 간헐적으로
-    PostgREST statement timeout(57014)이 난다(368개사 병렬 배치 중 8워커 중 5개가 이 필터 때문에
-    죽었다). corp_code+status+sections_extracted_at 만으로 거른 동등비교 쿼리는 안정적이었다 —
-    회사당 결과가 수백 건 규모라 클라이언트 필터링 비용은 무시할 만하다."""
-    force_filter = "" if force else "&sections_extracted_at=is.null"
-    rows, offset = [], 0
+    행만 받는다. filing_docs 자체에는 corp_code·report_nm 컬럼이 없다.
+
+    2026-08-26: 임베디드 `filings!inner(...)` 조인은 공시가 많은 회사(삼성증권 00104856 등)에서
+    PostgREST statement timeout 이 난다. filings 를 corp_code 로 페이지한 뒤 rcept_no in (...)
+    으로 filing_docs 를 받는 두 단계로 바꾼다 — 조인 없이 동등비교만 쓴다.
+    report_nm 필터는 계속 Python 쪽에서 건다."""
+    periodic = []
+    offset = 0
     while True:
         page = ingest.rest("GET",
-            "filing_docs?select=rcept_no,storage_path,status,filings!inner(corp_code,report_nm)"
-            "&filings.corp_code=eq.%s&status=eq.ok&storage_path=not.is.null%s"
-            "&order=rcept_no&limit=1000&offset=%d"
-            % (corp_code, force_filter, offset))
-        rows.extend(page)
+            "filings?select=rcept_no,report_nm&corp_code=eq.%s"
+            "&order=rcept_no&limit=1000&offset=%d" % (corp_code, offset))
+        if not page:
+            break
+        for r in page:
+            nm = r.get("report_nm") or ""
+            if any(term in nm for term in _REGULAR_REPORT_TERMS) and "제출기한연장" not in nm:
+                periodic.append(r)
         if len(page) < 1000:
             break
         offset += 1000
-    return [r for r in rows if any(term in (r.get("filings") or {}).get("report_nm", "")
-                                    for term in _REGULAR_REPORT_TERMS)]
+    if not periodic:
+        return []
+
+    wanted = {r["rcept_no"]: r["report_nm"] for r in periodic}
+    docs, offset = [], 0
+    rcepts = list(wanted)
+    # PostgREST in() 는 URL 길이 한도가 있어 200개씩 끊는다.
+    for i in range(0, len(rcepts), 200):
+        chunk = rcepts[i:i + 200]
+        force_filter = "" if force else "&sections_extracted_at=is.null"
+        page = ingest.rest("GET",
+            "filing_docs?select=rcept_no,storage_path,status"
+            "&rcept_no=in.(%s)&status=eq.ok&storage_path=not.is.null%s"
+            "&limit=200" % (",".join(chunk), force_filter))
+        for d in page or []:
+            d["filings"] = {"corp_code": corp_code, "report_nm": wanted.get(d["rcept_no"], "")}
+            docs.append(d)
+    return docs
 
 
 # ─────────────────────────────────────────────── 추출

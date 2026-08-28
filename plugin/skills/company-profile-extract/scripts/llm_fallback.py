@@ -216,9 +216,10 @@ BLOCK_INSTRUCTIONS = {
     "market_share": (
         "아래 표에는 '시장점유율'(퍼센트, 대개 '점유율'이라는 이름의 행)과 그 점유율을\n"
         "계산하는 데 쓰인 절대 실적치(예: '영업수익'·'수탁고'·'회사 신기술금융투자실적' 같은\n"
-        "원 단위 숫자 행)가 함께 나올 수 있다. **오직 점유율(퍼센트) 값만 추출하라 — 절대\n"
-        "실적치·산업 전체 수치 행은 추출하지 마라.** 정성적 서술(숫자 없는 경쟁 구도 설명)만\n"
-        "있고 실제 퍼센트 수치가 없으면 이 블록을 아예 비워라(빈 배열)."
+        "원 단위 숫자 행)가 함께 나올 수 있다. **오직 당사(또는 당사 제품)가 어떤 시장에서\n"
+        "차지하는 비중만 추출하라.** 절대 실적치·산업 전체 수치, 자사 매출의 내수/수출 구성비,\n"
+        "고객사별 생산·판매 비율, 제품 포트폴리오 구성비는 넣지 마라. 정성적 서술만 있고\n"
+        "실제 퍼센트 수치가 없으면 이 블록을 아예 비워라(빈 배열)."
     ),
     "segment_revenue": (
         "아래에는 매출(또는 영업수익) 표 말고도 영업이익·순이익·비용 등 다른 지표를 담은\n"
@@ -305,6 +306,21 @@ def _write_prepare_file(out_dir, corp_code, rcept_no, block, cut_text, spans, cu
     return fn
 
 
+def _find_section(sections, *needles):
+    """정확 키 우선, 없으면 공백을 지운 제목에 needle 이 들어 있는 첫 섹션.
+    2005년식 'I.회사의 개황'·'II.사업의 내용(제조업)' 을 현행 목차명과 같은 칸으로
+    본다(2026-08-26 배치17 SP삼화: 정확 매칭만 해서 prepare 0파일)."""
+    for n in needles:
+        if n in sections:
+            return n, sections[n]
+    compact_needles = [n.replace(" ", "") for n in needles]
+    for title, body in sections.items():
+        compact = title.replace(" ", "")
+        if any(n in compact for n in compact_needles):
+            return title, body
+    return None, None
+
+
 def prepare_one(corp_code, rcept_no, out_dir, force=False):
     """규칙 파서가 0행으로 남긴 블록의 prepare 파일을 쓴다. 반환: (쓴 파일 경로 목록, notes)."""
     notes = []
@@ -319,23 +335,27 @@ def prepare_one(corp_code, rcept_no, out_dir, force=False):
     def _need(block):
         return force or not existing.get(block)
 
+    overview_title, overview_md = _find_section(
+        sections, "I. 회사의 개요", "회사의 개요", "회사의 개황")
     if _need("corp_history"):
-        if "I. 회사의 개요" in sections:
-            cut, span = cut_heading_block(sections["I. 회사의 개요"], HISTORY_HEADING_RE)
+        if overview_md is not None:
+            cut, span = cut_heading_block(overview_md, HISTORY_HEADING_RE)
             if cut:
                 fn = _write_prepare_file(out_dir, corp_code, rcept_no, "corp_history", cut,
                                           [span], "heading:%s" % HISTORY_HEADING_RE.pattern)
                 written.append(fn)
-                notes.append("연혁: prepare 파일=%s (원문 %d~%d행)" % (fn, span[0], span[1]))
+                notes.append("연혁: prepare 파일=%s (원문 %d~%d행, 섹션=%s)" %
+                             (fn, span[0], span[1], overview_title))
             else:
                 notes.append("연혁: '## N. 회사의 연혁' 헤딩을 못 찾음 — prepare 생략(확인불가 후보)")
         else:
-            notes.append("연혁: 'I. 회사의 개요' 섹션 없음 — prepare 생략")
+            notes.append("연혁: 'I. 회사의 개요/개황' 섹션 없음 — prepare 생략")
     else:
         notes.append("연혁: 이미 corp_history 에 적재된 행 있음 — prepare 스킵(--force 로 재생성)")
 
-    if "II. 사업의 내용" in sections:
-        md = sections["II. 사업의 내용"]
+    biz_title, biz_md = _find_section(sections, "II. 사업의 내용", "사업의 내용")
+    if biz_md is not None:
+        md = biz_md
         if _need("market_share"):
             cut, spans, hit_kw = cut_keyword_windows(md, MARKET_SHARE_KEYWORDS)
             if cut:
@@ -371,21 +391,28 @@ def cmd_prepare(args):
     ep.ingest.print_target()
     corps = [c.strip() for c in args.corps.split(",") if c.strip()]
     rcepts_arg = [r.strip() for r in args.rcepts.split(",")] if args.rcepts else None
-    total_written = 0
-    for corp_code in corps:
-        rcepts = rcepts_arg
-        if not rcepts:
+    if rcepts_arg and len(rcepts_arg) != len(corps):
+        print("prepare: --rcepts 개수(%d)와 --corps 개수(%d)가 다르다. "
+              "1:1로 짝을 맞춰라 (카티전곱은 무효 쌍을 만든다)."
+              % (len(rcepts_arg), len(corps)))
+        return 2
+    pairs = []
+    if rcepts_arg:
+        pairs = list(zip(corps, rcepts_arg))
+    else:
+        for corp_code in corps:
             r = ep.latest_annual_rcept(corp_code)
             if not r:
                 print("[%s] 사업보고서 filings 행을 찾지 못함 — 스킵" % corp_code)
                 continue
-            rcepts = [r]
-        for rcept_no in rcepts:
-            print("\n=== prepare corp=%s rcept=%s ===" % (corp_code, rcept_no))
-            written, notes = prepare_one(corp_code, rcept_no, args.out_dir, force=args.force)
-            for n in notes:
-                print("  · %s" % n)
-            total_written += len(written)
+            pairs.append((corp_code, r))
+    total_written = 0
+    for corp_code, rcept_no in pairs:
+        print("\n=== prepare corp=%s rcept=%s ===" % (corp_code, rcept_no))
+        written, notes = prepare_one(corp_code, rcept_no, args.out_dir, force=args.force)
+        for n in notes:
+            print("  · %s" % n)
+        total_written += len(written)
     print("\n총 %d개 prepare 파일 생성 (out_dir=%s)" % (total_written, args.out_dir))
     print("에이전트는 이 파일들을 읽고, corp_code·rcept_no당 JSON 하나로 채운 뒤")
     print("`llm_fallback.py ingest --json <path>` 를 실행한다 (출력 계약은 각 파일 끝에 있다).")
@@ -458,6 +485,20 @@ def build_numeric_facts(concept, block_label, items, fy_int, full_section_text,
         if not it.get("item_name") or not it.get("source_table"):
             dropped_no_source += 1
             continue  # 출처 없는 항목은 적재 거부
+        if concept == "segment_revenue" and ep.norm(it.get("item_name") or "") in (
+                "합계", "계", "소계", "총계"):
+            continue
+        iname = it.get("item_name") or ""
+        if concept == "market_share":
+            if ep.norm(iname.split("|")[-1]) in ("합계", "계", "소계", "총계"):
+                continue
+            # 점유율이 아닌 구성비 — 2026-08-26 고려아연(내수/수출)·대원산업(OEM 생산비율)
+            if any(tok in iname for tok in (
+                    "내수비중", "수출비중", "생산비율", "판매비율")):
+                continue
+        hdr = it.get("period_header") or ""
+        if any(tok in hdr for tok in ("예상", "전망", "계획")):
+            continue  # 실적이 아닌 전망 열 (2026-08-26 이구산업 2026A 24% 실측)
         # year_map 값은 이미 ep.make_period_key()로 조립된 완성 period_key다
         # ('2025A'/'2025Q1' 등) — infer_period_labels()도 resolve_periods()의
         # RELATIVE_PERIOD_MAP 분기도 둘 다 완성형을 낸다. 여기서 다시 '%sA'를
@@ -469,6 +510,11 @@ def build_numeric_facts(concept, block_label, items, fy_int, full_section_text,
             continue
         raw = it.get("raw_amount")
         v = ep.num(raw)
+        raw_s = "" if raw is None else str(raw)
+        # '1%미만'·'해당없음'은 숫자가 아니다. num()은 None을 내지만, 예전엔
+        # 확인불가 행을 12건씩 남겼다(2026-08-26 이스타코 00134565 실측).
+        if v is None and any(tok in raw_s for tok in ("미만", "이상", "해당없", "산정곤란", "기재생략")):
+            continue
         unit_label = _normalize_unit_label(it.get("unit_label"))
         amount, unit_out, status = None, None, "확인불가:원문값없음(공란)"
         if v is not None:
@@ -543,7 +589,8 @@ def ingest_one(payload, do_load, notes):
             # prepare 단계에서 이미 이 섹션을 읽어야 절단분을 냈을 것이므로, ingest 시점에
             # 없다면 그 사이 뭔가 바뀐 것 — 조용히 넘어가지 않고 명확히 실패시킨다.
             raise RuntimeError("기간 라벨 해석에 필요한 원문 섹션을 다시 읽지 못함: %s" % err)
-        full_section_text = sections.get("II. 사업의 내용", "")
+        _biz_title, biz_md = _find_section(sections, "II. 사업의 내용", "사업의 내용")
+        full_section_text = biz_md or ""
 
     fy_int, _fy_period_key, _fy_report_nm = ep.report_fiscal_year(rcept_no)
 

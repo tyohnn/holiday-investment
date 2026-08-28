@@ -53,6 +53,9 @@ ALL_CONCEPTS = [
     "market_share",
     "shareholding_pct",
 ]
+# 5블록이 0행인 회차도 fin_details.source_rcept_no 를 남겨 pending 스캔에서
+# 빠지게 한다. ALL_CONCEPTS 밖이라 replace_scope 가 실데이터를 지우지 않는다.
+MARK_CONCEPT = "_extract_attempted"
 
 
 # ══════════════════════════════════════════════════════════ 공용 유틸
@@ -130,6 +133,12 @@ def parse_md_tables(md_text):
     return out
 
 
+def plausible_fiscal_year(year):
+    """정기보고서 실적 열이 담을 수 있는 회계연도. 2000~2026 밖은 앵커 오적용·
+    4자리 숫자 오탐(실측: 성문전자 2015A 헤더 '1702' → 1702A)이다."""
+    return isinstance(year, int) and 2000 <= year <= 2026
+
+
 def make_period_key(year, quarter=None):
     """(year, quarter) → fin_details/fin_periods 공용 period_key 문자열. 하드코딩된
     '%sA' % year 를 전부 이 함수로 모았다(2026-08-25 분기·반기 지원 — 감독 지시 §B).
@@ -199,11 +208,20 @@ def parse_period_col(s):
     # 기수와 연도가 한 칸에 있는 모든 배열을 받는다. 기수 뒤에 '연간'·'당'·'전' 같은
     # 수식어가 끼는 변형까지 허용한다(batch31: '제46기 연간(2024년도)').
     # 연도 표기는 '년' · '년도' · '연도' 모두 실측된다.
-    m = re.fullmatch(r"제\s*\d+\s*기\s*(?:연간|당기|전기|전전기)?\s*"
-                     r"[（(]\s*(?:FY\s*)?(\d{4})\s*(?:년도|연도|년)?\s*[)）]",
+    m = re.fullmatch(r"제\s*\d+\s*기\s*(?:연간|당기|전기|전전기|기말)?\s*"
+                     r"[（(]\s*(?:FY\s*)?(\d{4})\s*(?:년도|연도|년)?\s*(?:말)?\s*[)）]",
                      s, re.IGNORECASE)
     if m:
-        return ("year", int(m.group(1)), None)
+        y = int(m.group(1))
+        return ("year", y, None) if plausible_fiscal_year(y) else None
+    # '제46기 기말 (2024년 12월말)' — 12월말만 연간. 다른 월은 YTD라 거부
+    # (2026-08-26 batch03 애경산업 00139454).
+    m = re.fullmatch(r"제\s*\d+\s*기\s*기말\s*[（(]\s*(\d{4})\s*년\s*(\d{1,2})\s*월\s*말\s*[)）]", s)
+    if m:
+        if int(m.group(2)) == 12:
+            y = int(m.group(1))
+            return ("year", y, None) if plausible_fiscal_year(y) else None
+        return None
     # '제70기 당기' / '제69기 전기' — 당기·전기는 상대 표기일 뿐이고 기수가 정보를 담는다.
     # 이걸 None 으로 떨어뜨리면 그 열이 periods 목록에서 빠지면서 **뒤 열이 그 자리를
     # 차지해 전 기간 라벨이 한 칸씩 밀린다**(2026-08-26 batch02 실측: 고려산업 00102751 —
@@ -217,7 +235,8 @@ def parse_period_col(s):
     # 있으므로 기수 역산보다 신뢰도가 높아 'year' 로 돌려준다.
     m = re.fullmatch(r"(\d{4})\s*(?:년도|년)?\s*[（(]\s*제?\s*\d+\s*기\s*[)）]", s)
     if m:
-        return ("year", int(m.group(1)), None)
+        y = int(m.group(1))
+        return ("year", y, None) if plausible_fiscal_year(y) else None
     # '제70기(당)' · '제 70 (당) 기' · '제70기 연간' — 2026-08-26 batch13/batch17 실측.
     # 괄호 안 '당/전/전전'과 '연간'은 상대·기간종류 표기일 뿐 기수가 정보를 담는다.
     # 기수 위치가 괄호 앞뒤로 뒤바뀌는 변형('제 70(당) 기')까지 같이 받는다.
@@ -234,14 +253,16 @@ def parse_period_col(s):
     # '2025년 12월 31일' — 결산일 표기. 그 연도의 연간 열이다(batch32·batch23).
     m = re.fullmatch(r"(\d{4})\s*년\s*\d{1,2}\s*월\s*\d{1,2}\s*일\s*(?:기준|현재)?", s)
     if m:
-        return ("year", int(m.group(1)), None)
+        y = int(m.group(1))
+        return ("year", y, None) if plausible_fiscal_year(y) else None
     m = re.fullmatch(r"제?\s*(\d+)\s*기\s*연간", s)
     if m:
         return ("gi", int(m.group(1)), None)
     # 'FY2025' — 연도가 그대로 적혀 있다.
     m = re.fullmatch(r"FY\s*(\d{4})", s, re.IGNORECASE)
     if m:
-        return ("year", int(m.group(1)), None)
+        y = int(m.group(1))
+        return ("year", y, None) if plausible_fiscal_year(y) else None
     # 'YYYY누계' 는 **의도적으로 받지 않는다**. 사업보고서에서는 연간이지만 분기보고서에서는
     # 해당 분기까지의 누계(YTD)라 이 함수가 가진 정보(헤더 문자열)만으로는 구분이 안 된다.
     # 연간으로 단정하면 분기보고서에서 분기 누계값이 연간 라벨을 달고 적재된다 — 조용한
@@ -260,28 +281,40 @@ def parse_period_col(s):
 
     m = re.fullmatch(r"(\d{4})년\s*(\d)\s*분기", s)
     if m:
-        return ("year", int(m.group(1)), int(m.group(2)))
+        y = int(m.group(1))
+        return ("year", y, int(m.group(2))) if plausible_fiscal_year(y) else None
     m = re.fullmatch(r"(\d{4})년\s*반기", s)
     if m:
-        return ("year", int(m.group(1)), "H1")
+        y = int(m.group(1))
+        return ("year", y, "H1") if plausible_fiscal_year(y) else None
 
     m = re.fullmatch(r"(\d{4})\.(\d{2})", s)
     if m:
         year, mm = int(m.group(1)), m.group(2)
         month_quarter = {"03": 1, "06": "H1", "09": 3, "12": None}
-        if mm in month_quarter:
+        if mm in month_quarter and plausible_fiscal_year(year):
             return ("year", year, month_quarter[mm])
         return None  # 04/05/07/08/10/11 등은 분기 경계가 아니다 — 확인 불가
 
+    # '2024.01~2024.12' — 같은 해 1~12월만 연간. '2025.01~2025.09' 같은 YTD는 거부
+    # (2026-08-26 batch02 현대차증권 00137997).
+    m = re.fullmatch(r"(\d{4})\.01\s*[-~～]\s*(\d{4})\.12", s)
+    if m and m.group(1) == m.group(2):
+        y = int(m.group(1))
+        return ("year", y, None) if plausible_fiscal_year(y) else None
+
     # '2025' · '2025년' · '2025년도' · '2025연도' · '2025년 당기' · '2025년(1.1~12.31)'
-    # 연도가 맨 앞에 오고 뒤따르는 것이 **기간 종류 표기**(당기/전기/연간)이거나 그 연도의
-    # 기간 범위 괄호뿐이면, 연도 자체는 확정된 정보다(batch20·batch30·batch31 실측).
+    # · '2025년 말' · '2025년말' · '2025년 기말'
+    # 연도가 맨 앞에 오고 뒤따르는 것이 **기간 종류 표기**(당기/전기/연간/말/기말)이거나
+    # 그 연도의 기간 범위 괄호뿐이면, 연도 자체는 확정된 정보다
+    # (batch20·batch30·batch31·batch04 GS리테일 실측).
     # 뒤에 '누계'가 붙는 것은 여기 해당하지 않는다 — 아래 주석 참고.
     m = re.fullmatch(r"(\d{4})\s*(?:년도|연도|년)?\s*"
-                     r"(?:당기|전기|전전기|연간)?\s*"
+                     r"(?:당기|전기|전전기|연간|기말|말)?\s*"
                      r"(?:[（(][^)）]*[)）])?", s)
     if m and m.group(1):
-        return ("year", int(m.group(1)), None)
+        y = int(m.group(1))
+        return ("year", y, None) if plausible_fiscal_year(y) else None
     return None
 
 
@@ -351,11 +384,15 @@ def infer_period_labels(md_text, table_pos, periods, fallback_year=None):
             continue
         kind, val, quarter = parsed
         if kind == "year":
+            if not plausible_fiscal_year(val):
+                continue
             out[p] = make_period_key(val, quarter)
             used_direct_year = True
         elif kind == "gi" and anchor:
             anchor_year, anchor_gi = anchor
             year = anchor_year - (anchor_gi - val)
+            if not plausible_fiscal_year(year):
+                continue
             # ★ 미래 연도 방어. 정기보고서의 실적 표는 회계연도를 넘는 열을 가질 수 없다 —
             # 넘었다면 앵커가 이 회사 것이 아니라는 뜻이다. 2026-08-26 batch14 실측:
             # 대한항공 사업보고서에서 **종속회사(한국공항㈜)의 '2025년(제59기)' 문장**이
@@ -393,6 +430,20 @@ def fact(concept, item_name, period_key, amount, unit=None, value_basis=None,
 
 # ══════════════════════════════════════════════════════════ 1. 회사의 연혁 → corp_history
 
+def parse_hist_ym(col0):
+    """연혁 표 첫 칸 → event_ym. '1984'·'1984년'·'1947. 05. 10' 을 받는다.
+    못 읽으면 None — 그 행을 적재하면 NOT NULL 위반으로 회차 전체가 죽는다
+    (2026-08-26 00109037 2010A: content='1947. 05. 10', event_ym=NULL → HTTP 400)."""
+    s = norm(col0)
+    m = re.fullmatch(r"((?:19|20)\d\d)(?:년도|년)?", s)
+    if m:
+        return m.group(1)
+    m = re.fullmatch(r"((?:19|20)\d\d)[.\-년](\d{1,2})(?:[.\-월](\d{1,2})일?)?", s)
+    if m:
+        return "%s.%02d" % (m.group(1), int(m.group(2)))
+    return None
+
+
 def parse_history(md_text):
     """'I. 회사의 개요 > 2. 회사의 연혁' 표. 원표는 (연도,내용) 2열이 표준이나 (연도,구분,
     내용) 3열 변형도 허용한다(파일럿 대상 밖 — 방어적으로만 처리).
@@ -421,16 +472,19 @@ def parse_history(md_text):
             # 그 행이 rowspan 붕괴 분기로 잘못 흘러 cur_year 가 None 인 채 남고,
             # corp_history.event_ym(NOT NULL) 위반으로 **그 회차 전체가 중단된다**
             # (2026-08-26 batch33 실측: corp=00135111 에서 RuntimeError).
-            ym = re.fullmatch(r"((?:19|20)\d\d)\s*(?:년도|년)?", col0)
+            ym = parse_hist_ym(col0)
             if ym:
-                cur_year = ym.group(1)
+                cur_year = ym
                 category = None if two_col else (row[1] if len(row) > 1 else None)
                 content = (row[1] if two_col else row[2]) if len(row) > (1 if two_col else 2) else ""
+                # 첫 칸이 날짜만이고 내용 칸이 비면(1947. 05. 10 | —) 날짜를 내용으로 쓰지 않는다.
+                if not content or content == "—":
+                    content = col0
             else:
                 # rowspan 붕괴: col0 자체가 내용(또는 구분+내용), 마지막 칸은 대개 '—'
                 category = None
                 content = col0
-            if content and content != "—":
+            if content and content != "—" and cur_year:
                 items.append({"event_ym": cur_year, "category": category, "content": content,
                                "source_section": "I. 회사의 개요 > 2. 회사의 연혁"})
         break  # 연혁 표는 섹션당 하나
@@ -539,6 +593,15 @@ def parse_rd(md_text, fallback_year=None, notes=None):
         # 표기를 못 찾으면 배수를 **지어내지 않고** 금액을 확인불가로 남긴다: 잘못된
         # 배수로 적재하면 1000배 틀린 값이 조용히 들어가고(게이트가 비율만 막고 금액은
         # 통과시켰다, 2026-08-26 실측) 사후에 구분할 방법이 없다.
+        # 지주사 보고서는 당사 절에 '해당사항 없습니다'를 두고 바로 뒤에
+        # '[주요 종속회사 - …]' 연구개발비 표를 나열한다. 첫 과목표를 집어가면
+        # 경보제약 숫자를 종근당홀딩스 행으로 적재한다
+        # (2026-08-26 00149354: 14.58조 > 당사 매출 0.88조).
+        pre = md_text[max(0, t["_pos"] - 2000):t["_pos"]]
+        markers = list(re.finditer(r"\[\s*주요\s*(종속회사|자회사|관계회사)[^\]]*\]", pre))
+        if markers:
+            notes.append("R&D: 직전 제목이 %s — 당사 표가 아니라 스킵" % markers[-1].group(0))
+            continue
         unit_scale, unit_text = detect_unit_scale(md_text, t["_pos"])
         if unit_scale is None:
             notes.append("R&D: 표 단위 표기를 찾지 못해 금액을 확인불가로 남김"
@@ -597,7 +660,16 @@ def parse_segment_revenue(md_text, fallback_year=None, notes=None):
             continue
         notes.append("부문별 매출: 기간 라벨 획득 경로=%s (%s)" %
                      (label_source, ", ".join("%s→%s" % (p, labels.get(p)) for p in periods)))
-        scale = 100_000_000  # 억원 → KRW
+        # 표 단위는 회사마다 다르다. 예전엔 `scale = 1e8`(억원) 이 하드코딩돼 있어
+        # 백만원 표(다수)에서 부문합이 정확히 100배가 됐다 — 게이트가 9900% 차이로
+        # 막아 적재는 안 됐지만, 규칙 파서 경로가 사실상 죽었다
+        # (2026-08-26 코오롱글로벌 00152880 · 삼성물산 00149655).
+        unit_scale, unit_text = detect_unit_scale(md_text, t["_pos"])
+        if unit_scale is None:
+            notes.append("부문별 매출: 표 단위 표기를 찾지 못해 금액을 확인불가로 남김"
+                         "(원문 표기=%r)" % (unit_text,))
+        else:
+            notes.append("부문별 매출: 표 단위=%r → ×%d" % (unit_text, unit_scale))
         for row in t["rows"]:
             if not row:
                 continue
@@ -615,10 +687,15 @@ def parse_segment_revenue(md_text, fallback_year=None, notes=None):
                 if not period_key or i >= len(vals):
                     continue
                 v = num(vals[i])
+                if v is None:
+                    amount, status = None, "확인불가:원문값없음(공란)"
+                elif unit_scale is None:
+                    amount, status = None, "확인불가:표단위미확인(%s)" % (unit_text,)
+                else:
+                    amount, status = v * unit_scale, "ok"
                 facts.append(fact("segment_revenue", item, period_key,
-                                   v * scale if v is not None else None, "KRW", None,
-                                   "ok" if v is not None else "확인불가:원문값없음(공란)",
-                                   "II.4.가 매출실적", "부문별 매출실적(억원)"))
+                                   amount, "KRW", None, status,
+                                   "II.4.가 매출실적", "부문별 매출실적"))
         break
     return facts
 
@@ -855,6 +932,11 @@ def parse_treasury(md_text):
                                            "정밀계산", "확인불가:원문값없음(발행주식수또는자기주식수공란)",
                                            "I.4.가 주식의 총수",
                                            "자기주식수(Ⅴ)/발행주식총수(Ⅳ)×100"))
+                    elif issued == 0:
+                        facts.append(fact("shareholding_pct", "자사주_정밀계산", None, None, "pct",
+                                           "정밀계산", "확인불가:발행주식수0(비율계산불가)",
+                                           "I.4.가 주식의 총수",
+                                           "자기주식수(Ⅴ)/발행주식총수(Ⅳ)×100"))
                     else:
                         facts.append(fact("shareholding_pct", "자사주_정밀계산", None,
                                            round(treasury / issued * 100, 4), "pct", "정밀계산", "ok",
@@ -980,7 +1062,7 @@ def apply_gates(corp_code, facts, notes):
     for pk, ratio_fact in rnd_ratio.items():
         pretax = rnd_pretax.get(pk)
         db_rev, fs = db_revenue(corp_code, pk)
-        if pretax is None or db_rev is None or ratio_fact["amount"] is None:
+        if pretax is None or db_rev is None or not db_rev or ratio_fact["amount"] is None:
             notes.append("게이트 스킵(R&D비중 재계산, %s): 입력값 부족" % pk)
             continue
         recomputed = pretax / db_rev * 100
@@ -995,6 +1077,28 @@ def apply_gates(corp_code, facts, notes):
         else:
             notes.append("게이트 통과(R&D비중 재계산, %s): 재계산=%.4f%% vs 필자게재=%.4f%% (차이 %.4fpt)" %
                          (pk, recomputed, ratio_fact["amount"], diff))
+
+    # 게이트 3b: R&D 금액이 같은 기간 매출보다 크면 단위 결함이다(2026-08-26 전수에서
+    # 72사 232행). qc.py integrity 가 이걸 사후에 잡지만, 적재 게이트에 없으면 드레인이
+    # 같은 행을 다시 넣는다. 매출이 없는 기간은 스킵(지어내지 않음).
+    kept_rnd = []
+    for f in ok:
+        if f["concept"] != "rnd_total" or not f.get("amount") or not f.get("period_key"):
+            kept_rnd.append(f)
+            continue
+        db_rev, fs = db_revenue(corp_code, f["period_key"])
+        if db_rev is None or not db_rev:
+            kept_rnd.append(f)
+            continue
+        if float(f["amount"]) / float(db_rev) > 1:
+            f["status"] = "확인불가:게이트실패(R&D>매출)"
+            notes.append("게이트 실패(R&D>매출, %s, %s): R&D=%s vs DB매출=%s → 적재 보류" %
+                         (f["period_key"], fs, f["amount"], db_rev))
+            f["amount"] = None
+            held.append(f)
+        else:
+            kept_rnd.append(f)
+    ok = kept_rnd
 
     # 게이트 4: 자릿수 sanity — 같은 concept·item_name 의 연속 기간 값이 10배 이상 튀면 보류.
     # 2026-08-25 분기 지원 실측(삼성 2026Q1 분기보고서, verify 실행): 이 게이트는 "연속
@@ -1071,6 +1175,22 @@ def load_sections(corp_code, rcept_no):
     return {title: body for title, body in sections}, None
 
 
+def find_section(sections, *needles):
+    """정확 키 우선, 없으면 공백을 지운 제목에 needle 이 들어 있는 첫 섹션.
+    2005년식 'I.회사의 개황'·'II.사업의 내용(제조업)' 을 현행 목차와 같은 칸으로
+    본다. llm_fallback._find_section 과 같은 규칙 — 규칙 추출만 정확 키를 쓰면
+    구 목차 회차는 5블록 0행으로 남고 pending 만 쌓인다."""
+    for n in needles:
+        if n in sections:
+            return n, sections[n]
+    compact_needles = [n.replace(" ", "") for n in needles]
+    for title, body in sections.items():
+        compact = title.replace(" ", "")
+        if any(n in compact for n in compact_needles):
+            return title, body
+    return None, None
+
+
 def extract_one(corp_code, rcept_no):
     """한 (corp_code, rcept_no) 에서 5블록을 규칙 기반으로 전부 추출한다(항상 규칙만 —
     2026-08-25부터 이 함수는 LLM/에이전트 폴백을 호출하지 않는다). 규칙이 0행으로 남긴
@@ -1088,6 +1208,14 @@ def extract_one(corp_code, rcept_no):
         return [], [], notes
 
     facts, hist = [], []
+    overview_title, overview_md = find_section(
+        sections, "I. 회사의 개요", "회사의 개요", "회사의 개황")
+    biz_title, biz_md = find_section(sections, "II. 사업의 내용", "사업의 내용")
+    share_title, share_md = find_section(
+        sections, "VII. 주주에 관한 사항", "주주에 관한 사항")
+    if overview_md is None and biz_md is None and share_md is None:
+        notes.append("확인불가: I/II/VII(개요·개황·사업·주주) 섹션 없음 — 5블록 0행")
+        return [], [], notes
 
     # 이 rcept_no 의 회계기간을 한 번만 구해 두 곳에 재사용한다: ① 본문에 '제N기' 기수→
     # 연도 앵커 문장이 없는 회사에서 infer_period_labels 의 폴백 앵커로(연도만, 분기 무관),
@@ -1107,14 +1235,16 @@ def extract_one(corp_code, rcept_no):
                      "표 헤더/본문앵커가 우선이고 이 값과 어긋나도 표 쪽을 따른다)" %
                      (fy_report_nm, fy_period_key))
 
-    if "I. 회사의 개요" in sections:
-        hist += parse_history(sections["I. 회사의 개요"])
-        facts += parse_treasury(sections["I. 회사의 개요"])
+    if overview_md is not None:
+        hist += parse_history(overview_md)
+        facts += parse_treasury(overview_md)
+        if overview_title != "I. 회사의 개요":
+            notes.append("개요 섹션 폴백: %r" % overview_title)
     else:
         notes.append("확인불가: 'I. 회사의 개요' 섹션 없음 — 연혁·자사주 스킵")
 
-    if "II. 사업의 내용" in sections:
-        md = sections["II. 사업의 내용"]
+    if biz_md is not None:
+        md = biz_md
         facts += parse_rd(md, fy_int, notes)
         facts += parse_segment_revenue(md, fy_int, notes)
         seg_summary_facts, seg_err = parse_segment_summary(md, corp_code, fy_int, notes)
@@ -1122,11 +1252,15 @@ def extract_one(corp_code, rcept_no):
             notes.append("부문 요약재무현황(비중/영업이익/총자산): %s" % seg_err)
         facts += seg_summary_facts
         facts += parse_market_share(md)
+        if biz_title != "II. 사업의 내용":
+            notes.append("사업 섹션 폴백: %r" % biz_title)
     else:
         notes.append("확인불가: 'II. 사업의 내용' 섹션 없음 — R&D·부문매출·시장점유율 스킵")
 
-    if "VII. 주주에 관한 사항" in sections:
-        facts += parse_shareholders(sections["VII. 주주에 관한 사항"])
+    if share_md is not None:
+        facts += parse_shareholders(share_md)
+        if share_title != "VII. 주주에 관한 사항":
+            notes.append("주주 섹션 폴백: %r" % share_title)
     else:
         notes.append("확인불가: 'VII. 주주에 관한 사항' 섹션 없음 — 주주현황 스킵")
 
@@ -1170,6 +1304,36 @@ def to_history_row(corp_code, rcept_no, h):
     }
 
 
+def mark_attempted(corp_code, rcept_no):
+    """5블록 0행이어도 source_rcept_no 를 남겨 pending 에서 빠지게 한다.
+
+    period_key 는 qc 의 2000~2026 창 안에만 둔다. 1999 사업(2000-03 접수)에
+    1999A 표식을 남기면 이상 period_key 로 잡힌다(실측 5행, 2026-08-26).
+    표식은 사실이 아니므로 창 밖 연도는 NA 로 둔다.
+    """
+    _fy, pk, _nm = report_fiscal_year(rcept_no)
+    if _fy is None or not plausible_fiscal_year(_fy):
+        pk = "NA"
+    row = {
+        "corp_code": corp_code,
+        "period_key": pk or "NA",
+        "concept": MARK_CONCEPT,
+        "item_name": "(추출시도)",
+        "amount": None,
+        "unit": None,
+        "value_basis": None,
+        "status": "확인불가:5블록0행",
+        "source_rcept_no": rcept_no,
+        "source_section": None,
+        "source_table": None,
+        "extracted_by": EXTRACTED_BY,
+    }
+    ingest.rest("POST",
+                "fin_details?on_conflict=corp_code,period_key,concept,item_name,source_rcept_no",
+                [row], prefer="resolution=merge-duplicates")
+    print("  fin_details[%s]: 1행 (0블록 표식)" % MARK_CONCEPT)
+
+
 def load_scope(corp_code, rcept_no, facts, hist, only_concepts=None):
     """스코프 교체: (corp_code × concept × source_rcept_no) 단위로 delete→insert.
     ALL_CONCEPTS 전체를 매번 훑어, 이번 파싱에서 안 나온 concept 은 빈 리스트로
@@ -1184,13 +1348,30 @@ def load_scope(corp_code, rcept_no, facts, hist, only_concepts=None):
     (fin_details -2,819행 · corp_history -3,512행). 위 "스테일 행 제거"는 규칙 단독
     운영을 전제한 설계인데, 지금은 같은 스코프에 에이전트 산출물이 공존한다.
     한 concept 만 고치려는 재실행이 다른 concept 을 파괴해서는 안 된다."""
+    if only_concepts is None and not facts and not hist:
+        # 0행인데 ALL_CONCEPTS 마다 replace_scope(DELETE) 를 치면 REST 가
+        # 한 회차에 10번 왕복한다. pending 창의 구 분기·반기는 이 경로가 대부분이라
+        # 표식 한 방만 남긴다. 이 rcept 는 pending 이라 지울 스테일 행이 없다.
+        mark_attempted(corp_code, rcept_no)
+        return
     by_concept = {}
     for f in facts:
         by_concept.setdefault(f["concept"], []).append(to_db_row(corp_code, rcept_no, f))
+    # pending 첫 적재면 빈 concept DELETE 는 지울 행이 없다. 한 번 물어
+    # 비어 있으면 나온 concept 만 POST 한다(실측: rnd 3행인 회차도 DELETE 9번).
+    first_load = False
+    if only_concepts is None:
+        existing = ingest.rest(
+            "GET",
+            "fin_details?select=concept&source_rcept_no=eq.%s&limit=1" % rcept_no)
+        first_load = not existing
     targets = ALL_CONCEPTS if only_concepts is None else [
         c for c in ALL_CONCEPTS if c in only_concepts]
     for concept in targets:
         rows = by_concept.get(concept, [])
+        if first_load and not rows:
+            print("  fin_details[%s]: 0행 (첫적재 skip)" % concept)
+            continue
         # 자연키 중복 방어(같은 표에서 같은 item_name 이 두 번 잡히는 회귀 방지)
         rows = ingest.dedupe_by(rows, ["corp_code", "period_key", "concept", "item_name",
                                         "source_rcept_no"], "fin_details:%s" % concept)
@@ -1205,13 +1386,26 @@ def load_scope(corp_code, rcept_no, facts, hist, only_concepts=None):
         # --concepts 로 특정 concept 만 고치는 재실행 — 연혁은 손대지 않는다(위 docstring).
         print("  corp_history: 건너뜀(--concepts 지정)")
         return
-    hist_rows = [to_history_row(corp_code, rcept_no, h) for h in hist]
+    hist_rows = [to_history_row(corp_code, rcept_no, h) for h in hist if h.get("event_ym")]
     hist_rows = ingest.dedupe_by(hist_rows, ["corp_code", "source_rcept_no", "event_ym", "content"],
                                   "corp_history")
-    ingest.replace_scope(
-        "corp_history", {"corp_code": "eq.%s" % corp_code, "source_rcept_no": "eq.%s" % rcept_no},
-        hist_rows, on_conflict="corp_code,source_rcept_no,event_ym,content")
-    print("  corp_history: %d행" % len(hist_rows))
+    if first_load and not hist_rows:
+        print("  corp_history: 0행 (첫적재 skip)")
+    else:
+        ingest.replace_scope(
+            "corp_history", {"corp_code": "eq.%s" % corp_code, "source_rcept_no": "eq.%s" % rcept_no},
+            hist_rows, on_conflict="corp_code,source_rcept_no,event_ym,content")
+        print("  corp_history: %d행" % len(hist_rows))
+    # pending 판정은 fin_details.source_rcept_no 만 본다. 연혁만 나온 회차
+    # (facts=[], hist_rows>0)에 표식을 안 남기면 같은 회차가 무한 재추출된다
+    # (실측: 기아 00106641 2002–05 8건 + 1건, 2026-08-27).
+    if facts:
+        if not first_load:
+            ingest.rest("DELETE",
+                        "fin_details?corp_code=eq.%s&concept=eq.%s&source_rcept_no=eq.%s"
+                        % (corp_code, MARK_CONCEPT, rcept_no))
+    elif only_concepts is None:
+        mark_attempted(corp_code, rcept_no)
 
 
 # ══════════════════════════════════════════════════════════ 대상 회차 결정
@@ -1219,7 +1413,8 @@ def load_scope(corp_code, rcept_no, facts, hist, only_concepts=None):
 def latest_annual_rcept(corp_code):
     rows = db_rows_pg("filings", {
         "select": "rcept_no,rcept_dt,report_nm", "corp_code": "eq.%s" % corp_code,
-        "report_nm": "like.사업보고서*", "order": "rcept_dt.desc", "limit": "1"})
+        # pending 과 동일: 제출기한연장신고서를 최신 사업보고서로 고르지 않는다.
+        "report_nm": "like.*사업보고서 (*", "order": "rcept_dt.desc", "limit": "1"})
     return rows[0]["rcept_no"] if rows else None
 
 
@@ -1315,7 +1510,10 @@ def run(corps, rcepts_arg, do_load, only_concepts=None):
 # 미검증). latest_annual_rcept() 가 이미 쓰는 필터와 동일하게 사업보고서만 대상으로 좁힌다
 # — 스코프를 넓히려면(분기·반기 포함) 먼저 그 보고서 유형에서 5블록 파서가 실제로 뭘
 # 뽑아내는지 검증해야 한다(이번 작업 범위 밖).
-_REPORT_NM_FILTER = "like.사업보고서*"
+# '사업보고서*' 는 '사업보고서제출기한연장신고서'까지 잡는다 — 원문이 있어도 5블록
+# 섹션이 없어 추출이 실패하거나 쓰레기 행만 남는다. 실제 사업보고서(정정·첨부추가 포함)
+# 만 대상으로 좁힌다.
+_REPORT_NM_FILTER = "like.*사업보고서 (*"
 
 
 def _paginate_rest(path, params, page_size=1000):
@@ -1379,8 +1577,11 @@ def pending_rcepts(corps=None, limit=None):
         if rcept_no in done:
             continue
         f = row.get("filings") or {}
+        nm = f.get("report_nm") or ""
+        if "제출기한연장" in nm:
+            continue
         out.append({"corp_code": f.get("corp_code"), "rcept_no": rcept_no,
-                     "report_nm": f.get("report_nm"), "rcept_dt": f.get("rcept_dt")})
+                     "report_nm": nm, "rcept_dt": f.get("rcept_dt")})
     out.sort(key=lambda r: (r["rcept_dt"] or "", r["rcept_no"]))
     total = len(out)
     if limit:
