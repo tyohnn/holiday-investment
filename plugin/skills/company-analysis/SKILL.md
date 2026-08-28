@@ -155,6 +155,10 @@ INDEX.md 의 체크리스트(부문별 매출, 투자자산 구성, 차입 만�
 (성숙 5/7/9배, 고성장 30배, 1등주 36배 기준표), 그리고 IR 로데이터에 근거한 낙점.
 가정 선택과 그 근거 서술이 네 일이고, 산수는 네 일이 아니다.
 
+**점프 후 감속·연 100%대 고성장**이면 균등 CAGR 3케이스 대신
+`references/growth-path-workflow.md`를 연다. 연차별 경로 배열, 시계 자르기,
+현재가 → 내재 PER 역산, 관행 배수(예: 20배) 잔여까지가 절차 6의 이어서다.
+
 계산은 반드시 번들 스크립트로 한다 — 손으로 산수하지 않는다:
 
 ```bash
@@ -226,6 +230,7 @@ python3 <스킬경로>/scripts/validate_report.py <리포트.md> \
 |---|---|---|
 | `references/checklists.md` | 능력범위·해자·피셔·주가 3요소·1차자료·편입 체크리스트 | 절차 3~4, 7~8 |
 | `references/valuation.md` | 5단계 산식·9칸·PER/PSR 기준표·저평가 사다리·간이 PER·현대차 워크드 예제 | 절차 6 (가정 선택) |
+| `references/growth-path-workflow.md` | 연차별 경로·시계 자르기·내재 PER 역산·관행 배수 잔여 (에이피알에서 고정) | 절차 6, 고성장·점프 후 감속 |
 | `references/industry-frame.md` | 산업 8단계·국면 3문·라이프사이클·버블 판별·밸류체인·이차전지 도메인 예시 | 심층 모드 절차 5 |
 | `references/report-templates.md` | 리포트 골격·frontmatter 스펙·문체 규칙 | 절차 9 |
 | `references/tracking.md` | 사실 시계열 문서 — 표 형식·기본 8주제·갱신 규칙 | 절차 3-1 |
