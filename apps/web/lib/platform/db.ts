@@ -36,6 +36,7 @@ import {
   ksicDivision,
 } from "@investment/schema";
 import { z } from "zod";
+import { GUIDE_CONCEPTS, type GuideConcept } from "@/lib/company/guide-model";
 import type { CompanyIndex } from "./company-index";
 
 const URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "http://127.0.0.1:54321";
@@ -375,35 +376,78 @@ export async function getNoteSections(corpCode: string, limit = 20): Promise<Not
  * 오타는 컴파일에서 잡히고, 목록에 있는 이름은 전부 실제로 동작한다("사실상 한 값만 되는
  * 인자"를 남기지 않는다는 뜻).
  */
-export type FinPeriodConcept =
-  | "revenue"
-  | "cogs"
-  | "gross_profit"
-  | "sga"
-  | "operating_income"
-  | "net_income"
-  | "depreciation"
-  | "amortisation"
-  | "ebitda"
-  | "cf_operating"
-  | "cf_investing"
-  | "cf_financing"
-  | "assets"
-  | "liabilities"
-  | "equity"
-  | "cash"
-  | "st_borrowings"
-  | "current_lt_borrowings"
-  | "lt_borrowings"
-  | "bonds"
-  | "current_bonds"
-  | "borrowings_total"
-  | "net_debt"
-  | "gpm_pct"
-  | "opm_pct"
-  | "npm_pct"
-  | "roe_pct"
-  | "debt_ratio_pct";
+export type FinPeriodConcept = GuideConcept;
+
+/**
+ * 가이드 표가 쓰는 넓은 재무 슬라이스. AnnualSummary 계약을 넓히지 않는다 —
+ * 계정 트리는 여기 값만 집어 넣고, 없는 칸은 화면이 공칸으로 둔다.
+ */
+export type GuideFinValues = Partial<Record<GuideConcept, number | null>>;
+
+export type GuideFinPeriod = {
+  year: number;
+  periodType: string;
+  periodKey: string;
+  fsDiv: string;
+  values: GuideFinValues;
+};
+
+function collapseByPeriodKey<T extends { period_key: string; fs_div: string }>(rows: T[]): T[] {
+  const byKey = new Map<string, T>();
+  for (const row of rows) {
+    const prev = byKey.get(row.period_key);
+    if (!prev || (prev.fs_div !== "CFS" && row.fs_div === "CFS")) byKey.set(row.period_key, row);
+  }
+  return [...byKey.values()].sort((a, b) => a.period_key.localeCompare(b.period_key));
+}
+
+function toGuideFinPeriod(row: Record<string, unknown> & {
+  bsns_year: number;
+  period_type: string;
+  period_key: string;
+  fs_div: string;
+}): GuideFinPeriod {
+  const values: GuideFinValues = {};
+  for (const key of GUIDE_CONCEPTS) {
+    const raw = row[key];
+    values[key] = raw === null || raw === undefined || raw === "" ? null : Number(raw);
+    if (values[key] !== null && values[key] !== undefined && !Number.isFinite(values[key])) {
+      values[key] = null;
+    }
+  }
+  return {
+    year: row.bsns_year,
+    periodType: row.period_type,
+    periodKey: row.period_key,
+    fsDiv: row.fs_div,
+    values,
+  };
+}
+
+export async function getGuideFinGrid(corpCode: string): Promise<{
+  annual: GuideFinPeriod[];
+  quarters: GuideFinPeriod[];
+}> {
+  const { data, error } = await supabaseService
+    .from("fin_periods")
+    .select(["bsns_year", "period_type", "period_key", "fs_div", ...GUIDE_CONCEPTS].join(","))
+    .eq("corp_code", corpCode)
+    .in("period_type", ["A", "Q1", "Q2", "Q3", "Q4"])
+    .order("period_key");
+  if (error) throw error;
+  const rows = (data ?? []) as unknown as (Record<string, unknown> & {
+    bsns_year: number;
+    period_type: string;
+    period_key: string;
+    fs_div: string;
+  })[];
+  const annualRows = rows.filter((row) => row.period_type === "A");
+  const quarterRows = rows.filter((row) => row.period_type !== "A");
+  return {
+    annual: collapseByYear(annualRows).map(toGuideFinPeriod),
+    quarters: collapseByPeriodKey(quarterRows).map(toGuideFinPeriod),
+  };
+}
 
 /** 개념별 연간 시계열 — AnnualSummary 계약에 없는 개념(cf_investing 등)용. */
 export async function getConceptSeries(
@@ -440,7 +484,7 @@ export async function getCompanyPageData(stockCode: string) {
   if (!company) return null;
   const [
     annual, filings, corrections, events, trackings, sections, cfInvesting,
-    ownershipTxns, themedFilings,
+    ownershipTxns, themedFilings, guideFin,
   ] = await Promise.all([
     getAnnualSummary(company.corp_code),
     getFilings(company.corp_code),
@@ -451,12 +495,15 @@ export async function getCompanyPageData(stockCode: string) {
     getConceptSeries(company.corp_code, "cf_investing"),
     getOwnershipTxns(company.corp_code),
     getThemedFilings(company.corp_code),
+    getGuideFinGrid(company.corp_code),
   ]);
   return {
     company, annual, filings, corrections, events, trackings, sections, cfInvesting,
-    ownershipTxns, themedFilings,
+    ownershipTxns, themedFilings, guideFin,
   };
 }
+
+export type CompanyPageData = NonNullable<Awaited<ReturnType<typeof getCompanyPageData>>>;
 
 /* ── 산업 지도 ─────────────────────────────────────────────────────────────── */
 
