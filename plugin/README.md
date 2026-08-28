@@ -21,6 +21,7 @@
 - 성장률 3케이스 × PER 3케이스 = **9칸 매트릭스**. 낙점은 IR 로데이터로 추리.
   고성장·점프 후 감속은 균등 CAGR 대신 연차별 경로
   (`company-analysis/references/growth-path-workflow.md`).
+  재무·뉴스·시세 찾는 법은 `company-analysis/references/source-recipes.md`.
 - 매수 기준은 상승여력 200%(3년 3배). 미달이면 **진입가 = 적정가 ÷ 3** 를 역산해 남긴다.
 - 추정은 객관적으로, 보수성은 매수가로. 결과가 "사지 마라"면 그렇게 쓴다.
 - 리포트는 종목 추천이 아니라 방법론의 문제풀이다.

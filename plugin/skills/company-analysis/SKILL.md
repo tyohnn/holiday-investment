@@ -71,6 +71,7 @@ description: >-
 
 자료의 위계: **이사회 승인 IR > 실적 공시 > 증권사 리포트의 로데이터 > 언론 보도.**
 결정론적으로 가져올 수 있는 것은 스크립트로 가져오고, 에이전트는 선별·발췌만 한다.
+원격 DB·다음금융·뉴스 쿼리의 복붙 레시피는 `references/source-recipes.md`.
 
 | 자료 | 도구 | 저장 위치 |
 |---|---|---|
@@ -231,6 +232,7 @@ python3 <스킬경로>/scripts/validate_report.py <리포트.md> \
 | `references/checklists.md` | 능력범위·해자·피셔·주가 3요소·1차자료·편입 체크리스트 | 절차 3~4, 7~8 |
 | `references/valuation.md` | 5단계 산식·9칸·PER/PSR 기준표·저평가 사다리·간이 PER·현대차 워크드 예제 | 절차 6 (가정 선택) |
 | `references/growth-path-workflow.md` | 연차별 경로·시계 자르기·내재 PER 역산·관행 배수 잔여 (에이피알에서 고정) | 절차 6, 고성장·점프 후 감속 |
+| `references/source-recipes.md` | 재무(DB fin_periods)·시세(다음금융)·뉴스/IR을 어디서 어떻게 가져오는가 | 절차 3, 경로 워크플로 ⓪ |
 | `references/industry-frame.md` | 산업 8단계·국면 3문·라이프사이클·버블 판별·밸류체인·이차전지 도메인 예시 | 심층 모드 절차 5 |
 | `references/report-templates.md` | 리포트 골격·frontmatter 스펙·문체 규칙 | 절차 9 |
 | `references/tracking.md` | 사실 시계열 문서 — 표 형식·기본 8주제·갱신 규칙 | 절차 3-1 |
