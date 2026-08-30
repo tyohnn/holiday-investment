@@ -28,7 +28,9 @@ export default async function StockAnalysisListPage() {
         </p>
       ) : (
         <StaggerReveal className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
-          {companies.map((c) => (
+          {companies
+            .filter((c): c is typeof c & { stock_code: string } => Boolean(c.stock_code))
+            .map((c) => (
             <Link key={c.corp_code} href={companyHref(c.stock_code)} className="group block">
               <MotionCard className="rounded-xl border border-border bg-card p-5 transition-colors group-hover:border-primary/60">
                 <div className="flex items-center justify-between">

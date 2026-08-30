@@ -1,1 +1,2 @@
-export { default, metadata, revalidate } from '../../../industry/page';
+export const revalidate = 0;
+export { default, metadata } from '../../../industry/page';
