@@ -1,3 +1,4 @@
+import { groupHeightFromWidgets } from './grid';
 import type {
   ResearchBoard,
   ResearchBoardTheme,
@@ -28,7 +29,7 @@ export function emptyBoard(
         id: groupId,
         title: '새 그룹',
         summary: '',
-        layout: { i: groupId, x: 0, y: 0, w: 6, h: 14, minW: 4, minH: 10 },
+        layout: fittedGroupLayout({ i: groupId, x: 0, y: 0, w: 6, minW: 4 }, []),
         widgets: [],
       },
     ],
@@ -42,10 +43,10 @@ export function addGroup(board: ResearchBoard, title = '새 그룹'): ResearchBo
     id,
     title,
     summary: '',
-    layout: { i: id, x: 0, y, w: 6, h: 14, minW: 4, minH: 10 },
+    layout: fittedGroupLayout({ i: id, x: 0, y, w: 6, minW: 4 }, []),
     widgets: [],
   };
-  return { ...board, groups: [...board.groups, group] };
+  return fitBoardGroupHeights({ ...board, groups: [...board.groups, group] });
 }
 
 export function removeGroup(board: ResearchBoard, groupId: string): ResearchBoard {
@@ -66,7 +67,7 @@ export function renameGroup(
 }
 
 export function addNoteWidget(board: ResearchBoard, groupId: string): ResearchBoard {
-  return {
+  return fitBoardGroupHeights({
     ...board,
     groups: board.groups.map((group) => {
       if (group.id !== groupId) return group;
@@ -81,17 +82,17 @@ export function addNoteWidget(board: ResearchBoard, groupId: string): ResearchBo
       };
       return { ...group, widgets: [...group.widgets, widget] };
     }),
-  };
+  });
 }
 
 export function removeWidget(board: ResearchBoard, widgetId: string): ResearchBoard {
-  return {
+  return fitBoardGroupHeights({
     ...board,
     groups: board.groups.map((group) => ({
       ...group,
       widgets: group.widgets.filter((widget) => widget.id !== widgetId),
     })),
-  };
+  });
 }
 
 export function renameWidget(
@@ -115,14 +116,18 @@ export function applyOuterLayout(
   layout: readonly ResearchWidgetLayout[],
 ): ResearchBoard {
   const byId = new Map(layout.map((item) => [item.i, item]));
-  return {
+  return fitBoardGroupHeights({
     ...board,
     groups: board.groups.map((group) => {
       const next = byId.get(group.id);
-      if (!next || layoutsEqual(group.layout, next)) return group;
-      return { ...group, layout: mergeLayout(group.layout, next) };
+      if (!next) return group;
+      const merged = mergeLayout(group.layout, next);
+      if (merged.x === group.layout.x && merged.y === group.layout.y && merged.w === group.layout.w) {
+        return group;
+      }
+      return { ...group, layout: merged };
     }),
-  };
+  });
 }
 
 export function applyInnerLayout(
@@ -131,7 +136,7 @@ export function applyInnerLayout(
   layout: readonly ResearchWidgetLayout[],
 ): ResearchBoard {
   const byId = new Map(layout.map((item) => [item.i, item]));
-  return {
+  return fitBoardGroupHeights({
     ...board,
     groups: board.groups.map((group) => {
       if (group.id !== groupId) return group;
@@ -144,7 +149,7 @@ export function applyInnerLayout(
       });
       return changed ? { ...group, widgets } : group;
     }),
-  };
+  });
 }
 
 export function moveWidget(
@@ -168,7 +173,7 @@ export function moveWidget(
     (group) => group.id === toGroupId && group.widgets.some((widget) => widget.id === widgetId),
   );
   if (alreadyThere) return board;
-  return {
+  return fitBoardGroupHeights({
     ...board,
     groups: stripped.map((group) => {
       if (group.id !== toGroupId || !moved) return group;
@@ -181,7 +186,41 @@ export function moveWidget(
         ],
       };
     }),
+  });
+}
+
+export function fittedGroupLayout(
+  base: Pick<ResearchWidgetLayout, 'i' | 'x' | 'y' | 'w'> & Partial<ResearchWidgetLayout>,
+  widgets: readonly { layout: { y: number; h: number } }[],
+): ResearchWidgetLayout {
+  const h = groupHeightFromWidgets(widgets);
+  return {
+    i: base.i,
+    x: base.x,
+    y: base.y,
+    w: base.w,
+    h,
+    minW: base.minW ?? 4,
+    minH: h,
+    maxH: h,
   };
+}
+
+export function fitBoardGroupHeights(board: ResearchBoard): ResearchBoard {
+  let changed = false;
+  const groups = board.groups.map((group) => {
+    const layout = fittedGroupLayout(group.layout, group.widgets);
+    if (
+      layout.h === group.layout.h &&
+      layout.minH === group.layout.minH &&
+      layout.maxH === group.layout.maxH
+    ) {
+      return group;
+    }
+    changed = true;
+    return { ...group, layout };
+  });
+  return changed ? { ...board, groups } : board;
 }
 
 export function layoutsEqual(a: ResearchWidgetLayout, b: ResearchWidgetLayout): boolean {
@@ -306,6 +345,7 @@ function parseLayout(input: unknown, fallbackId: string): ResearchWidgetLayout {
         h: record.h,
         minW: typeof record.minW === 'number' ? record.minW : undefined,
         minH: typeof record.minH === 'number' ? record.minH : undefined,
+        maxH: typeof record.maxH === 'number' ? record.maxH : undefined,
       };
     }
   }

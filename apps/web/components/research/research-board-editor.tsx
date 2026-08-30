@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { deleteResearchBoardAction, saveResearchBoardAction } from '@/lib/research/actions';
-import { addGroup } from '@/lib/research/document';
+import { addGroup, fitBoardGroupHeights } from '@/lib/research/document';
 import type { ResearchBoard } from '@/lib/research/types';
 import { researchBoardsHref } from '@/lib/nav';
 import { Button } from '@/components/ui/button';
@@ -21,7 +21,7 @@ type SaveState = 'saved' | 'saving' | 'error';
 
 export function ResearchBoardEditor({ initial }: { initial: ResearchBoard }) {
   const router = useRouter();
-  const [board, setBoard] = useState(initial);
+  const [board, setBoard] = useState(() => fitBoardGroupHeights(initial));
   const [saveState, setSaveState] = useState<SaveState>('saved');
   const [error, setError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -30,7 +30,7 @@ export function ResearchBoardEditor({ initial }: { initial: ResearchBoard }) {
   latest.current = board;
 
   useEffect(() => {
-    setBoard(initial);
+    setBoard(fitBoardGroupHeights(initial));
     setSaveState('saved');
     setError(null);
   }, [initial.slug]);

@@ -295,7 +295,3 @@
 .research-grid-outer > .react-grid-item > * {
   height: 100%;
 }
-
-.research-nested > .react-grid-layout {
-  min-height: 100%;
-}

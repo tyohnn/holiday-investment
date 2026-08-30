@@ -5,6 +5,8 @@ export {
   applyInnerLayout,
   applyOuterLayout,
   emptyBoard,
+  fitBoardGroupHeights,
+  fittedGroupLayout,
   layoutListEqual,
   moveWidget,
   newId,
@@ -14,6 +16,7 @@ export {
   renameGroup,
   renameWidget,
 } from './document';
+export { INNER_GRID, OUTER_GRID, groupHeightFromWidgets } from './grid';
 export type {
   ResearchBoard,
   ResearchBoardTheme,

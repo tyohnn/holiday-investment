@@ -10,6 +10,7 @@ import {
   addNoteWidget,
   applyInnerLayout,
   applyOuterLayout,
+  fittedGroupLayout,
   layoutListEqual,
   moveWidget,
   removeGroup,
@@ -17,6 +18,7 @@ import {
   renameGroup,
   renameWidget,
 } from '@/lib/research/document';
+import { INNER_GRID, OUTER_GRID } from '@/lib/research/grid';
 import { cn } from '@/lib/cn';
 import { Button } from '@/components/ui/button';
 import {
@@ -38,7 +40,10 @@ export function ResearchBoardCanvas({
   onChange: (next: ResearchBoard) => void;
 }) {
   const { width, containerRef, mounted } = useContainerWidth();
-  const layout = useMemo(() => board.groups.map((group) => group.layout), [board.groups]);
+  const layout = useMemo(
+    () => board.groups.map((group) => fittedGroupLayout(group.layout, group.widgets)),
+    [board.groups],
+  );
 
   const onLayoutChange = useCallback(
     (next: Layout) => {
@@ -55,13 +60,17 @@ export function ResearchBoardCanvas({
           <GridLayout
             width={width}
             layout={layout}
-            gridConfig={{ cols: 12, rowHeight: 36, margin: [16, 16] }}
+            gridConfig={{
+              cols: OUTER_GRID.cols,
+              rowHeight: OUTER_GRID.rowHeight,
+              margin: OUTER_GRID.margin,
+            }}
             dragConfig={{
               enabled: true,
               handle: '.research-group-drag',
               cancel: '.research-nested',
             }}
-            resizeConfig={{ enabled: true }}
+            resizeConfig={{ enabled: true, handles: ['e'] }}
             onLayoutChange={onLayoutChange}
           >
             {board.groups.map((group) => (
@@ -113,7 +122,7 @@ function ResearchGroupPane({
   return (
     <section
       className={cn(
-        'flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border bg-card shadow-[var(--shadow-card)]',
+        'flex h-full min-h-0 flex-col overflow-visible rounded-2xl border bg-card shadow-[var(--shadow-card)]',
         dropActive ? 'border-primary' : 'border-border',
       )}
       onDragOver={(event) => {
@@ -177,13 +186,18 @@ function ResearchGroupPane({
       </header>
       <div
         ref={containerRef}
-        className="research-nested research-grid min-h-0 flex-1 overflow-auto px-2 py-2"
+        className="research-nested research-grid overflow-visible px-2 py-2"
       >
         {mounted && width > 0 && (
           <GridLayout
             width={width}
             layout={layout}
-            gridConfig={{ cols: 12, rowHeight: 32, margin: [8, 8] }}
+            autoSize
+            gridConfig={{
+              cols: INNER_GRID.cols,
+              rowHeight: INNER_GRID.rowHeight,
+              margin: INNER_GRID.margin,
+            }}
             dragConfig={{ enabled: true, handle: '.research-widget-drag' }}
             resizeConfig={{ enabled: true }}
             onLayoutChange={onLayoutChange}
