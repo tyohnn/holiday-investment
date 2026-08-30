@@ -32,11 +32,13 @@ export type ResearchGroup = {
   widgets: ResearchWidget[];
 };
 
+export type ResearchBoardTheme = 'stocks' | 'real-estate';
+
 export type ResearchBoard = {
   slug: string;
   title: string;
   tagline: string;
-  theme: 'stocks';
+  theme: ResearchBoardTheme;
   relatedStockCode?: string;
   relatedIndustrySlug?: string;
   groups: ResearchGroup[];
