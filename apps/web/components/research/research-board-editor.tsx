@@ -62,7 +62,10 @@ export function ResearchBoardEditor({ initial }: { initial: ResearchBoard }) {
 
   useEffect(() => {
     return () => {
-      if (timer.current) clearTimeout(timer.current);
+      if (!timer.current) return;
+      clearTimeout(timer.current);
+      timer.current = null;
+      void saveResearchBoardAction(latest.current);
     };
   }, []);
 
