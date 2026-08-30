@@ -28,7 +28,7 @@ export default async function CompanyListPage() {
       ) : (
         <StaggerReveal className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
           {companies.map((c) => (
-            <Link key={c.corp_code} href={`/company/${c.stock_code}`} className="group block">
+            <Link key={c.corp_code} href={`/stocks/analysis/${c.stock_code}`} className="group block">
               <MotionCard className="rounded-xl border border-border bg-card p-5 transition-colors group-hover:border-primary/60">
                 <div className="flex items-center justify-between">
                   <h2 className="text-lg font-semibold group-hover:text-primary">{c.name}</h2>

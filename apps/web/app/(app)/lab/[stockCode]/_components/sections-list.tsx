@@ -39,7 +39,7 @@ export function SectionsList({
               {items.map((s) => (
                 <li key={s.id}>
                   <Link
-                    href={`/lab/${stockCode}/filing/${rceptNo}/${s.sec_no}`}
+                    href={`/stocks/analysis/${stockCode}/filing/${rceptNo}/${s.sec_no}`}
                     className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1 text-sm hover:bg-accent/40"
                   >
                     {s.is_note && <span className="text-amber-500">★</span>}

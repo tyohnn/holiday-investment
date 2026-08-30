@@ -40,18 +40,25 @@ bash /workspace/scripts/sync-runtime-env.sh
   `apps/web/lib/book/render.ts` (remark/rehype), not MDX, so **JSX in 교재 Markdown does
   not work**; the one live component is the `@@TEXTBOOK_CHART:<id>@@` placeholder that
   `scripts/sync-content.mjs` writes for `<!-- MEDIA:chart -->` markers.
-- **`/company/**` needs the local Supabase stack** (`apps/web/lib/platform/db.ts` reads
-  PostgREST at `http://127.0.0.1:54321` with the built-in local **service_role** key, so
+- **`/stocks/analysis/**` (and `/company/**`, which 301s there) needs the local
+  Supabase stack** (`apps/web/lib/platform/db.ts` reads PostgREST at
+  `http://127.0.0.1:54321` with the built-in local **service_role** key, so
   **no env vars are required** — just have the stack running). Every read goes through the
   service role: since migration `20260802000005` nothing in `public` is anon-readable, by
   design (the anon key ships in the client bundle, so anon-readable == world-readable).
   To point the app at the hosted project instead, set `NEXT_PUBLIC_SUPABASE_URL` and
   `SUPABASE_SERVICE_KEY` in `apps/web/.env.local` (gitignored). Without a backend,
-  `/company` 500s.
-  `/company/<stockCode>` is the FnGuide 기업정보 landing (Snapshot). Submenus live
-  under `/company/<stockCode>/{profile,financials,ratios,...}`. Seeded stock codes:
-  `259960` (크래프톤), `247540` (에코프로비엠). The 8-step workbench remains at
-  `/lab/<stockCode>/{board}`.
+  `/stocks/analysis` 500s.
+  App chrome is theme → section. Sidebar top switches `주식` (`/stocks`) and
+  `부동산` (`/real-estate`). Under each theme: 종목 분석 `/analysis`, 거시경제
+  `/macro`, 전체 뉴스 `/news`, 리서치 보드 `/boards`.
+  `/stocks/analysis/<stockCode>` is the FnGuide 기업정보 landing (Snapshot).
+  Submenus and the 8-step workbench share the next segment:
+  `/stocks/analysis/<stockCode>/{profile,financials,...,verdict,industry,...}`.
+  종목 선택과 기업정보/분석 순서 전환은 content body toolbar (breadcrumb +
+  combobox) 에 있다. Seeded stock codes: `259960` (크래프톤), `247540`
+  (에코프로비엠). 산업 지도는 `/stocks/macro/industries`. 옛
+  `/company/**` · `/lab/**` · `/industry/**` 는 301 한다.
 - `pnpm types:check` (root) = the lint/build proxy (`next typegen && tsc --noEmit`).
 
 ### UI 확인
@@ -59,7 +66,7 @@ bash /workspace/scripts/sync-runtime-env.sh
 사용자가 스크린샷이나 영상을 요청했을 때만 한다. 그때는 **push 전에** 찍거나
 녹화하고, 그 결과에 맞춰 고친 뒤 푸시한다.
 
-**Running the Supabase stack (for `/company`)** — see `platform/README.md` for the full
+**Running the Supabase stack (for `/stocks/analysis`)** — see `platform/README.md` for the full
 data workflow; the non-obvious cloud gotchas are:
 - Requires Docker + the `supabase` CLI (installed to `$HOME/.local/share/supabase`, must be
   on `PATH`). On a fresh Cloud VM these may be absent — install Docker per the Cloud Agent
