@@ -8,6 +8,7 @@ export type ResearchWidgetLayout = {
   h: number;
   minW?: number;
   minH?: number;
+  maxH?: number;
 };
 
 export type ResearchWidget = {
@@ -27,16 +28,18 @@ export type ResearchGroup = {
   id: string;
   title: string;
   summary: string;
-  /** 보드(바깥 RGL) 안에서의 이 그룹 칸 */
+  /** 보드(바깥 RGL) 안에서의 이 그룹 칸. h 는 안쪽 위젯 높이에서 유도한다. */
   layout: ResearchWidgetLayout;
   widgets: ResearchWidget[];
 };
+
+export type ResearchBoardTheme = 'stocks' | 'real-estate';
 
 export type ResearchBoard = {
   slug: string;
   title: string;
   tagline: string;
-  theme: 'stocks';
+  theme: ResearchBoardTheme;
   relatedStockCode?: string;
   relatedIndustrySlug?: string;
   groups: ResearchGroup[];
