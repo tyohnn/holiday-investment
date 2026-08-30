@@ -413,7 +413,7 @@ export function getBoardBySlug(slug: string): AnalysisBoardMeta | undefined {
 
 export function boardHref(stockCode: string, boardId: BoardId = DEFAULT_BOARD_ID): string {
   const board = getBoard(boardId);
-  return `/lab/${stockCode}/${board.slug}`;
+  return `/stocks/analysis/${stockCode}/${board.slug}`;
 }
 
 export function widgetsForBoard(boardId: BoardId): AnalysisWidgetMeta[] {

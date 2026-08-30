@@ -1,10 +1,5 @@
-import type { Metadata } from 'next';
-import { HomeLanding } from './_components/home-landing';
-
-export const metadata: Metadata = {
-  title: '종목 검색',
-};
+import { redirect } from 'next/navigation';
 
 export default function HomePage() {
-  return <HomeLanding />;
+  redirect('/stocks');
 }

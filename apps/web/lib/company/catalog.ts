@@ -50,6 +50,6 @@ export function getCompanyMenuBySlug(slug: string): CompanyMenuMeta | undefined 
 export function companyHref(stockCode: string, slug = DEFAULT_COMPANY_MENU_SLUG): string {
   const menu = getCompanyMenuBySlug(slug);
   const resolved = menu?.slug ?? DEFAULT_COMPANY_MENU_SLUG;
-  if (resolved === DEFAULT_COMPANY_MENU_SLUG) return `/company/${stockCode}`;
-  return `/company/${stockCode}/${resolved}`;
+  if (resolved === DEFAULT_COMPANY_MENU_SLUG) return `/stocks/analysis/${stockCode}`;
+  return `/stocks/analysis/${stockCode}/${resolved}`;
 }

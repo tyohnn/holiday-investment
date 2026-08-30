@@ -23,7 +23,7 @@ export function HomeLanding() {
         종목을 검색해 분석을 시작합니다
       </h1>
       <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
-        이름이나 종목코드로 찾고, 메뉴는 그대로 둔 채 종목만 바꿉니다.
+        이름이나 종목코드로 찾고, 본문 위 선택기에서 종목과 분석 페이지를 바꿉니다.
       </p>
 
       <SymbolCommandTrigger
