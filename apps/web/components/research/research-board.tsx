@@ -8,14 +8,14 @@ import { DotsSixVerticalIcon } from '@phosphor-icons/react';
 import type { ResearchBoard, ResearchGroup, ResearchWidget } from '@/lib/research';
 import { cn } from '@/lib/cn';
 
-function storageKey(boardSlug: string, groupId: string): string {
-  return `research-board:${boardSlug}:${groupId}`;
+function storageKey(boardSlug: string, pane: string): string {
+  return `research-board:v2:${boardSlug}:${pane}`;
 }
 
-function readLayout(boardSlug: string, groupId: string, fallback: Layout): Layout {
+function readLayout(boardSlug: string, pane: string, fallback: Layout): Layout {
   if (typeof window === 'undefined') return fallback;
   try {
-    const raw = window.localStorage.getItem(storageKey(boardSlug, groupId));
+    const raw = window.localStorage.getItem(storageKey(boardSlug, pane));
     if (!raw) return fallback;
     const parsed = JSON.parse(raw) as unknown;
     if (!Array.isArray(parsed)) return fallback;
@@ -25,31 +25,67 @@ function readLayout(boardSlug: string, groupId: string, fallback: Layout): Layou
   }
 }
 
-function writeLayout(boardSlug: string, groupId: string, layout: Layout) {
+function writeLayout(boardSlug: string, pane: string, layout: Layout) {
   try {
-    window.localStorage.setItem(storageKey(boardSlug, groupId), JSON.stringify(layout));
+    window.localStorage.setItem(storageKey(boardSlug, pane), JSON.stringify(layout));
   } catch {
     /* ignore quota */
   }
 }
 
 export function ResearchBoardCanvas({ board }: { board: ResearchBoard }) {
+  const { width, containerRef, mounted } = useContainerWidth();
+  const defaultLayout = useMemo(
+    () => board.groups.map((group) => group.layout),
+    [board.groups],
+  );
+  const [layout, setLayout] = useState<Layout>(() =>
+    readLayout(board.slug, 'outer', defaultLayout),
+  );
+
+  const onLayoutChange = useCallback(
+    (next: Layout) => {
+      setLayout(next);
+      writeLayout(board.slug, 'outer', next);
+    },
+    [board.slug],
+  );
+
   return (
-    <div className="mx-auto max-w-7xl space-y-8 px-4 py-6 pb-16 sm:px-6 lg:px-8">
-      <header>
+    <div className="px-4 py-6 pb-16 sm:px-6 lg:px-8">
+      <header className="mb-4">
         <p className="text-xs font-medium tracking-[0.08em] text-muted-foreground">리서치 보드</p>
         <h1 className="mt-2 text-2xl font-semibold tracking-tight">{board.title}</h1>
         <p className="mt-1 max-w-3xl text-sm text-muted-foreground">{board.tagline}</p>
       </header>
 
-      {board.groups.map((group) => (
-        <ResearchGroupGrid key={group.id} boardSlug={board.slug} group={group} />
-      ))}
+      <div ref={containerRef} className="research-grid research-grid-outer min-h-[36rem]">
+        {mounted && width > 0 && (
+          <GridLayout
+            width={width}
+            layout={layout}
+            gridConfig={{ cols: 12, rowHeight: 36, margin: [16, 16] }}
+            dragConfig={{
+              enabled: true,
+              handle: '.research-group-drag',
+              cancel: '.research-nested',
+            }}
+            resizeConfig={{ enabled: true }}
+            onLayoutChange={onLayoutChange}
+          >
+            {board.groups.map((group) => (
+              <div key={group.id} className="h-full">
+                <ResearchGroupPane boardSlug={board.slug} group={group} />
+              </div>
+            ))}
+          </GridLayout>
+        )}
+      </div>
     </div>
   );
 }
 
-function ResearchGroupGrid({
+function ResearchGroupPane({
   boardSlug,
   group,
 }: {
@@ -61,7 +97,9 @@ function ResearchGroupGrid({
     () => group.widgets.map((widget) => widget.layout),
     [group.widgets],
   );
-  const [layout, setLayout] = useState<Layout>(() => readLayout(boardSlug, group.id, defaultLayout));
+  const [layout, setLayout] = useState<Layout>(() =>
+    readLayout(boardSlug, group.id, defaultLayout),
+  );
 
   const onLayoutChange = useCallback(
     (next: Layout) => {
@@ -72,21 +110,32 @@ function ResearchGroupGrid({
   );
 
   return (
-    <section className="rounded-2xl border border-border bg-card/40">
-      <header className="border-b border-border px-4 py-3 sm:px-5">
-        <h2 className="text-lg font-semibold tracking-tight">{group.title}</h2>
-        <p className="mt-0.5 text-sm text-muted-foreground">{group.summary}</p>
+    <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-[var(--shadow-card)]">
+      <header className="flex shrink-0 items-start gap-2 border-b border-border px-3 py-2.5">
+        <button
+          type="button"
+          className="research-group-drag mt-0.5 cursor-grab text-muted-foreground hover:text-foreground active:cursor-grabbing"
+          aria-label="그룹 위치 이동"
+        >
+          <DotsSixVerticalIcon className="size-4" />
+        </button>
+        <div className="min-w-0 flex-1">
+          <h2 className="truncate text-sm font-semibold tracking-tight">{group.title}</h2>
+          <p className="truncate text-[11px] text-muted-foreground">{group.summary}</p>
+        </div>
       </header>
-      <div ref={containerRef} className="research-grid px-3 py-3 sm:px-4">
+      <div
+        ref={containerRef}
+        className="research-nested research-grid min-h-0 flex-1 overflow-auto px-2 py-2"
+      >
         {mounted && width > 0 && (
           <GridLayout
             width={width}
             layout={layout}
-            gridConfig={{ cols: 12, rowHeight: 36, margin: [12, 12] }}
-            dragConfig={{ enabled: true, handle: '.research-drag' }}
+            gridConfig={{ cols: 12, rowHeight: 32, margin: [8, 8] }}
+            dragConfig={{ enabled: true, handle: '.research-widget-drag' }}
             resizeConfig={{ enabled: true }}
             onLayoutChange={onLayoutChange}
-            className="min-h-[12rem]"
           >
             {group.widgets.map((widget) => (
               <div key={widget.id} className="h-full">
@@ -102,12 +151,12 @@ function ResearchGroupGrid({
 
 function ResearchWidgetCard({ widget }: { widget: ResearchWidget }) {
   return (
-    <article className="flex h-full flex-col overflow-hidden rounded-xl border border-border bg-card shadow-[var(--shadow-card)]">
-      <header className="flex items-start gap-2 border-b border-border px-3 py-2">
+    <article className="flex h-full flex-col overflow-hidden rounded-xl border border-border bg-background">
+      <header className="flex items-start gap-2 border-b border-border px-2.5 py-1.5">
         <button
           type="button"
-          className="research-drag mt-0.5 cursor-grab text-muted-foreground hover:text-foreground active:cursor-grabbing"
-          aria-label="위치 이동"
+          className="research-widget-drag mt-0.5 cursor-grab text-muted-foreground hover:text-foreground active:cursor-grabbing"
+          aria-label="위젯 위치 이동"
         >
           <DotsSixVerticalIcon className="size-4" />
         </button>
@@ -130,7 +179,7 @@ function ResearchWidgetCard({ widget }: { widget: ResearchWidget }) {
           {kindLabel(widget.kind)}
         </span>
       </header>
-      <div className="min-h-0 flex-1 overflow-auto px-3 py-2 text-sm">
+      <div className="min-h-0 flex-1 overflow-auto px-2.5 py-2 text-sm">
         {widget.kind === 'metric' && widget.metric && (
           <div>
             <p className="text-2xl font-semibold tracking-tight">{widget.metric.value}</p>

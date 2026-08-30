@@ -27,6 +27,8 @@ export type ResearchGroup = {
   id: string;
   title: string;
   summary: string;
+  /** 보드(바깥 RGL) 안에서의 이 그룹 칸 */
+  layout: ResearchWidgetLayout;
   widgets: ResearchWidget[];
 };
 

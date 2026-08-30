@@ -1,8 +1,9 @@
 import type { ResearchBoard } from './types';
 
 /**
- * 리서치 보드 시드. 보드는 주제 그룹의 묶음이고, 그룹 안 위젯은
- * react-grid-layout 이 배치한다. 숫자는 산업 카탈로그에 이미 적힌 문장만 옮긴다.
+ * 리서치 보드 시드.
+ * 보드 = 바깥 RGL 하나. 그 칸 = 그룹. 그룹 안 = nested RGL.
+ * 숫자는 산업 카탈로그에 이미 적힌 문장만 옮긴다.
  */
 export const RESEARCH_BOARDS: ResearchBoard[] = [
   {
@@ -17,6 +18,7 @@ export const RESEARCH_BOARDS: ResearchBoard[] = [
         id: 'ev-growth',
         title: '전기차산업 성장분석',
         summary: '시장규모·점유율·이익률 세 국면을 한 그룹에 둔다.',
+        layout: { i: 'ev-growth', x: 0, y: 0, w: 6, h: 16, minW: 4, minH: 10 },
         widgets: [
           {
             id: 'ev-market-phase',
@@ -69,6 +71,7 @@ export const RESEARCH_BOARDS: ResearchBoard[] = [
         id: 'ev-value-chain',
         title: '전기차산업 밸류체인',
         summary: '광물에서 양극재·셀까지, 같은 뉴스가 단계마다 다른 이유.',
+        layout: { i: 'ev-value-chain', x: 6, y: 0, w: 6, h: 16, minW: 4, minH: 10 },
         widgets: [
           {
             id: 'chain-map',

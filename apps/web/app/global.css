@@ -287,3 +287,15 @@
 .research-grid .react-grid-item > .react-resizable-handle::after {
   border-color: var(--muted-foreground);
 }
+
+.research-grid-outer > .react-grid-item {
+  overflow: visible;
+}
+
+.research-grid-outer > .react-grid-item > * {
+  height: 100%;
+}
+
+.research-nested > .react-grid-layout {
+  min-height: 100%;
+}

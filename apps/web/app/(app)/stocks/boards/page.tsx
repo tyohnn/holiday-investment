@@ -15,7 +15,7 @@ export default function ResearchBoardListPage() {
       <p className="text-xs font-medium tracking-[0.08em] text-muted-foreground">주식</p>
       <h1 className="mt-2 text-2xl font-semibold tracking-tight">리서치 보드</h1>
       <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-        차트와 뉴스를 주제 그룹으로 감싼 보드입니다. 그룹 안 칸은 드래그·리사이즈로 옮깁니다.
+        차트와 뉴스를 주제 그룹으로 감싼 보드입니다. 바깥 그리드가 그룹이고, 그룹 안에 다시 칸이 놓입니다.
       </p>
 
       <ul className="mt-8 space-y-3">
