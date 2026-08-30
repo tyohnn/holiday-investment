@@ -112,7 +112,7 @@ export function renameWidget(
 
 export function applyOuterLayout(
   board: ResearchBoard,
-  layout: ResearchWidgetLayout[],
+  layout: readonly ResearchWidgetLayout[],
 ): ResearchBoard {
   const byId = new Map(layout.map((item) => [item.i, item]));
   return {
@@ -128,7 +128,7 @@ export function applyOuterLayout(
 export function applyInnerLayout(
   board: ResearchBoard,
   groupId: string,
-  layout: ResearchWidgetLayout[],
+  layout: readonly ResearchWidgetLayout[],
 ): ResearchBoard {
   const byId = new Map(layout.map((item) => [item.i, item]));
   return {
@@ -189,8 +189,8 @@ export function layoutsEqual(a: ResearchWidgetLayout, b: ResearchWidgetLayout): 
 }
 
 export function layoutListEqual(
-  a: ResearchWidgetLayout[],
-  b: ResearchWidgetLayout[],
+  a: readonly ResearchWidgetLayout[],
+  b: readonly ResearchWidgetLayout[],
 ): boolean {
   if (a.length !== b.length) return false;
   const byId = new Map(b.map((item) => [item.i, item]));
