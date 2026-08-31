@@ -49,6 +49,10 @@ bash /workspace/scripts/sync-runtime-env.sh
   To point the app at the hosted project instead, set `NEXT_PUBLIC_SUPABASE_URL` and
   `SUPABASE_SERVICE_KEY` in `apps/web/.env.local` (gitignored). Without a backend,
   `/stocks/analysis` 500s.
+  **Vercel production** needs the same pair as project Environment Variables
+  (`SUPABASE_REST_URL` is accepted as the URL). If they are missing, `db.ts` falls
+  back to `127.0.0.1:54321`, the layout swallows `ECONNREFUSED`, and the stock
+  search shows only static 산업/교재 entries.
   App chrome is theme → section. Sidebar top switches `주식` (`/stocks`) and
   `부동산` (`/real-estate`). Under each theme: 종목 분석 `/analysis`, 거시경제
   `/macro`, 전체 뉴스 `/news`, 리서치 보드 `/boards`.

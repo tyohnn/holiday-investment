@@ -8,11 +8,10 @@ import { createClient } from '@supabase/supabase-js';
 import { RESEARCH_BOARDS, getResearchBoard as getSeedResearchBoard } from '@/lib/research/catalog';
 import { parseBoardDocument } from '@/lib/research/document';
 import type { ResearchBoard, ResearchBoardTheme } from '@/lib/research/types';
+import { supabaseServiceKey, supabaseUrl } from '@/lib/platform/supabase-env';
 
-const URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'http://127.0.0.1:54321';
-const SERVICE_KEY =
-  process.env.SUPABASE_SERVICE_KEY ??
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU';
+const URL = supabaseUrl();
+const SERVICE_KEY = supabaseServiceKey();
 
 const supabase = createClient(URL, SERVICE_KEY, { auth: { persistSession: false } });
 
