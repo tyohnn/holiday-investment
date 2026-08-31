@@ -38,17 +38,15 @@ import {
 import { z } from "zod";
 import { GUIDE_CONCEPTS, type GuideConcept } from "@/lib/company/guide-model";
 import type { CompanyIndex } from "./company-index";
+import { supabaseServiceKey, supabaseUrl } from "./supabase-env";
 
-const URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "http://127.0.0.1:54321";
+const URL = supabaseUrl();
 // 서비스 롤 키 — RLS 를 우회하는 유일한 입구. NEXT_PUBLIC_ 프리픽스가 아니므로
 // 클라이언트 번들에는 포함되지 않는다(위 `server-only` 가 그 전제를 빌드로 강제한다).
 // 폴백은 로컬 supabase start 의 데모 service_role 키로, 모든 로컬 인스턴스에서 동일하고
 // 비밀이 아니다(platform/ingest/ingest.py 의 SERVICE_KEY 와 동일 — 그쪽 주석 참고).
-// 호스티드를 볼 때는 apps/web/.env.local 에 NEXT_PUBLIC_SUPABASE_URL 과
-// SUPABASE_SERVICE_KEY 를 둔다(gitignore 됨).
-const SERVICE_KEY =
-  process.env.SUPABASE_SERVICE_KEY ??
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU";
+// 호스티드·Vercel 은 NEXT_PUBLIC_SUPABASE_URL 또는 SUPABASE_REST_URL + SUPABASE_SERVICE_KEY.
+const SERVICE_KEY = supabaseServiceKey();
 
 // 이 파일의 모든 질의가 쓰는 단 하나의 클라이언트. anon 클라이언트는 제거했다 —
 // 잠금 이후 anon 으로 읽을 수 있는 릴레이션이 하나도 없어 죽은 코드일 뿐이고,
