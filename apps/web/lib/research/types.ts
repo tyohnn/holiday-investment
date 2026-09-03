@@ -1,5 +1,8 @@
 export type ResearchWidgetKind = 'chart' | 'news' | 'note' | 'metric' | 'link';
 
+/** 그룹 안 카드 배치 실험. 보드에 persist 하지 않는다. */
+export type ResearchInnerMode = 'rgl' | 'plain';
+
 export type ResearchWidgetLayout = {
   i: string;
   x: number;
@@ -28,7 +31,7 @@ export type ResearchGroup = {
   id: string;
   title: string;
   summary: string;
-  /** 보드(바깥 RGL) 안에서의 이 그룹 칸. h 는 안쪽 위젯 높이에서 유도한다. */
+  /** 레거시 바깥 RGL 칸. Flow 월드 좌표는 배열 순서로 계산한다. */
   layout: ResearchWidgetLayout;
   widgets: ResearchWidget[];
 };
