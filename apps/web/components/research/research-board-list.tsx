@@ -39,7 +39,7 @@ export function ResearchBoardList({
           <p className="text-xs font-medium tracking-[0.08em] text-muted-foreground">{themeLabel}</p>
           <h1 className="mt-2 text-2xl font-semibold tracking-tight">리서치 보드</h1>
           <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-            보드마다 한 문서로 저장됩니다. 바깥 칸이 그룹이고, 그룹 안에 다시 칸이 놓입니다.
+            그룹이 슬라이드입니다. 툴바로 넘기면 카메라가 그 그룹으로 이동합니다.
           </p>
         </div>
         <Button type="button" size="sm" disabled={pending} onClick={() => void onCreate()}>
