@@ -23,7 +23,7 @@ export function HomeLanding() {
         종목을 검색해 분석을 시작합니다
       </h1>
       <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
-        이름이나 종목코드로 찾고, 메뉴는 그대로 둔 채 종목만 바꿉니다.
+        이름이나 종목코드로 찾고, 본문 위 선택기에서 종목과 분석 페이지를 바꿉니다.
       </p>
 
       <SymbolCommandTrigger
@@ -60,7 +60,9 @@ export function HomeLanding() {
         </h2>
         {companies.length === 0 ? (
           <p className="mt-3 rounded-xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
-            적재된 종목이 없습니다. 로컬 Supabase를 켜면 시드 종목이 여기에 나타납니다.
+            종목 목록을 불러오지 못했습니다. 로컬이면 Supabase를 켜고, 배포면 Vercel에
+            NEXT_PUBLIC_SUPABASE_URL(또는 SUPABASE_REST_URL)과 SUPABASE_SERVICE_KEY를
+            넣은 뒤 재배포하세요.
           </p>
         ) : (
           <>

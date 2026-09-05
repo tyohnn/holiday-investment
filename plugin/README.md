@@ -10,7 +10,8 @@
 |---|---|---|
 | "OO 기본 분석해줘" | company-analysis (기본) | `리서치/기업/<종목>/…-기본분석.md` |
 | "OO 심층 분석해줘" (산업·밸류체인까지) | company-analysis (심층) | `리서치/기업/<종목>/…-심층분석.md` |
-| "이 산업/섹터 분석해줘" | industry-analysis | `리서치/산업/<산업>/…-산업분석.md` |
+| "이 산업/섹터 분석해줘" (채점·국면·유망종목) | industry-analysis | `리서치/산업/<산업>/…-산업분석.md` |
+| "이 산업 지도 그려줘" (원리·공급처·병목·신판로) | industry-map | `리서치/산업/<산업>/…-산업지도-*.md` |
 
 '기업분석'이라는 단어가 없어도, 특정 종목·산업의 평가/적정주가/밸류에이션을 요청하면 발동한다.
 
@@ -104,8 +105,11 @@ plugin/
 │   │   ├── SKILL.md
 │   │   ├── references/      # checklists · valuation · industry-frame · report-templates · data-layout
 │   │   └── scripts/         # valuation.py (9칸 계산기) · validate_report.py (검증 게이트)
-│   └── industry-analysis/
-│       └── SKILL.md
+│   ├── industry-analysis/
+│   │   └── SKILL.md
+│   └── industry-map/
+│       ├── SKILL.md
+│       └── references/        # schema-traps · notes · supervisor · qc · query · example
 └── README.md
 ```
 
@@ -144,7 +148,7 @@ ln -s /path/to/plugin ~/.cursor/plugins/local/investment-analyst
 
 공개 배포 시에는 `cursor.com/marketplace` 제출 절차를 따른다(별도 검수).
 **호출**: Cursor의 Skill은 자동 트리거되지 않으므로 채팅에서 `/company-analysis` 또는
-`/industry-analysis`로 명시적으로 불러야 한다(공식 문서 명시 사항).
+`/industry-analysis` 또는 `/industry-map`으로 명시적으로 불러야 한다(공식 문서 명시 사항).
 
 ### Codex CLI
 

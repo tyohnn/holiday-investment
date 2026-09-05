@@ -103,7 +103,7 @@ function IndustryCard({ industry, listed }: { industry: Industry; listed: number
 
   return (
     <Link
-      href={`/industry/${encodeURIComponent(industry.slug)}`}
+      href={`/stocks/macro/industries/${encodeURIComponent(industry.slug)}`}
       className="group flex flex-col rounded-xl border border-border bg-card p-5 transition-colors hover:border-primary/60 hover:bg-accent/40"
     >
       <div className="flex items-start justify-between gap-3">

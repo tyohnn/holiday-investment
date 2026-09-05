@@ -277,3 +277,21 @@
 .book-flow > .book-contents > .book-bleed {
   grid-column: full;
 }
+
+.research-grid .react-grid-item.react-grid-placeholder {
+  background: var(--primary);
+  opacity: 0.18;
+  border-radius: var(--radius);
+}
+
+.research-grid .react-grid-item > .react-resizable-handle::after {
+  border-color: var(--muted-foreground);
+}
+
+.research-grid-outer > .react-grid-item {
+  overflow: visible;
+}
+
+.research-grid-outer > .react-grid-item > * {
+  height: 100%;
+}

@@ -28,10 +28,10 @@ export default async function FilingSectionPage(
   return (
     <div className="space-y-4 pb-16">
       <Link
-        href={`/lab/${stockCode}/financials`}
+        href={`/stocks/analysis/${stockCode}/primary`}
         className="text-sm text-muted-foreground hover:text-foreground"
       >
-        ← {stockCode} 재무 전체보기로
+        ← {stockCode} 1차 자료로
       </Link>
 
       <div className="rounded-xl border border-border bg-card p-5">

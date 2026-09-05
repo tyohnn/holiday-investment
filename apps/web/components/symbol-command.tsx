@@ -16,6 +16,7 @@ import {
 } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { BookOpenTextIcon, GlobeHemisphereEastIcon, XIcon } from '@phosphor-icons/react';
+import { industryHref } from '@/lib/nav';
 import {
   companyMetaLine,
   companyHref,
@@ -295,10 +296,10 @@ function SymbolCommandDialog() {
       ? companyHref(stockCode, intent.menuSlug)
       : intent?.boardSlug
         ? labHref(stockCode, intent.boardSlug)
-        : menuSlug
-          ? companyHref(stockCode, menuSlug)
-          : boardSlug && pathname.startsWith('/lab/')
-            ? labHref(stockCode, boardSlug)
+        : boardSlug
+          ? labHref(stockCode, boardSlug)
+          : menuSlug
+            ? companyHref(stockCode, menuSlug)
             : companyHref(stockCode);
     setOpen(false);
     router.push(nextHref);
@@ -404,10 +405,10 @@ function SymbolCommandDialog() {
                 <CommandItem
                   key={`industry-${industry.slug}`}
                   value={`industry:${industry.slug}`}
-                  onSelect={() => goHref(`/industry/${encodeURIComponent(industry.slug)}`)}
+                  onSelect={() => goHref(industryHref(industry.slug))}
                   onMouseDown={(event) => {
                     event.preventDefault();
-                    goHref(`/industry/${encodeURIComponent(industry.slug)}`);
+                    goHref(industryHref(industry.slug));
                   }}
                 >
                   <GlobeHemisphereEastIcon className="size-4 text-muted-foreground" />

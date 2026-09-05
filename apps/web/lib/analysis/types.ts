@@ -99,7 +99,7 @@ export interface AnalysisBoardMeta {
   /** 이 단계가 답하는 질문. 제목보다 이쪽이 화면의 목적을 말한다. */
   question: string;
   description: string;
-  /** URL segment under /lab/[stockCode]/ */
+  /** URL segment under /stocks/analysis/[stockCode]/ */
   slug: string;
   kind: 'widgets' | 'source' | 'valuation';
   dataState: DataState;

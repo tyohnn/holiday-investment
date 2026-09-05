@@ -5,6 +5,7 @@ import {
   companyHref,
   getCompanyMenuBySlug,
 } from '@/lib/company';
+import { analysisHref, parseStockPath as parseNavStockPath } from '@/lib/nav';
 
 /** Command·홈 목록이 쓰는 가벼운 종목 행. profile jsonb 는 가져오지 않는다. */
 export type CompanyIndex = {
@@ -38,6 +39,10 @@ export function companyMetaLine(company: CompanyIndex): string {
 }
 
 export function parseLabPath(pathname: string): { stockCode: string | null; boardSlug: string } {
+  const nav = parseNavStockPath(pathname);
+  if (nav.stockCode && nav.boardSlug) {
+    return { stockCode: nav.stockCode, boardSlug: nav.boardSlug };
+  }
   const match = pathname.match(/^\/lab\/([^/]+)(?:\/([^/]+))?/);
   if (!match) return { stockCode: null, boardSlug: 'verdict' };
   const raw = match[2];
@@ -49,7 +54,7 @@ export function parseLabPath(pathname: string): { stockCode: string | null; boar
 }
 
 export function labHref(stockCode: string, boardSlug = 'verdict'): string {
-  return `/lab/${stockCode}/${boardSlug}`;
+  return analysisHref(stockCode, boardSlug);
 }
 
 export { companyHref };
@@ -58,6 +63,10 @@ export function parseCompanyPath(pathname: string): {
   stockCode: string | null;
   menuSlug: string;
 } {
+  const nav = parseNavStockPath(pathname);
+  if (nav.stockCode && nav.menuSlug) {
+    return { stockCode: nav.stockCode, menuSlug: nav.menuSlug };
+  }
   const match = pathname.match(/^\/company\/(\d{6})(?:\/([^/]+))?/);
   if (!match) return { stockCode: null, menuSlug: DEFAULT_COMPANY_MENU_SLUG };
   const raw = match[2] ?? DEFAULT_COMPANY_MENU_SLUG;
@@ -72,16 +81,7 @@ export function parseStockPath(pathname: string): {
   menuSlug: string | null;
   boardSlug: string | null;
 } {
-  const company = parseCompanyPath(pathname);
-  if (company.stockCode) {
-    return { stockCode: company.stockCode, menuSlug: company.menuSlug, boardSlug: null };
-  }
-  const lab = parseLabPath(pathname);
-  return {
-    stockCode: lab.stockCode,
-    menuSlug: null,
-    boardSlug: lab.stockCode ? lab.boardSlug : null,
-  };
+  return parseNavStockPath(pathname);
 }
 
 export function matchesCompany(company: CompanyIndex, query: string): boolean {

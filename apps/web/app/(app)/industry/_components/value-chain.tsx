@@ -137,7 +137,7 @@ function MemberRow({
         <div className="min-w-0">
           {member.stockCode ? (
             <Link
-              href={`/company/${member.stockCode}`}
+              href={`/stocks/analysis/${member.stockCode}`}
               className="text-xs font-medium text-primary underline-offset-2 hover:underline"
             >
               {member.name}

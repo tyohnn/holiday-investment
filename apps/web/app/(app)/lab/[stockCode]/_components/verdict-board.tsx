@@ -101,7 +101,7 @@ export async function VerdictBoard({
         </dl>
 
         <Link
-          href={`/lab/${stockCode}/valuation`}
+          href={`/stocks/analysis/${stockCode}/valuation`}
           className="mt-4 inline-flex items-center gap-1.5 text-sm font-medium text-primary underline-offset-4 hover:underline"
         >
           가정을 조정하고 낙점 바꾸기
