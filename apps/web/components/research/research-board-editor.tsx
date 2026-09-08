@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { deleteResearchBoardAction, saveResearchBoardAction } from '@/lib/research/actions';
-import { addGroup, fitBoardGroupHeights } from '@/lib/research/document';
+import { fitBoardGroupHeights } from '@/lib/research/document';
 import type { ResearchBoard } from '@/lib/research/types';
 import { researchBoardsHref } from '@/lib/nav';
 import { Button } from '@/components/ui/button';
@@ -15,7 +15,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { ResearchBoardCanvas, ResearchBoardToolbar } from '@/components/research/research-board';
+import { ResearchBoardFlow } from '@/components/research/research-board-flow';
 
 type SaveState = 'saved' | 'saving' | 'error';
 
@@ -80,8 +80,8 @@ export function ResearchBoardEditor({ initial }: { initial: ResearchBoard }) {
   }
 
   return (
-    <div>
-      <header className="flex flex-wrap items-start justify-between gap-3 px-4 pt-6 sm:px-6 lg:px-8">
+    <div className="flex h-[calc(100dvh-2.75rem)] min-h-[32rem] flex-col">
+      <header className="flex shrink-0 flex-wrap items-start justify-between gap-3 px-4 pt-5 sm:px-6">
         <div className="min-w-0 flex-1">
           <p className="text-xs font-medium tracking-[0.08em] text-muted-foreground">리서치 보드</p>
           <input
@@ -104,13 +104,14 @@ export function ResearchBoardEditor({ initial }: { initial: ResearchBoard }) {
             {saveState === 'saved' && '저장됨'}
             {saveState === 'error' && (error ?? '저장 실패')}
           </p>
-          <ResearchBoardToolbar onAddGroup={() => onChange(addGroup(board))} />
           <Button type="button" variant="ghost" size="sm" onClick={() => setConfirmDelete(true)}>
             보드 삭제
           </Button>
         </div>
       </header>
-      <ResearchBoardCanvas board={board} onChange={onChange} />
+      <div className="min-h-0 flex-1">
+        <ResearchBoardFlow board={board} onChange={onChange} />
+      </div>
       <Dialog open={confirmDelete} onOpenChange={setConfirmDelete}>
         <DialogContent>
           <DialogHeader>

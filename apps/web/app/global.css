@@ -295,3 +295,19 @@
 .research-grid-outer > .react-grid-item > * {
   height: 100%;
 }
+
+.research-flow {
+  background: var(--background);
+}
+
+.research-flow .react-flow__node-groupSlide {
+  padding: 0;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  border-radius: 0;
+}
+
+.research-flow .react-flow__attribution {
+  display: none;
+}

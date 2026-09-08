@@ -37,6 +37,22 @@ export function innerContentBottom(widgets: readonly { layout: { y: number; h: n
   return widgets.reduce((max, widget) => Math.max(max, widget.layout.y + widget.layout.h), 0);
 }
 
+export function groupInnerHeightPx(
+  widgets: readonly { layout: { y: number; h: number } }[],
+): number {
+  const bottom = innerContentBottom(widgets);
+  if (bottom === 0) return EMPTY_INNER_MIN_PX;
+  return rglHeightPx(bottom, INNER_GRID.rowHeight, INNER_GRID.margin[1]);
+}
+
+export const PLAIN_CARD_MIN_PX = 148;
+export const PLAIN_CARD_GAP = 8;
+
+export function plainInnerHeightPx(widgetCount: number): number {
+  if (widgetCount <= 0) return EMPTY_INNER_MIN_PX;
+  return widgetCount * PLAIN_CARD_MIN_PX + (widgetCount - 1) * PLAIN_CARD_GAP + 16;
+}
+
 export function groupHeightFromWidgets(
   widgets: readonly { layout: { y: number; h: number } }[],
 ): number {
