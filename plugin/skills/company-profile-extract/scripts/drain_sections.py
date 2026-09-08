@@ -36,8 +36,17 @@ _PAGE = 500
 _SCAN_CAP = 10000
 
 
+def _yyyymmdd(s):
+    """pending_* RPC 는 to_date(..., 'YYYYMMDD'). ISO 날짜는 22008 이 난다."""
+    if not s:
+        return s
+    t = str(s).strip().replace("-", "").replace("/", "")
+    return t[:8] if len(t) >= 8 else t
+
+
 def _pending_window(report_like, gte, lte, n=80, exclude=None):
     """창 안 ok 원문 중 sections_extracted_at 이 없는 쌍을 최대 n개."""
+    gte, lte = _yyyymmdd(gte), _yyyymmdd(lte)
     sql_like = report_like.replace("*", "%")
     exclude_rcepts = sorted({r for (_c, r) in (exclude or set())})
     try:
@@ -120,6 +129,9 @@ def main():
     ap.add_argument("--batch", type=int, default=80)
     ap.add_argument("--log", required=True)
     args = ap.parse_args()
+    args.from_date = _yyyymmdd(args.from_date)
+    if args.to_date:
+        args.to_date = _yyyymmdd(args.to_date)
 
     like = _KIND[args.kind]
     done = _load_done(args.log)
